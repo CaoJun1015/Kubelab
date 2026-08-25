@@ -1,0 +1,1228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src 'unsafe-inline' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Cloud Native Ops Roadmap Source</title>
+<style>:root{color-scheme:light dark;background:light-dark(rgb(255 255 255), rgb(24 24 24))}html,body{margin:0}body{box-sizing:border-box;padding:1rem;background:inherit}iframe{display:block;width:100%;height:calc(100vh - 2rem);margin:0 auto;border:0}</style>
+</head>
+<body>
+<iframe sandbox="allow-scripts" referrerpolicy="no-referrer" title="Cloud Native Ops Roadmap Source" srcdoc="&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot;&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
+&lt;meta name=&quot;referrer&quot; content=&quot;no-referrer&quot;&gt;
+&lt;meta http-equiv=&quot;Content-Security-Policy&quot; content=&quot;default-src &#x27;none&#x27;; script-src &#x27;unsafe-inline&#x27; &#x27;unsafe-eval&#x27; &#x27;wasm-unsafe-eval&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src &#x27;unsafe-inline&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src &#x27;none&#x27;; object-src &#x27;none&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;&quot;&gt;
+&lt;title&gt;Cloud Native Ops Roadmap Source&lt;/title&gt;
+&lt;style&gt;:root {
+  color-scheme: light dark;
+  background-color: var(
+    --background,
+    var(--color-background-primary, light-dark(rgb(255 255 255), rgb(24 24 24)))
+  ) !important;
+
+  /* Agent-facing contract; keep in sync with SKILL.md. */
+  --background: var(
+    --color-background-primary,
+    light-dark(rgb(255 255 255), rgb(24 24 24))
+  );
+  --foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --card: color-mix(in oklab, var(--foreground) 5%, var(--background));
+  --card-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --popover: var(
+    --color-background-secondary,
+    light-dark(rgb(255 255 255), rgb(45 45 45))
+  );
+  --popover-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --primary: var(
+    --color-text-info,
+    light-dark(rgb(51 156 255), rgb(131 195 255))
+  );
+  --primary-foreground: var(
+    --color-text-inverse,
+    light-dark(rgb(255 255 255), rgb(13 13 13))
+  );
+  --secondary: var(
+    --color-background-secondary,
+    light-dark(rgb(255 255 255 / 96%), rgb(54 54 54 / 96%))
+  );
+  --secondary-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --muted: color-mix(in srgb, var(--foreground) 10%, transparent);
+  --muted-foreground: var(
+    --color-text-secondary,
+    light-dark(rgb(26 28 31 / 49.4%), rgb(255 255 255 / 49.8%))
+  );
+  --accent: var(
+    --color-background-info,
+    light-dark(rgb(229 242 255), rgb(13 39 63))
+  );
+  --accent-foreground: var(
+    --color-text-info,
+    light-dark(rgb(51 156 255), rgb(131 195 255))
+  );
+  --destructive: var(
+    --color-text-warning,
+    light-dark(rgb(226 85 7), rgb(255 133 73))
+  );
+  --border: var(
+    --color-border-secondary,
+    light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8.2%))
+  );
+  --input: var(
+    --color-border-primary,
+    light-dark(
+      rgb(26 28 31 / 11.8%),
+      color-mix(in oklab, rgb(0 0 0) 10%, transparent)
+    )
+  );
+  --ring: var(
+    --color-ring-primary,
+    light-dark(rgb(51 156 255), rgb(131 195 255 / 76%))
+  );
+  --font-size-base: var(--font-text-md-size, 14px);
+  --blue: light-dark(rgb(51 156 255), rgb(51 156 255));
+  --orange: light-dark(rgb(226 85 7), rgb(251 106 34));
+  --green: light-dark(rgb(0 162 64), rgb(64 201 119));
+  --red: light-dark(rgb(224 46 42), rgb(255 103 100));
+  --purple: light-dark(rgb(146 79 247), rgb(173 123 249));
+  --yellow: light-dark(rgb(255 195 0), rgb(255 210 64));
+  --viz-series-1: var(--primary);
+  --viz-series-2: light-dark(rgb(243 136 59), rgb(245 154 86));
+  --viz-series-3: light-dark(rgb(93 201 119), rgb(116 213 139));
+  --viz-series-4: light-dark(rgb(235 119 177), rgb(240 143 192));
+  --viz-series-5: light-dark(rgb(155 121 236), rgb(170 145 239));
+  --viz-series-6: light-dark(rgb(58 185 177), rgb(90 203 194));
+
+  /* Internal implementation variables; not part of the agent contract. */
+  --font-sans: -apple-system, system-ui, &quot;Segoe UI&quot;, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, Consolas, &quot;Liberation Mono&quot;,
+    monospace;
+  --font-size-normal: max(11px, var(--font-size-base));
+  --font-size-tooltip: calc(var(--font-size-base) - 1px);
+  --font-size-small: max(11px, calc(var(--font-size-base) - 2px));
+  --font-size-h1: calc(var(--font-size-normal) * 1.7142857143);
+  --font-size-h2: calc(var(--font-size-normal) * 1.4285714286);
+  --font-size-h3: calc(var(--font-size-normal) * 1.2857142857);
+  --font-weight-normal: 430;
+  --font-weight-medium: 500;
+  --line-height-normal: calc(var(--font-size-normal) * 1.5);
+  --line-height-tooltip: calc(var(--font-size-tooltip) * 1.4285714286);
+  --line-height-small: calc(var(--font-size-small) + 4px);
+  --radius: var(--border-radius-lg, 12.5px);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-2xl: calc(var(--radius) * 1.6);
+  --radius-full: 9999px;
+  --shadow-sm: 0 1px 2px -1px rgb(0 0 0 / 8%);
+  --checkmark-image: url(&quot;data:image/svg+xml,%3Csvg xmlns=&#x27;http://www.w3.org/2000/svg&#x27; viewBox=&#x27;0 0 17 17&#x27;%3E%3Cpath d=&#x27;M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z&#x27;/%3E%3C/svg%3E&quot;);
+
+  /* Legacy aliases; not part of the current agent contract. */
+  --viz-bg: transparent;
+  --viz-panel: var(--card);
+  --viz-border: var(--border);
+  --viz-text: var(--foreground);
+  --viz-muted: var(--muted-foreground);
+  --viz-accent: var(--primary);
+  --viz-accent-text: var(--primary-foreground);
+  --viz-accent-bg: var(--accent);
+  --viz-font-size: var(--font-size-base);
+  --viz-warning: var(--destructive);
+}
+
+:root[data-theme=&quot;light&quot;] {
+  color-scheme: light;
+}
+
+:root[data-theme=&quot;dark&quot;] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html &gt; body {
+  /* Preserve MCP aliases for older inline renderers without creating :root cycles. */
+  --color-background-primary: var(
+    --background,
+    light-dark(rgb(255 255 255), rgb(24 24 24))
+  );
+  --color-text-primary: var(
+    --foreground,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --color-border-secondary: var(
+    --border,
+    light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8.2%))
+  );
+
+  margin: 0;
+  padding: 5px;
+  color: var(--foreground);
+  background: transparent !important;
+  font-family: var(--font-sans) !important;
+  font-size: var(--font-size-normal);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-normal);
+}
+
+a {
+  color: color-mix(in srgb, var(--viz-accent) 80%, var(--viz-text) 20%);
+  cursor: pointer;
+  font-weight: var(--font-weight-medium, 500);
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+a:is(:hover, :focus-visible) {
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 0.5px;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin-block: 0;
+}
+
+h1 {
+  font-size: var(--font-size-h1);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h2 {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h3,
+h4,
+h5,
+h6 {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.3;
+}
+
+b,
+strong,
+th {
+  font-weight: var(--font-weight-medium);
+}
+
+code:not(pre code) {
+  display: inline;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  corner-shape: superellipse(1.5);
+  background: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  word-break: break-word;
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--foreground);
+  font: inherit;
+  text-align: start;
+}
+
+.table :is(th, td) {
+  padding-block: 10px;
+  padding-inline: 0 24px;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--border);
+  text-align: start;
+  vertical-align: top;
+}
+
+.table-responsive &gt; .table :is(th, td) {
+  overflow-wrap: break-word;
+}
+
+.table :is(th, td):last-child {
+  padding-inline-end: 0;
+}
+
+.table :is(caption, thead th) {
+  font-weight: 600;
+}
+
+.table thead th {
+  padding-block: 8px;
+  border-bottom-color: color-mix(in srgb, var(--foreground) 16%, transparent);
+}
+
+.table tbody tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+
+.table.table-sm :is(th, td) {
+  padding-block: 6px;
+}
+
+.table.table-sm :is(th, td):not(:last-child) {
+  padding-inline-end: 16px;
+}
+
+.table :is(.text-end, [align=&quot;right&quot;]) {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.table :is(.text-center, [align=&quot;center&quot;]) {
+  text-align: center;
+}
+
+.table .text-nowrap {
+  white-space: nowrap;
+}
+
+#widget {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  background: transparent !important;
+}
+
+.card {
+  min-width: 0;
+  padding: 12px;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  border-radius: var(--radius-2xl);
+  corner-shape: superellipse(1.5);
+  color: var(--card-foreground);
+  background: var(--card);
+}
+
+#widget &gt; :not(.card, .progress) {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 50;
+  top: 0;
+  left: 0;
+  width: max-content;
+  max-width: min(
+    20rem,
+    var(--tooltip-available-width, calc(100vw - 10px)),
+    calc(100vw - 10px)
+  );
+  max-height: min(
+    var(--tooltip-available-height, calc(100vh - 10px)),
+    calc(100vh - 10px)
+  );
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--popover-foreground);
+  background: var(--popover);
+  box-shadow: none;
+  font-size: var(--font-size-tooltip);
+  line-height: var(--line-height-tooltip);
+  overflow-wrap: break-word;
+  white-space: normal;
+  pointer-events: none;
+  user-select: none;
+}
+
+.viz-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(max(180px, 24%), 1fr));
+  gap: 10px;
+}
+
+.viz-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.viz-stat-value {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+.viz-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.progress {
+  display: flex;
+  height: 6px;
+  margin-block: calc((var(--line-height-normal, 1.5em) - 6px) / 2);
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+}
+
+.progress-bar {
+  height: 100%;
+  flex-shrink: 0;
+  border: 0;
+  background: var(--viz-series-1);
+}
+
+.viz-badge {
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  color: var(--accent-foreground);
+  background: var(--accent);
+  font-weight: var(--font-weight-medium);
+}
+
+small,
+.text-small,
+.viz-badge {
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.text-muted {
+  color: var(--muted-foreground);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.viz-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.viz-controls &gt; .form-label {
+  display: grid;
+  min-width: min(100%, 260px);
+  flex: 1 1 280px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin-bottom: 0;
+}
+
+.viz-controls &gt; .form-label &gt; :is(.form-control, .form-range, .form-select) {
+  grid-column: 1 / -1;
+}
+
+.btn,
+.form-check-input,
+.form-control,
+.form-range,
+.form-select {
+  font: inherit;
+}
+
+.btn {
+  appearance: button;
+  display: inline-flex;
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0 8px;
+  -webkit-app-region: no-drag;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: var(--cursor-interaction, pointer);
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.btn:is(.btn-block, .viz-tile) {
+  inline-size: 100%;
+}
+
+.btn.viz-tile {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+a.btn {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btn:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn-primary {
+  border-color: transparent;
+  color: var(--primary-foreground);
+  background: var(--foreground);
+  background-clip: padding-box;
+}
+
+.btn-primary .text-muted {
+  color: color-mix(in srgb, var(--primary-foreground) 50%, transparent);
+}
+
+.btn-primary:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 80%, transparent);
+  background-clip: padding-box;
+}
+
+.btn-ghost {
+  border-color: transparent;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.btn-ghost:not(:disabled):hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+[data-lucide] {
+  stroke-width: 1.6;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--foreground);
+}
+
+.form-control {
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--foreground);
+  background: var(--secondary);
+}
+
+.form-control::placeholder {
+  color: var(--muted-foreground);
+}
+
+.form-control[type=&quot;file&quot;] {
+  padding: 0;
+  overflow: hidden;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control[type=&quot;file&quot;]::file-selector-button {
+  min-height: 26px;
+  margin-right: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-right: 1px solid var(--input);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: inherit;
+  font: inherit;
+}
+
+.form-control[type=&quot;file&quot;]:not(:disabled):hover::file-selector-button {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-control-color[type=&quot;color&quot;] {
+  width: 40px;
+  height: 28px;
+  padding: 3px;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch {
+  border: 0;
+  border-radius: calc(var(--radius-lg) - 4px);
+  corner-shape: superellipse(1.5);
+}
+
+textarea.form-control {
+  height: auto;
+  min-height: 72px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.form-control:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-control:disabled,
+.form-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.form-select {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 0 32px 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--foreground);
+  background-color: var(--secondary);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted-foreground) 50%),
+    linear-gradient(135deg, var(--muted-foreground) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 10px) 50%;
+  background-repeat: no-repeat;
+  background-size: 4px 4px;
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-select:not(:disabled):hover {
+  background-color: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-select:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-check {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  gap: 6px;
+}
+
+.form-check-input {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 1px solid var(--input);
+  color: var(--primary-foreground);
+  background-color: transparent;
+  cursor: var(--cursor-interaction, default);
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    box-shadow 150ms;
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;] {
+  border-color: var(--input);
+  border-radius: var(--radius-sm);
+  corner-shape: superellipse(1.5);
+  background-color: var(--secondary);
+  box-shadow: var(--shadow-sm);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input:not(:disabled):not(:checked):hover {
+  background-color: var(--card);
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;]:checked {
+  border-color: var(--primary);
+  background-color: var(--primary);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input[type=&quot;checkbox&quot;]:checked::before {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--primary-foreground);
+  content: &quot;&quot;;
+  mask: var(--checkmark-image) center / 12px 12px no-repeat;
+}
+
+.form-check-input[type=&quot;radio&quot;] {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+}
+
+.form-check-input[type=&quot;radio&quot;]:checked {
+  border: 2px solid var(--primary);
+  background:
+    radial-gradient(circle, var(--primary-foreground) 0 2.5px, transparent 3px),
+    var(--primary);
+}
+
+.form-check:not(.form-switch) .form-check-input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled {
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+}
+
+.form-switch .form-check-input:disabled,
+.form-switch .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.form-check-label {
+  color: var(--foreground);
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-switch .form-check-input {
+  position: relative;
+  width: 32px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+  box-shadow: none;
+  transition: background-color 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 1px solid light-dark(var(--primary-foreground), var(--foreground));
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+  box-shadow: var(--shadow-sm);
+  content: &quot;&quot;;
+  transform: translate(2px, -50%);
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input:checked {
+  background: var(--primary);
+}
+
+.form-switch .form-check-input:checked::before {
+  transform: translate(14px, -50%);
+}
+
+.form-switch .form-check-input:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.form-range {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 28px;
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  outline: none;
+  border: 0;
+  accent-color: var(--primary);
+  background: linear-gradient(
+      color-mix(in srgb, var(--foreground) 7%, transparent),
+      color-mix(in srgb, var(--foreground) 7%, transparent)
+    )
+    center / 100% 2px no-repeat;
+}
+
+.form-range::-webkit-slider-runnable-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-webkit-slider-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range::-moz-range-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-moz-range-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.btn:not(.btn-primary, .viz-tile):is(
+  [aria-pressed=&quot;true&quot;],
+  [aria-selected=&quot;true&quot;],
+  .is-selected
+) {
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+.btn.viz-tile:is([aria-pressed=&quot;true&quot;], [aria-selected=&quot;true&quot;], .is-selected) {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+#widget &gt; svg {
+  width: 100%;
+}
+
+/* Model-authored chart rules can otherwise stretch icons after these styles load. */
+svg.lucide {
+  display: block;
+  width: 16px !important;
+  height: 16px !important;
+  flex: none;
+  margin: 0 !important;
+  stroke-width: 1.6;
+}
+
+.text-warning,
+.text-destructive {
+  color: var(--destructive);
+}
+
+html&gt;body{padding:0}&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div id=&quot;cnops-roadmap&quot;&gt;
+  &lt;style&gt;
+    #cnops-roadmap{color:var(--foreground);background:var(--background);max-width:1120px;margin:0 auto;padding:28px 20px 52px}#cnops-roadmap *{box-sizing:border-box}#cnops-roadmap h1{margin:0 0 8px}#cnops-roadmap h2{margin:30px 0 14px}#cnops-roadmap h3{margin:0 0 6px}#cnops-roadmap p{margin:6px 0 12px}.cn-sub{color:var(--muted-foreground);max-width:780px}.cn-stats{margin:22px 0}.cn-progress{margin:18px 0 24px}.cn-progress-head{display:flex;justify-content:space-between;gap:14px;margin-bottom:8px}.cn-nav{display:grid;grid-template-columns:repeat(9,minmax(92px,1fr));gap:8px;margin:20px 0 10px}.cn-nav a{display:flex;min-height:78px;padding:10px 7px;align-items:center;justify-content:center;text-align:center;text-decoration:none;color:var(--foreground);background:color-mix(in srgb,var(--viz-series-1) 10%,transparent);border-bottom:3px solid var(--viz-series-1)}.cn-nav a:hover{background:color-mix(in srgb,var(--viz-series-1) 18%,transparent)}.cn-nav small{display:block;color:var(--muted-foreground);margin-top:4px}.cn-phase{border-top:1px solid var(--border);padding:23px 0 8px;scroll-margin-top:12px}.cn-phase-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.cn-meta{color:var(--muted-foreground);white-space:nowrap}.cn-layout{display:grid;grid-template-columns:1.25fr .75fr;gap:28px}.cn-list{list-style:none;padding:0;margin:12px 0;columns:2;column-gap:26px}.cn-list li{break-inside:avoid;margin:0 0 9px}.cn-list label{display:flex;gap:9px;align-items:flex-start;cursor:pointer}.cn-list input{margin-top:4px}.cn-list .done span{text-decoration:line-through;color:var(--muted-foreground)}.cn-gate{padding-left:16px;border-left:3px solid var(--viz-series-2)}.cn-gate strong{display:block;margin-bottom:6px}.cn-gate p{color:var(--muted-foreground)}.cn-flow{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:18px 0}.cn-flow div{padding:12px 8px;text-align:center;background:color-mix(in srgb,var(--viz-series-3) 11%,transparent);border-bottom:3px solid var(--viz-series-3)}.cn-note{color:var(--muted-foreground)}.cn-command{white-space:pre-wrap;overflow-wrap:anywhere}.cn-path{font-weight:500}@media(max-width:860px){.cn-nav{grid-template-columns:repeat(3,1fr)}.cn-layout{grid-template-columns:1fr}.cn-flow{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){#cnops-roadmap{padding:20px 14px 40px}.cn-nav{grid-template-columns:repeat(2,1fr)}.cn-list{columns:1}.cn-phase-head{display:block}.cn-meta{white-space:normal}.cn-flow{grid-template-columns:1fr}}@media print{#cnops-roadmap{max-width:none;padding:0}.cn-phase{break-inside:avoid}.cn-nav a{color:inherit}}
+  &lt;/style&gt;
+  &lt;header&gt;
+    &lt;h1&gt;初级云原生运维：面试优先学习路线&lt;/h1&gt;
+    &lt;p class=&quot;cn-sub&quot;&gt;用 8–10 周达到初级 Kubernetes / DevOps 运维面试线，入职后继续升级到 DevOps、平台工程和 SRE。默认每天学习 3–5 小时。&lt;/p&gt;
+  &lt;/header&gt;
+  &lt;div class=&quot;viz-grid cn-stats&quot;&gt;
+    &lt;div class=&quot;card viz-stat&quot;&gt;&lt;div class=&quot;text-muted&quot;&gt;求职冲刺&lt;/div&gt;&lt;div class=&quot;viz-stat-value&quot;&gt;8–10 周&lt;/div&gt;&lt;div class=&quot;cn-note&quot;&gt;达到 60%–70% 即投递&lt;/div&gt;&lt;/div&gt;
+    &lt;div class=&quot;card viz-stat&quot;&gt;&lt;div class=&quot;text-muted&quot;&gt;技能重心&lt;/div&gt;&lt;div class=&quot;viz-stat-value&quot;&gt;K8s 40%&lt;/div&gt;&lt;div class=&quot;cn-note&quot;&gt;Linux、网络、Docker 次之&lt;/div&gt;&lt;/div&gt;
+    &lt;div class=&quot;card viz-stat&quot;&gt;&lt;div class=&quot;text-muted&quot;&gt;最终产出&lt;/div&gt;&lt;div class=&quot;viz-stat-value&quot;&gt;1 个项目&lt;/div&gt;&lt;div class=&quot;cn-note&quot;&gt;附 3 个真实故障复盘&lt;/div&gt;&lt;/div&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;cn-progress&quot;&gt;
+    &lt;div class=&quot;cn-progress-head&quot;&gt;&lt;strong&gt;整体学习进度&lt;/strong&gt;&lt;span id=&quot;cn-progress-text&quot; aria-live=&quot;polite&quot;&gt;0 / 0&lt;/span&gt;&lt;/div&gt;
+    &lt;div id=&quot;cn-progress-bar&quot; class=&quot;progress&quot; role=&quot;progressbar&quot; aria-label=&quot;整体学习进度&quot; aria-valuenow=&quot;0&quot; aria-valuemin=&quot;0&quot; aria-valuemax=&quot;100&quot;&gt;&lt;div class=&quot;progress-bar&quot; style=&quot;width:0%&quot;&gt;&lt;/div&gt;&lt;/div&gt;
+  &lt;/div&gt;
+  &lt;nav id=&quot;cn-nav&quot; class=&quot;cn-nav&quot; aria-label=&quot;学习阶段导航&quot;&gt;&lt;/nav&gt;
+  &lt;main id=&quot;cn-phases&quot;&gt;&lt;/main&gt;
+  &lt;section class=&quot;cn-phase&quot;&gt;
+    &lt;h2&gt;面试投入比例&lt;/h2&gt;
+    &lt;div class=&quot;table-responsive&quot;&gt;&lt;table class=&quot;table table-sm&quot;&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方向&lt;/th&gt;&lt;th&gt;投入&lt;/th&gt;&lt;th&gt;面试目标&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;&lt;tbody&gt;
+      &lt;tr&gt;&lt;td&gt;Kubernetes&lt;/td&gt;&lt;td&gt;40%&lt;/td&gt;&lt;td&gt;对象关系、发布回滚、常见故障排查&lt;/td&gt;&lt;/tr&gt;
+      &lt;tr&gt;&lt;td&gt;Linux 与网络&lt;/td&gt;&lt;td&gt;20%&lt;/td&gt;&lt;td&gt;服务、资源、端口、DNS、HTTP 排障&lt;/td&gt;&lt;/tr&gt;
+      &lt;tr&gt;&lt;td&gt;Docker&lt;/td&gt;&lt;td&gt;15%&lt;/td&gt;&lt;td&gt;镜像构建、运行参数、日志与网络&lt;/td&gt;&lt;/tr&gt;
+      &lt;tr&gt;&lt;td&gt;Helm / Ansible&lt;/td&gt;&lt;td&gt;10%&lt;/td&gt;&lt;td&gt;会改现有模板与 Playbook&lt;/td&gt;&lt;/tr&gt;
+      &lt;tr&gt;&lt;td&gt;监控与日志&lt;/td&gt;&lt;td&gt;10%&lt;/td&gt;&lt;td&gt;看懂指标、告警与日志&lt;/td&gt;&lt;/tr&gt;
+      &lt;tr&gt;&lt;td&gt;Shell / Python&lt;/td&gt;&lt;td&gt;5%&lt;/td&gt;&lt;td&gt;编写简单实用自动化脚本&lt;/td&gt;&lt;/tr&gt;
+    &lt;/tbody&gt;&lt;/table&gt;&lt;/div&gt;
+  &lt;/section&gt;
+  &lt;section class=&quot;cn-phase&quot;&gt;
+    &lt;h2&gt;入职后的技术升级路线&lt;/h2&gt;
+    &lt;div class=&quot;table-responsive&quot;&gt;&lt;table class=&quot;table&quot;&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;阶段&lt;/th&gt;&lt;th&gt;补充技术&lt;/th&gt;&lt;th&gt;目标岗位&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;&lt;tbody&gt;
+      &lt;tr&gt;&lt;td&gt;入职 0–6 个月&lt;/td&gt;&lt;td&gt;K8s 网络/存储/RBAC、GitLab CI/Jenkins、云平台、Terraform、真实故障复盘&lt;/td&gt;&lt;td&gt;云原生运维、DevOps&lt;/td&gt;&lt;/tr&gt;
+      &lt;tr&gt;&lt;td&gt;工作 6–18 个月&lt;/td&gt;&lt;td&gt;CNI/CSI/调度、Argo CD、OpenTelemetry、分布式系统、容量与性能、Python/Go&lt;/td&gt;&lt;td&gt;中级 DevOps、平台运维、初级 SRE&lt;/td&gt;&lt;/tr&gt;
+      &lt;tr&gt;&lt;td&gt;工作 18 个月以后&lt;/td&gt;&lt;td&gt;SLI/SLO、错误预算、事故响应、混沌工程、多集群、Operator、平台工程&lt;/td&gt;&lt;td&gt;SRE、平台工程师&lt;/td&gt;&lt;/tr&gt;
+    &lt;/tbody&gt;&lt;/table&gt;&lt;/div&gt;
+  &lt;/section&gt;
+  &lt;p class=&quot;cn-note&quot;&gt;&lt;span class=&quot;cn-path&quot;&gt;最短主线：&lt;/span&gt;Linux 与网络 → Shell → Docker → Kubernetes → Helm / Ansible → Prometheus / Grafana → 综合项目 → 面试 → 入职后补 CI/CD、Terraform、云平台与 SRE。&lt;/p&gt;
+  &lt;script&gt;
+    (function(){
+      const phases=[
+        {id:&#x27;env&#x27;,title:&#x27;环境准备&#x27;,time:&#x27;1–2 天&#x27;,focus:&#x27;快速起步&#x27;,gate:&#x27;三台机器可以通过 SSH 相互访问；能够从 Git 仓库提交并恢复配置文件。&#x27;,tasks:[&#x27;准备 3 台 Ubuntu 24.04 或 Rocky Linux 9 虚拟机&#x27;,&#x27;配置固定 IP、主机名、hosts 和 SSH 密钥登录&#x27;,&#x27;创建 Git 仓库保存脚本、YAML 和排障记录&#x27;,&#x27;先安装 kind/minikube，后期再练一次 kubeadm&#x27;]},
+        {id:&#x27;linux&#x27;,title:&#x27;Linux 系统管理&#x27;,time:&#x27;7–10 天&#x27;,focus:&#x27;面试基础&#x27;,gate:&#x27;面对服务无法访问，按“网络 → 端口 → 进程 → 服务 → 配置 → 日志 → 下游依赖”完成排查。&#x27;,command:&#x27;ps top free vmstat iostat df du lsblk\nsystemctl journalctl ss lsof find grep sed awk\nssh scp rsync tar curl&#x27;,tasks:[&#x27;文件、目录、软链接、用户、用户组和权限&#x27;,&#x27;进程、线程、负载、前后台任务和信号&#x27;,&#x27;systemd 服务管理与 journalctl 日志&#x27;,&#x27;CPU、内存、Swap、磁盘、挂载与 inode&#x27;,&#x27;软件包、环境变量、定时任务和日志轮转&#x27;,&#x27;SSH、SCP、rsync 和密钥认证&#x27;,&#x27;排查 CPU 高、内存不足、磁盘满和端口占用&#x27;,&#x27;处理“文件已删除但磁盘空间未释放”&#x27;]},
+        {id:&#x27;network&#x27;,title:&#x27;网络与 Nginx&#x27;,time:&#x27;5–7 天&#x27;,focus:&#x27;高频排障&#x27;,gate:&#x27;能口述“浏览器输入域名后发生什么”，并独立排查域名正常但服务打不开的问题。&#x27;,tasks:[&#x27;IP、子网、网关、路由、端口和 Socket&#x27;,&#x27;TCP 三次握手、四次挥手、UDP 基础&#x27;,&#x27;DNS 解析过程和常见故障&#x27;,&#x27;HTTP、HTTPS、TLS、状态码和长连接&#x27;,&#x27;NAT、正向代理、反向代理、四层与七层负载均衡&#x27;,&#x27;Nginx 静态服务、反向代理和负载均衡&#x27;,&#x27;排查 403、404、502、504&#x27;,&#x27;使用 curl、dig、ss、tcpdump 定位问题&#x27;]},
+        {id:&#x27;script&#x27;,title:&#x27;Shell、Python 与 Git&#x27;,time:&#x27;5–7 天&#x27;,focus:&#x27;自动化入门&#x27;,gate:&#x27;独立编写一个 50–100 行巡检脚本，正确处理退出状态，并提交到 Git。&#x27;,tasks:[&#x27;Shell 变量、参数、返回值、判断、循环和函数&#x27;,&#x27;管道、重定向、grep/sed/awk 文本处理&#x27;,&#x27;编写磁盘、进程和 HTTP 接口巡检脚本&#x27;,&#x27;编写日志清理、日志统计和备份脚本&#x27;,&#x27;Python 文件、JSON/YAML、requests、subprocess 和异常处理&#x27;,&#x27;Git clone/add/commit/push/pull/branch/merge/diff&#x27;]},
+        {id:&#x27;docker&#x27;,title:&#x27;Docker&#x27;,time:&#x27;5–7 天&#x27;,focus:&#x27;容器交付&#x27;,gate:&#x27;独立将 Web 应用制作成镜像，通过环境变量连接 MySQL/Redis，并能排查容器启动失败。&#x27;,tasks:[&#x27;理解镜像、容器、镜像分层和容器生命周期&#x27;,&#x27;掌握 Docker 网络、数据卷、端口映射和 Registry&#x27;,&#x27;编写包含 FROM/RUN/COPY/CMD/ENTRYPOINT 的 Dockerfile&#x27;,&#x27;熟练使用 build/run/exec/logs/inspect&#x27;,&#x27;排查容器立即退出、挂载失败和网络不通&#x27;,&#x27;使用 Compose 启动 Web + MySQL + Redis&#x27;]},
+        {id:&#x27;k8s&#x27;,title:&#x27;Kubernetes 核心&#x27;,time:&#x27;14–18 天&#x27;,focus:&#x27;求职核心&#x27;,gate:&#x27;不看教程完成应用部署、扩容、升级和回滚；现场演示至少 6 种常见故障的定位过程。&#x27;,command:&#x27;kubectl get / describe / logs / exec / apply\nkubectl scale / top / rollout status\nkubectl rollout history / rollout undo&#x27;,tasks:[&#x27;Pod、ReplicaSet、Deployment 与声明式管理&#x27;,&#x27;Service、Endpoint、Ingress 与服务发现&#x27;,&#x27;ConfigMap、Secret 和环境变量/卷挂载&#x27;,&#x27;requests、limits、调度基础和 OOMKilled&#x27;,&#x27;Liveness、Readiness、Startup 探针&#x27;,&#x27;PV、PVC、StorageClass 基础&#x27;,&#x27;StatefulSet、DaemonSet、Job、CronJob 基础&#x27;,&#x27;滚动更新、扩缩容、历史版本和回滚&#x27;,&#x27;排查 CrashLoopBackOff 与 ImagePullBackOff&#x27;,&#x27;排查 Pending、探针失败与配置错误&#x27;,&#x27;排查 Service 无 Endpoint、DNS 与 Ingress 故障&#x27;,&#x27;排查 PVC 挂载与 Node NotReady&#x27;]},
+        {id:&#x27;automation&#x27;,title:&#x27;Helm 与 Ansible&#x27;,time:&#x27;5–7 天&#x27;,focus:&#x27;批量与版本化&#x27;,gate:&#x27;用 Ansible 初始化三台服务器；使用 Helm 管理应用的安装、升级与回滚。&#x27;,tasks:[&#x27;看懂 Helm Chart 目录与模板变量&#x27;,&#x27;修改 values.yaml 并执行 install/upgrade/rollback&#x27;,&#x27;使用 helm template 排查渲染错误&#x27;,&#x27;掌握 Ansible Inventory、Ad-hoc 和 Playbook&#x27;,&#x27;使用 Variables、Template、Handler 和常用模块&#x27;,&#x27;批量安装软件、分发配置并重启服务&#x27;]},
+        {id:&#x27;observability&#x27;,title:&#x27;监控、告警与日志&#x27;,time:&#x27;5–7 天&#x27;,focus:&#x27;可观测性基础&#x27;,gate:&#x27;从告警进入 Grafana，结合 Kubernetes Events 和应用日志定位问题，并说明告警恢复条件。&#x27;,tasks:[&#x27;理解 Prometheus Pull、Exporter、Metric 和 Label&#x27;,&#x27;掌握基础 PromQL、告警规则和 Alertmanager&#x27;,&#x27;查看 CPU、内存、磁盘、网络和 Pod 重启指标&#x27;,&#x27;理解请求量、错误率和响应时间&#x27;,&#x27;Grafana 添加数据源、导入 Dashboard 和筛选指标&#x27;,&#x27;Loki 按 Namespace、Pod 和关键字查询日志&#x27;]},
+        {id:&#x27;interview&#x27;,title:&#x27;综合项目与面试&#x27;,time:&#x27;7–10 天&#x27;,focus:&#x27;转化为 Offer&#x27;,gate:&#x27;项目表达使用“现象 → 影响 → 排查 → 根因 → 解决 → 防复发”；真实实验，不伪造生产经历。&#x27;,flow:true,tasks:[&#x27;完成 Web + MySQL + Redis 容器化项目&#x27;,&#x27;提交 Dockerfile、Kubernetes YAML 和 Helm Chart&#x27;,&#x27;提交 Ansible Playbook 和巡检脚本&#x27;,&#x27;接入 Prometheus、Grafana、Alertmanager 和 Loki&#x27;,&#x27;编写架构说明和完整部署文档&#x27;,&#x27;完成 ConfigMap 错误故障复盘&#x27;,&#x27;完成 OOMKilled 故障复盘&#x27;,&#x27;完成 Service Selector 错误故障复盘&#x27;,&#x27;整理 80–100 道高频问题并口述回答&#x27;,&#x27;完成至少 3 次模拟技术面试&#x27;,&#x27;按目标 JD 修改简历关键词&#x27;,&#x27;达到 60%–70% 要求后开始持续投递&#x27;]}
+      ];
+      const root=document.getElementById(&#x27;cnops-roadmap&#x27;);
+      const nav=root.querySelector(&#x27;#cn-nav&#x27;);
+      const main=root.querySelector(&#x27;#cn-phases&#x27;);
+      phases.forEach((phase,index)=&gt;{
+        const link=document.createElement(&#x27;a&#x27;);link.href=&#x27;#phase-&#x27;+phase.id;link.innerHTML=&#x27;&lt;span&gt;&#x27;+(index)+&#x27; &#x27;+phase.title+&#x27;&lt;small&gt;&#x27;+phase.time+&#x27;&lt;/small&gt;&lt;/span&gt;&#x27;;nav.appendChild(link);
+        const section=document.createElement(&#x27;section&#x27;);section.id=&#x27;phase-&#x27;+phase.id;section.className=&#x27;cn-phase&#x27;;
+        const flow=phase.flow?&#x27;&lt;div class=&quot;cn-flow&quot; aria-label=&quot;综合项目流程&quot;&gt;&lt;div&gt;Git 仓库&lt;/div&gt;&lt;div&gt;CI 构建镜像&lt;/div&gt;&lt;div&gt;Helm 发布&lt;/div&gt;&lt;div&gt;Kubernetes 运行&lt;/div&gt;&lt;div&gt;Prometheus / Loki 观测&lt;/div&gt;&lt;/div&gt;&#x27;:&#x27;&#x27;;
+        const items=phase.tasks.map((task,i)=&gt;&#x27;&lt;li&gt;&lt;label&gt;&lt;input type=&quot;checkbox&quot; data-task=&quot;&#x27;+phase.id+&#x27;-&#x27;+i+&#x27;&quot;&gt;&lt;span&gt;&#x27;+task+&#x27;&lt;/span&gt;&lt;/label&gt;&lt;/li&gt;&#x27;).join(&#x27;&#x27;);
+        const command=phase.command?&#x27;&lt;pre class=&quot;cn-command&quot;&gt;&lt;code&gt;&#x27;+phase.command+&#x27;&lt;/code&gt;&lt;/pre&gt;&#x27;:&#x27;&#x27;;
+        section.innerHTML=&#x27;&lt;div class=&quot;cn-phase-head&quot;&gt;&lt;h2&gt;阶段 &#x27;+index+&#x27;：&#x27;+phase.title+&#x27;&lt;/h2&gt;&lt;div class=&quot;cn-meta&quot;&gt;&#x27;+phase.time+&#x27; · &#x27;+phase.focus+&#x27;&lt;/div&gt;&lt;/div&gt;&#x27;+flow+&#x27;&lt;div class=&quot;cn-layout&quot;&gt;&lt;div&gt;&lt;ul class=&quot;cn-list&quot;&gt;&#x27;+items+&#x27;&lt;/ul&gt;&#x27;+command+&#x27;&lt;/div&gt;&lt;aside class=&quot;cn-gate&quot;&gt;&lt;strong&gt;验收门槛&lt;/strong&gt;&lt;p&gt;&#x27;+phase.gate+&#x27;&lt;/p&gt;&lt;/aside&gt;&lt;/div&gt;&#x27;;
+        main.appendChild(section);
+      });
+      const checks=Array.from(root.querySelectorAll(&#x27;input[data-task]&#x27;));
+      const progress=root.querySelector(&#x27;#cn-progress-bar&#x27;);
+      const bar=progress.querySelector(&#x27;.progress-bar&#x27;);
+      const text=root.querySelector(&#x27;#cn-progress-text&#x27;);
+      const key=&#x27;cnops-roadmap-progress-v1&#x27;;
+      function load(){try{const state=JSON.parse(localStorage.getItem(key)||&#x27;{}&#x27;);checks.forEach(c=&gt;c.checked=Boolean(state[c.dataset.task]));}catch(error){checks.forEach(c=&gt;c.checked=false)}}
+      function save(){const state={};checks.forEach(c=&gt;state[c.dataset.task]=c.checked);try{localStorage.setItem(key,JSON.stringify(state))}catch(error){}}
+      function update(){const done=checks.filter(c=&gt;c.checked).length;const pct=checks.length?Math.round(done/checks.length*100):0;bar.style.width=pct+&#x27;%&#x27;;progress.setAttribute(&#x27;aria-valuenow&#x27;,String(pct));text.textContent=done+&#x27; / &#x27;+checks.length+&#x27;（&#x27;+pct+&#x27;%）&#x27;;checks.forEach(c=&gt;c.closest(&#x27;li&#x27;).classList.toggle(&#x27;done&#x27;,c.checked))}
+      checks.forEach(c=&gt;c.addEventListener(&#x27;change&#x27;,()=&gt;{save();update()}));load();update();
+    }());
+  &lt;/script&gt;
+&lt;/div&gt;
+
+&lt;script src=&quot;https://unpkg.com/@floating-ui/core@1.7.3/dist/floating-ui.core.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script src=&quot;https://unpkg.com/@floating-ui/dom@1.7.4/dist/floating-ui.dom.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  if (window.FloatingUIDOM == null) {
+    return;
+  }
+  const { autoUpdate, computePosition, flip, offset, shift, size } =
+    window.FloatingUIDOM;
+  const tooltipPlacements = new Set([&quot;top&quot;, &quot;right&quot;, &quot;bottom&quot;, &quot;left&quot;]);
+  const tooltipId = `codex-visualization-tooltip-${
+    window.crypto?.randomUUID?.() ?? Date.now().toString(36)
+  }`;
+  const tooltipGap = 5;
+  const hoverDelay = 700;
+  const skipDelay = 300;
+  let activeTrigger = null;
+  let pendingTrigger = null;
+  let tooltip = null;
+  let openTimeout = null;
+  let autoUpdateCleanup = null;
+  let positionRequest = 0;
+  let skipDelayUntil = 0;
+
+  const getTrigger = (target) =&gt;
+    target?.nodeType === Node.ELEMENT_NODE
+      ? target.closest(&quot;[data-tooltip]&quot;)
+      : null;
+  const containsTarget = (trigger, target) =&gt;
+    target?.nodeType != null &amp;&amp; trigger.contains(target);
+  const getContent = (trigger) =&gt;
+    trigger.getAttribute(&quot;data-tooltip&quot;)?.trim() ?? &quot;&quot;;
+  const getPlacement = (trigger) =&gt; {
+    const placement = trigger.getAttribute(&quot;data-tooltip-placement&quot;);
+    return tooltipPlacements.has(placement) ? placement : &quot;top&quot;;
+  };
+  const getTooltip = () =&gt; {
+    if (tooltip == null) {
+      tooltip = document.createElement(&quot;div&quot;);
+      tooltip.id = tooltipId;
+      tooltip.className = &quot;tooltip&quot;;
+      tooltip.setAttribute(&quot;role&quot;, &quot;tooltip&quot;);
+    }
+    return tooltip;
+  };
+  const setDescribedBy = (trigger, described) =&gt; {
+    const ids = new Set(
+      (trigger.getAttribute(&quot;aria-describedby&quot;) ?? &quot;&quot;)
+        .split(/\s+/)
+        .filter(Boolean),
+    );
+    if (described) {
+      ids.add(tooltipId);
+    } else {
+      ids.delete(tooltipId);
+    }
+    if (ids.size === 0) {
+      trigger.removeAttribute(&quot;aria-describedby&quot;);
+    } else {
+      trigger.setAttribute(&quot;aria-describedby&quot;, [...ids].join(&quot; &quot;));
+    }
+  };
+  const clearOpenTimeout = () =&gt; {
+    if (openTimeout != null) {
+      window.clearTimeout(openTimeout);
+      openTimeout = null;
+    }
+    pendingTrigger = null;
+  };
+  const closeTooltip = (activateSkipDelay = true) =&gt; {
+    clearOpenTimeout();
+    positionRequest += 1;
+    autoUpdateCleanup?.();
+    autoUpdateCleanup = null;
+    if (activeTrigger == null) {
+      return;
+    }
+    setDescribedBy(activeTrigger, false);
+    activeTrigger = null;
+    tooltip?.remove();
+    if (activateSkipDelay) {
+      skipDelayUntil = Date.now() + skipDelay;
+    }
+  };
+  const updatePosition = (trigger, floating) =&gt; {
+    const request = ++positionRequest;
+    void computePosition(trigger, floating, {
+      middleware: [
+        offset(tooltipGap),
+        flip({ padding: tooltipGap }),
+        shift({ padding: tooltipGap }),
+        size({
+          padding: tooltipGap,
+          apply({ availableHeight, availableWidth, elements }) {
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-width&quot;,
+              `${Math.max(0, availableWidth)}px`,
+            );
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-height&quot;,
+              `${Math.max(0, availableHeight)}px`,
+            );
+          },
+        }),
+      ],
+      placement: getPlacement(trigger),
+      strategy: &quot;fixed&quot;,
+    })
+      .then(({ x, y }) =&gt; {
+        if (activeTrigger !== trigger || request !== positionRequest) {
+          return;
+        }
+        const scale = window.devicePixelRatio || 1;
+        floating.style.transform = `translate(${Math.round(x * scale) / scale}px, ${Math.round(y * scale) / scale}px)`;
+        floating.style.visibility = &quot;visible&quot;;
+      })
+      .catch(() =&gt; {
+        if (activeTrigger === trigger &amp;&amp; request === positionRequest) {
+          closeTooltip(false);
+        }
+      });
+  };
+  const openTooltip = (trigger) =&gt; {
+    const content = getContent(trigger);
+    if (!trigger.isConnected || content.length === 0) {
+      return;
+    }
+    clearOpenTimeout();
+    if (activeTrigger === trigger) {
+      return;
+    }
+    closeTooltip();
+    const floating = getTooltip();
+    floating.textContent = content;
+    floating.style.visibility = &quot;hidden&quot;;
+    floating.style.transform = &quot;translate(0, 0)&quot;;
+    document.body.appendChild(floating);
+    activeTrigger = trigger;
+    setDescribedBy(trigger, true);
+    autoUpdateCleanup = autoUpdate(trigger, floating, () =&gt; {
+      updatePosition(trigger, floating);
+    });
+  };
+  const requestOpen = (trigger, immediate = false) =&gt; {
+    if (
+      getContent(trigger).length === 0 ||
+      activeTrigger === trigger ||
+      pendingTrigger === trigger
+    ) {
+      return;
+    }
+    clearOpenTimeout();
+    pendingTrigger = trigger;
+    const delay =
+      immediate || activeTrigger != null || Date.now() &lt; skipDelayUntil
+        ? 0
+        : hoverDelay;
+    if (delay === 0) {
+      openTooltip(trigger);
+      return;
+    }
+    openTimeout = window.setTimeout(() =&gt; {
+      openTimeout = null;
+      pendingTrigger = null;
+      openTooltip(trigger);
+    }, delay);
+  };
+  const handlePointerOpen = (event) =&gt; {
+    if (event.pointerType === &quot;touch&quot;) {
+      return;
+    }
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    requestOpen(trigger);
+  };
+  const handleLeave = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const handleFocusIn = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger?.matches(&quot;:focus-visible&quot;)) {
+      requestOpen(trigger, true);
+    }
+  };
+  const handleKeyDown = (event) =&gt; {
+    if (event.key === &quot;Escape&quot;) {
+      closeTooltip();
+    }
+  };
+  const handleContextMenu = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const destroy = () =&gt; {
+    closeTooltip(false);
+    document.removeEventListener(&quot;pointerover&quot;, handlePointerOpen);
+    document.removeEventListener(&quot;pointerout&quot;, handleLeave);
+    document.removeEventListener(&quot;focusin&quot;, handleFocusIn);
+    document.removeEventListener(&quot;focusout&quot;, handleLeave);
+    document.removeEventListener(&quot;keydown&quot;, handleKeyDown);
+    document.removeEventListener(&quot;contextmenu&quot;, handleContextMenu);
+    tooltip = null;
+  };
+
+  document.addEventListener(&quot;pointerover&quot;, handlePointerOpen);
+  document.addEventListener(&quot;pointerout&quot;, handleLeave);
+  document.addEventListener(&quot;focusin&quot;, handleFocusIn);
+  document.addEventListener(&quot;focusout&quot;, handleLeave);
+  document.addEventListener(&quot;keydown&quot;, handleKeyDown);
+  document.addEventListener(&quot;contextmenu&quot;, handleContextMenu);
+  window.addEventListener(&quot;pagehide&quot;, destroy, { once: true });
+})();
+&lt;/script&gt;
+&lt;script id=&quot;codex-visualization-lucide&quot; async src=&quot;https://unpkg.com/lucide@1.17.0/dist/umd/lucide.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  const initialize = () =&gt; {
+    globalThis.lucide?.createIcons({ attrs: { width: 16, height: 16 } });
+  };
+  if (globalThis.lucide != null) {
+    initialize();
+    return;
+  }
+  document
+    .getElementById(&quot;codex-visualization-lucide&quot;)
+    ?.addEventListener(&quot;load&quot;, initialize, { once: true });
+})();
+&lt;/script&gt;
+
+&lt;/body&gt;
+&lt;/html&gt;
+"></iframe>
+</body>
+</html>
