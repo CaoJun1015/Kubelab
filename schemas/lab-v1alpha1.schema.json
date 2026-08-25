@@ -1,0 +1,955 @@
+{
+  "$defs": {
+    "ConfigValueCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "expectedValue": {
+          "title": "Expectedvalue",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 63,
+          "minLength": 2,
+          "pattern": "^[a-z][a-z0-9-]{1,62}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "key": {
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        },
+        "sourceKind": {
+          "enum": [
+            "ConfigMap",
+            "Secret"
+          ],
+          "title": "Sourcekind",
+          "type": "string"
+        },
+        "sourceName": {
+          "maxLength": 253,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$",
+          "title": "Sourcename",
+          "type": "string"
+        },
+        "timeoutSeconds": {
+          "maximum": 120,
+          "minimum": 1,
+          "title": "Timeoutseconds",
+          "type": "integer"
+        },
+        "type": {
+          "const": "config_value",
+          "title": "Type",
+          "type": "string"
+        },
+        "unmetMessage": {
+          "minLength": 1,
+          "title": "Unmetmessage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "timeoutSeconds",
+        "unmetMessage",
+        "type",
+        "sourceKind",
+        "sourceName",
+        "key",
+        "expectedValue"
+      ],
+      "title": "ConfigValueCheck",
+      "type": "object"
+    },
+    "ContainerImageCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "container": {
+          "maxLength": 253,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$",
+          "title": "Container",
+          "type": "string"
+        },
+        "expectedImage": {
+          "minLength": 1,
+          "title": "Expectedimage",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 63,
+          "minLength": 2,
+          "pattern": "^[a-z][a-z0-9-]{1,62}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "timeoutSeconds": {
+          "maximum": 120,
+          "minimum": 1,
+          "title": "Timeoutseconds",
+          "type": "integer"
+        },
+        "type": {
+          "const": "container_image",
+          "title": "Type",
+          "type": "string"
+        },
+        "unmetMessage": {
+          "minLength": 1,
+          "title": "Unmetmessage",
+          "type": "string"
+        },
+        "workloadKind": {
+          "enum": [
+            "Pod",
+            "Deployment",
+            "StatefulSet",
+            "DaemonSet",
+            "Job",
+            "CronJob"
+          ],
+          "title": "Workloadkind",
+          "type": "string"
+        },
+        "workloadName": {
+          "maxLength": 253,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$",
+          "title": "Workloadname",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "timeoutSeconds",
+        "unmetMessage",
+        "type",
+        "workloadKind",
+        "workloadName",
+        "container",
+        "expectedImage"
+      ],
+      "title": "ContainerImageCheck",
+      "type": "object"
+    },
+    "DeploymentAvailableCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 63,
+          "minLength": 2,
+          "pattern": "^[a-z][a-z0-9-]{1,62}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "minimumReplicas": {
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Minimumreplicas",
+          "type": "integer"
+        },
+        "name": {
+          "maxLength": 253,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "timeoutSeconds": {
+          "maximum": 120,
+          "minimum": 1,
+          "title": "Timeoutseconds",
+          "type": "integer"
+        },
+        "type": {
+          "const": "deployment_available",
+          "title": "Type",
+          "type": "string"
+        },
+        "unmetMessage": {
+          "minLength": 1,
+          "title": "Unmetmessage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "timeoutSeconds",
+        "unmetMessage",
+        "type",
+        "name",
+        "minimumReplicas"
+      ],
+      "title": "DeploymentAvailableCheck",
+      "type": "object"
+    },
+    "HttpResponseCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "expectedStatus": {
+          "maximum": 599,
+          "minimum": 100,
+          "title": "Expectedstatus",
+          "type": "integer"
+        },
+        "id": {
+          "maxLength": 63,
+          "minLength": 2,
+          "pattern": "^[a-z][a-z0-9-]{1,62}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/HttpTarget"
+        },
+        "timeoutSeconds": {
+          "maximum": 120,
+          "minimum": 1,
+          "title": "Timeoutseconds",
+          "type": "integer"
+        },
+        "type": {
+          "const": "http_response",
+          "title": "Type",
+          "type": "string"
+        },
+        "unmetMessage": {
+          "minLength": 1,
+          "title": "Unmetmessage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "timeoutSeconds",
+        "unmetMessage",
+        "type",
+        "target",
+        "expectedStatus"
+      ],
+      "title": "HttpResponseCheck",
+      "type": "object"
+    },
+    "HttpTarget": {
+      "additionalProperties": false,
+      "description": "Cluster-internal HTTP target; raw URLs are deliberately not supported.",
+      "properties": {
+        "mode": {
+          "enum": [
+            "service",
+            "ingress"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 253,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "default": "/",
+          "maxLength": 2048,
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "port": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Port",
+          "type": "integer"
+        },
+        "scheme": {
+          "default": "http",
+          "enum": [
+            "http",
+            "https"
+          ],
+          "title": "Scheme",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode",
+        "name",
+        "port"
+      ],
+      "title": "HttpTarget",
+      "type": "object"
+    },
+    "LabCleanup": {
+      "additionalProperties": false,
+      "description": "The only cleanup action permitted in v1alpha1.",
+      "properties": {
+        "deleteNamespace": {
+          "const": true,
+          "title": "Deletenamespace",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "deleteNamespace"
+      ],
+      "title": "LabCleanup",
+      "type": "object"
+    },
+    "LabEnvironment": {
+      "additionalProperties": false,
+      "description": "Declarative namespace and manifest inputs for the faulty environment.",
+      "properties": {
+        "manifests": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Manifests",
+          "type": "array"
+        },
+        "namespace": {
+          "maxLength": 63,
+          "minLength": 10,
+          "pattern": "^kubelab-[a-z0-9](?:[a-z0-9-]{0,53}[a-z0-9])?$",
+          "title": "Namespace",
+          "type": "string"
+        },
+        "provisionTimeoutSeconds": {
+          "maximum": 300,
+          "minimum": 10,
+          "title": "Provisiontimeoutseconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "namespace",
+        "manifests",
+        "provisionTimeoutSeconds"
+      ],
+      "title": "LabEnvironment",
+      "type": "object"
+    },
+    "LabHint": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        },
+        "level": {
+          "maximum": 3,
+          "minimum": 1,
+          "title": "Level",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "level",
+        "content"
+      ],
+      "title": "LabHint",
+      "type": "object"
+    },
+    "LabInterview": {
+      "additionalProperties": false,
+      "properties": {
+        "questions": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Questions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "questions"
+      ],
+      "title": "LabInterview",
+      "type": "object"
+    },
+    "LabMetadata": {
+      "additionalProperties": false,
+      "description": "Human-facing identity and catalogue data for one lab.",
+      "properties": {
+        "category": {
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "title": "Category",
+          "type": "string"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "difficulty": {
+          "enum": [
+            "beginner",
+            "intermediate",
+            "advanced"
+          ],
+          "title": "Difficulty",
+          "type": "string"
+        },
+        "durationMinutes": {
+          "maximum": 180,
+          "minimum": 5,
+          "title": "Durationminutes",
+          "type": "integer"
+        },
+        "id": {
+          "maxLength": 40,
+          "minLength": 3,
+          "pattern": "^[a-z][a-z0-9-]{2,39}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "maxLength": 63,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Tags",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "difficulty",
+        "durationMinutes",
+        "category",
+        "tags"
+      ],
+      "title": "LabMetadata",
+      "type": "object"
+    },
+    "LabRequirements": {
+      "additionalProperties": false,
+      "description": "Minimum local cluster capabilities declared by a lab.",
+      "properties": {
+        "addons": {
+          "items": {
+            "maxLength": 63,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "type": "string"
+          },
+          "title": "Addons",
+          "type": "array"
+        },
+        "kubernetes": {
+          "minLength": 1,
+          "title": "Kubernetes",
+          "type": "string"
+        },
+        "minimumCpu": {
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Minimumcpu",
+          "type": "integer"
+        },
+        "minimumMemoryMiB": {
+          "maximum": 131072,
+          "minimum": 128,
+          "title": "Minimummemorymib",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kubernetes",
+        "minimumCpu",
+        "minimumMemoryMiB",
+        "addons"
+      ],
+      "title": "LabRequirements",
+      "type": "object"
+    },
+    "LabTask": {
+      "additionalProperties": false,
+      "description": "User-facing task and completion copy.",
+      "properties": {
+        "completionDescription": {
+          "minLength": 1,
+          "title": "Completiondescription",
+          "type": "string"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "successMessage": {
+          "minLength": 1,
+          "title": "Successmessage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "completionDescription",
+        "successMessage"
+      ],
+      "title": "LabTask",
+      "type": "object"
+    },
+    "PodStatusCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "expectedPhase": {
+          "enum": [
+            "Pending",
+            "Running",
+            "Succeeded",
+            "Failed",
+            "Unknown"
+          ],
+          "title": "Expectedphase",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 63,
+          "minLength": 2,
+          "pattern": "^[a-z][a-z0-9-]{1,62}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "minimumCount": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Minimumcount",
+          "type": "integer"
+        },
+        "minimumReady": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimumready"
+        },
+        "selector": {
+          "minProperties": 1,
+          "patternProperties": {
+            "^[a-z][a-z0-9-]*$": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "propertyNames": {
+            "maxLength": 63,
+            "minLength": 1
+          },
+          "title": "Selector",
+          "type": "object"
+        },
+        "stableSeconds": {
+          "anyOf": [
+            {
+              "maximum": 120,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stableseconds"
+        },
+        "timeoutSeconds": {
+          "maximum": 120,
+          "minimum": 1,
+          "title": "Timeoutseconds",
+          "type": "integer"
+        },
+        "type": {
+          "const": "pod_status",
+          "title": "Type",
+          "type": "string"
+        },
+        "unmetMessage": {
+          "minLength": 1,
+          "title": "Unmetmessage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "timeoutSeconds",
+        "unmetMessage",
+        "type",
+        "selector",
+        "expectedPhase"
+      ],
+      "title": "PodStatusCheck",
+      "type": "object"
+    },
+    "PvcStatusCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "expectedPhase": {
+          "enum": [
+            "Pending",
+            "Bound",
+            "Lost"
+          ],
+          "title": "Expectedphase",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 63,
+          "minLength": 2,
+          "pattern": "^[a-z][a-z0-9-]{1,62}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 253,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "timeoutSeconds": {
+          "maximum": 120,
+          "minimum": 1,
+          "title": "Timeoutseconds",
+          "type": "integer"
+        },
+        "type": {
+          "const": "pvc_status",
+          "title": "Type",
+          "type": "string"
+        },
+        "unmetMessage": {
+          "minLength": 1,
+          "title": "Unmetmessage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "timeoutSeconds",
+        "unmetMessage",
+        "type",
+        "name",
+        "expectedPhase"
+      ],
+      "title": "PvcStatusCheck",
+      "type": "object"
+    },
+    "ResourceExistsCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "apiVersion": {
+          "minLength": 1,
+          "title": "Apiversion",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 63,
+          "minLength": 2,
+          "pattern": "^[a-z][a-z0-9-]{1,62}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 253,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "timeoutSeconds": {
+          "maximum": 120,
+          "minimum": 1,
+          "title": "Timeoutseconds",
+          "type": "integer"
+        },
+        "type": {
+          "const": "resource_exists",
+          "title": "Type",
+          "type": "string"
+        },
+        "unmetMessage": {
+          "minLength": 1,
+          "title": "Unmetmessage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "timeoutSeconds",
+        "unmetMessage",
+        "type",
+        "apiVersion",
+        "kind",
+        "name"
+      ],
+      "title": "ResourceExistsCheck",
+      "type": "object"
+    },
+    "ServiceEndpointCountCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "exactly": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exactly"
+        },
+        "id": {
+          "maxLength": 63,
+          "minLength": 2,
+          "pattern": "^[a-z][a-z0-9-]{1,62}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "maximum": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maximum"
+        },
+        "minimum": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimum"
+        },
+        "name": {
+          "maxLength": 253,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "timeoutSeconds": {
+          "maximum": 120,
+          "minimum": 1,
+          "title": "Timeoutseconds",
+          "type": "integer"
+        },
+        "type": {
+          "const": "service_endpoint_count",
+          "title": "Type",
+          "type": "string"
+        },
+        "unmetMessage": {
+          "minLength": 1,
+          "title": "Unmetmessage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "timeoutSeconds",
+        "unmetMessage",
+        "type",
+        "name"
+      ],
+      "title": "ServiceEndpointCountCheck",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Complete kubelab.io/v1alpha1 experiment definition.",
+  "properties": {
+    "apiVersion": {
+      "const": "kubelab.io/v1alpha1",
+      "title": "Apiversion",
+      "type": "string"
+    },
+    "cleanup": {
+      "$ref": "#/$defs/LabCleanup"
+    },
+    "environment": {
+      "$ref": "#/$defs/LabEnvironment"
+    },
+    "hints": {
+      "items": {
+        "$ref": "#/$defs/LabHint"
+      },
+      "maxItems": 3,
+      "minItems": 1,
+      "title": "Hints",
+      "type": "array"
+    },
+    "initialChecks": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "config_value": "#/$defs/ConfigValueCheck",
+            "container_image": "#/$defs/ContainerImageCheck",
+            "deployment_available": "#/$defs/DeploymentAvailableCheck",
+            "http_response": "#/$defs/HttpResponseCheck",
+            "pod_status": "#/$defs/PodStatusCheck",
+            "pvc_status": "#/$defs/PvcStatusCheck",
+            "resource_exists": "#/$defs/ResourceExistsCheck",
+            "service_endpoint_count": "#/$defs/ServiceEndpointCountCheck"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/ResourceExistsCheck"
+          },
+          {
+            "$ref": "#/$defs/PodStatusCheck"
+          },
+          {
+            "$ref": "#/$defs/DeploymentAvailableCheck"
+          },
+          {
+            "$ref": "#/$defs/ServiceEndpointCountCheck"
+          },
+          {
+            "$ref": "#/$defs/ContainerImageCheck"
+          },
+          {
+            "$ref": "#/$defs/ConfigValueCheck"
+          },
+          {
+            "$ref": "#/$defs/PvcStatusCheck"
+          },
+          {
+            "$ref": "#/$defs/HttpResponseCheck"
+          }
+        ]
+      },
+      "minItems": 1,
+      "title": "Initialchecks",
+      "type": "array"
+    },
+    "interview": {
+      "$ref": "#/$defs/LabInterview"
+    },
+    "kind": {
+      "const": "Lab",
+      "title": "Kind",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/LabMetadata"
+    },
+    "requirements": {
+      "$ref": "#/$defs/LabRequirements"
+    },
+    "successChecks": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "config_value": "#/$defs/ConfigValueCheck",
+            "container_image": "#/$defs/ContainerImageCheck",
+            "deployment_available": "#/$defs/DeploymentAvailableCheck",
+            "http_response": "#/$defs/HttpResponseCheck",
+            "pod_status": "#/$defs/PodStatusCheck",
+            "pvc_status": "#/$defs/PvcStatusCheck",
+            "resource_exists": "#/$defs/ResourceExistsCheck",
+            "service_endpoint_count": "#/$defs/ServiceEndpointCountCheck"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/ResourceExistsCheck"
+          },
+          {
+            "$ref": "#/$defs/PodStatusCheck"
+          },
+          {
+            "$ref": "#/$defs/DeploymentAvailableCheck"
+          },
+          {
+            "$ref": "#/$defs/ServiceEndpointCountCheck"
+          },
+          {
+            "$ref": "#/$defs/ContainerImageCheck"
+          },
+          {
+            "$ref": "#/$defs/ConfigValueCheck"
+          },
+          {
+            "$ref": "#/$defs/PvcStatusCheck"
+          },
+          {
+            "$ref": "#/$defs/HttpResponseCheck"
+          }
+        ]
+      },
+      "minItems": 1,
+      "title": "Successchecks",
+      "type": "array"
+    },
+    "task": {
+      "$ref": "#/$defs/LabTask"
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "requirements",
+    "environment",
+    "task",
+    "initialChecks",
+    "successChecks",
+    "hints",
+    "cleanup",
+    "interview"
+  ],
+  "title": "LabDefinition",
+  "type": "object"
+}

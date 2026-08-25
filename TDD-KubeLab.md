@@ -380,7 +380,7 @@ successChecks:
     unmetMessage: Service仍未获得足够的可用后端。
 
   - id: http-restored
-    type: http_status
+    type: http_response
     target:
       mode: service
       name: web-service
@@ -438,17 +438,17 @@ P0验证类型：
 | type | 关键字段 | 判定 |
 |---|---|---|
 | `resource_exists` | apiVersion/kind/name | 资源存在 |
-| `resource_not_exists` | apiVersion/kind/name | 资源不存在 |
-| `pod_phase` | selector/expectedPhase/minimumCount | 匹配Pod达到目标Phase |
-| `pod_ready` | selector/minimumReady/stableSeconds | 足够Pod持续Ready |
+| `pod_status` | selector/expectedPhase/minimumCount/minimumReady/stableSeconds | 匹配Pod达到目标Phase及可选Ready条件 |
 | `deployment_available` | name/minimumReplicas | availableReplicas达到下限 |
 | `service_endpoint_count` | name/minimum/maximum/exactly | EndpointSlice可用地址数量满足约束 |
 | `container_image` | workloadKind/workloadName/container/expectedImage | 容器镜像完全匹配 |
 | `config_value` | sourceKind/sourceName/key/expectedValue | ConfigMap或Secret中值匹配 |
-| `pvc_phase` | name/expectedPhase | PVC达到目标Phase |
-| `http_status` | target/expectedStatus | 集群内HTTP返回预期状态 |
+| `pvc_status` | name/expectedPhase | PVC达到目标Phase |
+| `http_response` | target/expectedStatus | 集群内HTTP返回预期状态 |
 
 `minimum`、`maximum`和`exactly`至少出现一个；使用`exactly`时不得同时设置其他数量字段。
+
+M1-04确认上述8种类型为`kubelab.io/v1alpha1`唯一正式协议，不兼容早期草案中的`resource_not_exists`、`pod_phase`、`pod_ready`、`pvc_phase`和`http_status`。`http_response.target`只接受结构化Service或Ingress引用，不接受任意URL。
 
 ### 6.5 初始故障契约
 
@@ -827,7 +827,7 @@ Secret只返回名称、类型、key列表和创建时间，不返回值。
 
 - 每个Check拥有独立超时；
 - 查询间隔从500ms开始，最高2秒，不超过总超时；
-- `pod_ready`可设置`stableSeconds`，避免瞬时Ready误判；
+- `pod_status`在设置`minimumReady`时可同时设置`stableSeconds`，避免瞬时Ready误判；
 - 用户手动执行verify时，整体上限为所有检查最大超时加5秒，而不是简单相加；
 - 同一run内无依赖的检查可以并发，但P0实现允许顺序执行以降低复杂度。
 
@@ -1279,6 +1279,8 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 
 ### M1-04 Schema与LabRegistry
 
+状态：**已完成**。
+
 产出：
 
 - Pydantic v1alpha1模型；
@@ -1288,6 +1290,8 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 - Manifest安全扫描。
 
 完成标准：合法Fixture加载，所有危险Fixture被精确拒绝且错误包含文件和字段路径。
+
+实际实现以Pydantic模型为唯一真源，提交确定性JSON Schema；Registry支持默认`labs/`、`KUBELAB_LABS_DIR`覆盖、损坏实验隔离、全局ID冲突拒绝和稳定排序。Manifest在本地逐文档执行Kind白名单、Namespace、PodSpec、Service、资源上限、ownerReference、外部URL和路径逃逸扫描。本阶段不调用Kubernetes API，也不执行验证器或任何实验命令。
 
 ### M1-05 数据库与状态机
 
@@ -1437,3 +1441,10 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 - `kube-system/storage-provisioner`当前为`ImagePullBackOff`，不阻塞本次只读版本验证，但进入PVC实验前必须修复。
 
 上述版本组合已完成Doctor和只读集群访问验证，但尚未完成三个实验的端到端契约测试，不构成完整实验兼容性声明。Windows Codex终端中的PATH结果不作为运行环境依据。
+
+2026-08-26，M1-04 Schema与LabRegistry在同一源码提交上完成双环境质量门：
+
+- Windows Python 3.11下收集148项测试，146项通过，2项因当前Windows账户无创建符号链接权限而跳过，覆盖率90.31%；
+- WSL2 Ubuntu Python 3.11.16下148项测试全部通过，包含内部符号链接和符号链接逃逸用例，覆盖率90.64%；
+- 两端`ruff check`、`ruff format --check`和strict mypy全部通过；
+- 测试只创建临时本地文件，没有调用kubectl、访问Kubernetes API或修改真实minikube集群。

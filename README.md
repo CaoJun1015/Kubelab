@@ -2,7 +2,7 @@
 
 KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 运维练习平台。它以本机 Docker Engine 和 minikube 为实验环境，目标是把云原生运维面试知识转化为可以反复操作、验证和复盘的故障实验。
 
-> 当前版本：`0.1.0a0`（M1-03）。项目仍处于早期开发阶段，目前提供环境诊断和 minikube Context 信任能力，实验启动、自动验证、Web 页面尚未实现。
+> 当前版本：`0.1.0a0`（M1-04）。项目仍处于早期开发阶段，目前提供环境诊断、minikube Context信任、实验Schema和本地安全加载能力；实验启动、自动验证、Web页面尚未实现。
 
 ## 当前可用功能
 
@@ -12,6 +12,9 @@ KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 
 - `kubelab context trust`：仅信任经过验证的本地minikube身份；
 - `kubelab context untrust`：只删除本地信任记录，不修改集群；
 - `ContextTrustService.assert_trusted_context()`：为后续所有Kubernetes写操作提供统一安全守卫；
+- `kubelab.io/v1alpha1`实验Schema：严格校验实验元数据、任务、检查、提示和声明式清理配置；
+- `LabRegistry`：确定性扫描本地实验，隔离损坏实验并拒绝危险Manifest、路径逃逸和集群级资源；
+- 可重复生成的`schemas/lab-v1alpha1.schema.json`及错误脱敏；
 - JSON输出、稳定退出码、凭证脱敏和原子配置写入。
 
 ## 支持环境
@@ -138,11 +141,11 @@ uv run ruff format --check .
 uv run mypy src
 ```
 
-当前质量基线：81项测试，覆盖率91.88%，Ruff和strict mypy通过。
+当前质量基线：Windows下146项通过、2项因系统符号链接权限跳过，覆盖率90.31%；WSL下148项全部通过，覆盖率90.64%。两端Ruff、格式检查和strict mypy均通过。
 
 ## 安全边界
 
-- 当前阶段的集群操作全部只读；
+- M1-04的Schema和Registry完全不访问集群，现有Doctor和Context操作仍然只读；
 - 仅允许显式信任可证明属于本机的minikube；
 - API Server必须使用HTTPS，并且是回环地址或与`minikube ip`完全一致；
 - Context、Server、CA、`kube-system` UID或profile漂移时，未来写操作会被拒绝；
@@ -167,7 +170,7 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 - [x] M1-01 Python工程基线和CLI；
 - [x] M1-02 Environment Doctor；
 - [x] M1-03 minikube Context信任；
-- [ ] M1-04 实验Schema和LabRegistry；
+- [x] M1-04 实验Schema和LabRegistry；
 - [ ] M1-05 SQLite、状态机和操作锁；
 - [ ] M1-06 KubernetesGateway；
 - [ ] M1-07 ValidationEngine；
@@ -192,4 +195,4 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 
 ### 现在能开始故障实验吗？
 
-还不能。当前版本完成的是安全运行基线。实验Schema、资源创建、自动验证和清理能力将在后续M1阶段加入。
+还不能。当前版本可以校验实验定义和拒绝危险Manifest，但资源创建、自动验证和清理能力仍将在后续M1阶段加入。

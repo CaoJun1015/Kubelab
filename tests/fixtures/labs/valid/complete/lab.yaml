@@ -1,0 +1,46 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: complete-lab
+  name: Complete safe lab
+  description: A complete fixture used to validate the registry.
+  difficulty: beginner
+  durationMinutes: 20
+  category: networking
+  tags: [service, pod]
+requirements:
+  kubernetes: ">=1.28"
+  minimumCpu: 2
+  minimumMemoryMiB: 2048
+  addons: []
+environment:
+  namespace: kubelab-complete-lab
+  manifests:
+    - manifests/resources.yaml
+  provisionTimeoutSeconds: 120
+task:
+  description: Restore access to the application.
+  completionDescription: The Service has a healthy endpoint.
+  successMessage: The application is reachable again.
+initialChecks:
+  - id: deployment-ready
+    type: deployment_available
+    name: web
+    minimumReplicas: 1
+    timeoutSeconds: 60
+    unmetMessage: The initial workload is unavailable.
+successChecks:
+  - id: service-restored
+    type: service_endpoint_count
+    name: web
+    minimum: 1
+    timeoutSeconds: 30
+    unmetMessage: The Service still has no endpoint.
+hints:
+  - level: 1
+    content: Compare the Service selector with the Pod labels.
+cleanup:
+  deleteNamespace: true
+interview:
+  questions:
+    - How does a Service discover Pods?

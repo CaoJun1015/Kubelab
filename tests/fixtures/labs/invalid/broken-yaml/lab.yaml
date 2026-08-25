@@ -1,0 +1,3 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata: [this is: not valid
