@@ -32,8 +32,8 @@ Windows只负责编辑代码和打开未来的Web页面。`kubelab`、Docker、m
 如果WSL2、Docker、minikube和kubectl已经可用：
 
 ```bash
-git clone https://github.com/CaoJun1015/KubeLab.git
-cd KubeLab
+git clone https://github.com/CaoJun1015/Kubelab.git
+cd Kubelab
 
 curl -LsSf https://astral.sh/uv/0.12.5/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
@@ -126,8 +126,8 @@ kubelab context untrust
 ## 从源码开发
 
 ```bash
-git clone https://github.com/CaoJun1015/KubeLab.git
-cd KubeLab
+git clone https://github.com/CaoJun1015/Kubelab.git
+cd Kubelab
 
 uv python install 3.11
 uv sync --frozen

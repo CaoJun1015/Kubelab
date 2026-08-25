@@ -245,8 +245,8 @@ uv python install 3.11
 mkdir -p "$HOME/projects"
 cd "$HOME/projects"
 
-git clone https://github.com/CaoJun1015/KubeLab.git
-cd KubeLab
+git clone https://github.com/CaoJun1015/Kubelab.git
+cd Kubelab
 ```
 
 安装CLI：
@@ -376,7 +376,7 @@ kubelab doctor
 ## 14. 升级KubeLab
 
 ```bash
-cd "$HOME/projects/KubeLab"
+cd "$HOME/projects/Kubelab"
 git pull --ff-only
 uv tool install --force --python 3.11 .
 
@@ -389,7 +389,7 @@ kubelab doctor
 需要运行测试或修改源码时：
 
 ```bash
-cd "$HOME/projects/KubeLab"
+cd "$HOME/projects/Kubelab"
 uv python install 3.11
 uv sync --frozen
 
