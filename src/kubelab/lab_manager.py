@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
@@ -12,7 +12,11 @@ from pydantic import BaseModel, ConfigDict
 from kubelab.config import TrustedContext
 from kubelab.context_trust import ContextTrustService, trusted_context_fingerprint
 from kubelab.kubernetes_gateway import (
+    EventSummary,
+    LogResult,
     NamespaceDeleteResult,
+    PodSummary,
+    ResourceSummary,
     SessionScope,
 )
 from kubelab.lab_registry import LabRegistry, LoadedLab, RegistryError
@@ -25,6 +29,8 @@ from kubelab.repositories import (
 from kubelab.session_state import (
     LabSessionSnapshot,
     NewLabSession,
+    RetrospectiveInput,
+    RetrospectiveSnapshot,
     SessionStatus,
     ValidationStatus,
     VerificationPurpose,
@@ -44,6 +50,7 @@ class ManagerErrorCode(StrEnum):
     CLUSTER_OPERATION_FAILED = "CLUSTER_OPERATION_FAILED"
     CLEANUP_FAILED = "CLEANUP_FAILED"
     SESSION_NOT_FOUND = "SESSION_NOT_FOUND"
+    ENVIRONMENT_REMOVED = "ENVIRONMENT_REMOVED"
 
 
 class LabManagerError(RuntimeError):
@@ -72,6 +79,68 @@ class SessionStatusResult(ManagerModel):
     session: LabSessionSnapshot
     namespace_exists: bool
     namespace_owned: bool
+
+
+class LabProgress(StrEnum):
+    NOT_STARTED = "not_started"
+    ACTIVE = "active"
+    COMPLETED = "completed"
+
+
+class LabCatalogItem(ManagerModel):
+    id: str
+    name: str
+    description: str
+    difficulty: str
+    duration_minutes: int
+    category: str
+    tags: tuple[str, ...]
+    progress: LabProgress
+
+
+class LabCatalogResult(ManagerModel):
+    labs: tuple[LabCatalogItem, ...]
+    errors: tuple[RegistryError, ...]
+
+
+class LabDetailResult(ManagerModel):
+    lab: LabCatalogItem
+    namespace: str
+    task: str
+    completion_description: str
+    kubernetes_requirement: str
+    minimum_cpu: int
+    minimum_memory_mib: int
+    required_addons: tuple[str, ...]
+    initial_check_types: tuple[str, ...]
+    success_check_types: tuple[str, ...]
+    hint_count: int
+    interview_questions: tuple[str, ...]
+
+
+class SessionResources(ManagerModel):
+    session: LabSessionSnapshot
+    resources: tuple[ResourceSummary, ...]
+    pods: tuple[PodSummary, ...]
+
+
+class SessionEvents(ManagerModel):
+    session: LabSessionSnapshot
+    events: tuple[EventSummary, ...]
+
+
+class HintResult(ManagerModel):
+    session_id: str
+    lab_id: str
+    level: int
+    total_levels: int
+    content: str
+    newly_unlocked: bool
+
+
+class RetrospectiveEditState(ManagerModel):
+    session: LabSessionSnapshot
+    retrospective: RetrospectiveSnapshot | None
 
 
 class ValidationService(Protocol):
@@ -106,11 +175,30 @@ class ClusterGateway(ValidationGateway, Protocol):
         self, scope: SessionScope, *, wait_timeout_seconds: float = 120
     ) -> NamespaceDeleteResult: ...
 
+    def list_resources(self, scope: SessionScope) -> tuple[ResourceSummary, ...]: ...
+
+    def list_pods(self, scope: SessionScope) -> tuple[PodSummary, ...]: ...
+
+    def list_events(self, scope: SessionScope) -> tuple[EventSummary, ...]: ...
+
+    def read_logs(
+        self,
+        scope: SessionScope,
+        pod: str,
+        *,
+        container: str | None = None,
+        previous: bool = False,
+        tail_lines: int = 200,
+    ) -> LogResult: ...
+
     def close(self) -> None: ...
 
 
 class GatewayFactory(Protocol):
     def __call__(self, trusted: TrustedContext, context_fingerprint: str) -> ClusterGateway: ...
+
+
+ClusterReadResult = TypeVar("ClusterReadResult")
 
 
 class LabManager:
@@ -132,6 +220,160 @@ class LabManager:
         self._context_trust = context_trust
         self._gateway_factory = gateway_factory
         self._validation = validation
+
+    def list_labs(
+        self, *, category: str | None = None, progress: LabProgress | None = None
+    ) -> LabCatalogResult:
+        """Return the safe lab catalogue with local learner progress."""
+        snapshot = self._registry.scan()
+        with self._unit_of_work() as uow:
+            active = uow.sessions.get_active()
+            passed = uow.sessions.passed_lab_ids()
+        items = tuple(
+            self._catalog_item(lab, active=active, passed=passed)
+            for lab in snapshot.labs
+            if category is None or lab.definition.metadata.category == category
+        )
+        if progress is not None:
+            items = tuple(item for item in items if item.progress is progress)
+        return LabCatalogResult(labs=items, errors=snapshot.errors)
+
+    def show_lab(self, lab_id: str) -> LabDetailResult:
+        """Show a lab brief without revealing checks' answers or hint content."""
+        loaded = self._require_lab(lab_id)
+        with self._unit_of_work() as uow:
+            active = uow.sessions.get_active()
+            passed = uow.sessions.passed_lab_ids()
+        definition = loaded.definition
+        return LabDetailResult(
+            lab=self._catalog_item(loaded, active=active, passed=passed),
+            namespace=definition.environment.namespace,
+            task=definition.task.description,
+            completion_description=definition.task.completion_description,
+            kubernetes_requirement=definition.requirements.kubernetes,
+            minimum_cpu=definition.requirements.minimum_cpu,
+            minimum_memory_mib=definition.requirements.minimum_memory_mib,
+            required_addons=definition.requirements.addons,
+            initial_check_types=tuple(check.type for check in definition.initial_checks),
+            success_check_types=tuple(check.type for check in definition.success_checks),
+            hint_count=len(definition.hints),
+            interview_questions=definition.interview.questions,
+        )
+
+    def session_snapshot(
+        self, session_id: str | None = None, *, latest_if_inactive: bool = False
+    ) -> LabSessionSnapshot:
+        """Read a Session without reconciling or contacting the cluster."""
+        if session_id is not None:
+            return self._require_session(session_id, allow_completed=True)
+        with self._unit_of_work() as uow:
+            session = uow.sessions.get_active()
+            if session is None and latest_if_inactive:
+                session = uow.sessions.get_latest()
+        if session is None:
+            raise LabManagerError(
+                ManagerErrorCode.SESSION_NOT_FOUND, "The requested Session was not found."
+            )
+        return session
+
+    def resources(self, session_id: str | None = None) -> SessionResources:
+        """Return safe resource and Pod summaries for the owned experiment Namespace."""
+        session, payload = self._cluster_read(
+            session_id,
+            operation="resources",
+            reader=lambda gateway, scope: (
+                gateway.list_resources(scope),
+                gateway.list_pods(scope),
+            ),
+        )
+        resources, pods = payload
+        return SessionResources(session=session, resources=resources, pods=pods)
+
+    def events(self, session_id: str | None = None) -> SessionEvents:
+        """Return Kubernetes Events from the owned experiment Namespace."""
+        session, events = self._cluster_read(
+            session_id,
+            operation="events",
+            reader=lambda gateway, scope: gateway.list_events(scope),
+        )
+        return SessionEvents(session=session, events=events)
+
+    def logs(
+        self,
+        pod: str,
+        *,
+        container: str | None = None,
+        previous: bool = False,
+        tail_lines: int = 200,
+        session_id: str | None = None,
+    ) -> LogResult:
+        """Read bounded logs from one Pod in the owned experiment Namespace."""
+        _, result = self._cluster_read(
+            session_id,
+            operation="logs",
+            reader=lambda gateway, scope: gateway.read_logs(
+                scope,
+                pod,
+                container=container,
+                previous=previous,
+                tail_lines=tail_lines,
+            ),
+        )
+        return result
+
+    def next_hint(self, session_id: str | None = None) -> HintResult:
+        """Reveal one hint level at a time and record first use."""
+        with self._operation_lock:
+            session = self._require_session(session_id)
+            if session.status not in {
+                SessionStatus.READY,
+                SessionStatus.IN_PROGRESS,
+                SessionStatus.PASSED,
+            }:
+                raise LabManagerError(
+                    "INVALID_SESSION_STATE",
+                    "Hints are unavailable in the current Session state.",
+                )
+            self._trusted_for_session(session)
+            lab = self._require_lab(session.lab_id)
+            if session.status is SessionStatus.READY:
+                session = self._transition(
+                    session.id,
+                    SessionStatus.IN_PROGRESS,
+                    event_type="hint_requested",
+                )
+            with self._unit_of_work() as uow:
+                used = uow.hints.used_levels(session.id)
+                level = min(len(used) + 1, len(lab.definition.hints))
+                newly_unlocked = uow.hints.record_once(session.id, level)
+                uow.commit()
+            hint = next(item for item in lab.definition.hints if item.level == level)
+            return HintResult(
+                session_id=session.id,
+                lab_id=session.lab_id,
+                level=level,
+                total_levels=len(lab.definition.hints),
+                content=hint.content,
+                newly_unlocked=newly_unlocked,
+            )
+
+    def retrospective(self, session_id: str | None = None) -> RetrospectiveEditState:
+        """Load the active or latest Session retrospective for CLI editing."""
+        session = self.session_snapshot(session_id, latest_if_inactive=True)
+        with self._unit_of_work() as uow:
+            retrospective = uow.retrospectives.get(session.id)
+        return RetrospectiveEditState(session=session, retrospective=retrospective)
+
+    def save_retrospective(
+        self, value: RetrospectiveInput, session_id: str | None = None
+    ) -> RetrospectiveSnapshot:
+        """Save the active or latest Session retrospective in one short transaction."""
+        with self._operation_lock:
+            session = self.session_snapshot(session_id, latest_if_inactive=True)
+            with self._unit_of_work() as uow:
+                result = uow.retrospectives.save(session.id, value)
+                uow.commit()
+                return result
 
     def start(self, lab_id: str) -> LabSessionSnapshot:
         """Provision one lab and prove its initial fault contract before returning ready."""
@@ -339,6 +581,75 @@ class LabManager:
             finally:
                 gateway.close()
 
+    @staticmethod
+    def _catalog_item(
+        loaded: LoadedLab,
+        *,
+        active: LabSessionSnapshot | None,
+        passed: frozenset[str],
+    ) -> LabCatalogItem:
+        metadata = loaded.definition.metadata
+        if active is not None and active.lab_id == metadata.id:
+            progress = LabProgress.ACTIVE
+        elif metadata.id in passed:
+            progress = LabProgress.COMPLETED
+        else:
+            progress = LabProgress.NOT_STARTED
+        return LabCatalogItem(
+            id=metadata.id,
+            name=metadata.name,
+            description=metadata.description,
+            difficulty=metadata.difficulty,
+            duration_minutes=metadata.duration_minutes,
+            category=metadata.category,
+            tags=metadata.tags,
+            progress=progress,
+        )
+
+    def _cluster_read(
+        self,
+        session_id: str | None,
+        *,
+        operation: str,
+        reader: Callable[[ClusterGateway, SessionScope], ClusterReadResult],
+    ) -> tuple[LabSessionSnapshot, ClusterReadResult]:
+        with self._operation_lock:
+            session = self._require_session(session_id)
+            trusted, fingerprint = self._trusted_for_session(session)
+            gateway = self._gateway_factory(trusted, fingerprint)
+            try:
+                scope = self._scope(session)
+                if not gateway.namespace_exists(scope):
+                    self._complete_removed_environment(session)
+                    raise LabManagerError(
+                        ManagerErrorCode.ENVIRONMENT_REMOVED,
+                        "The experiment Namespace no longer exists.",
+                    )
+                try:
+                    gateway.assert_namespace_owned(scope)
+                except Exception as exc:
+                    self._mark_error(
+                        session,
+                        exc,
+                        event_type="namespace_identity_mismatch",
+                        operation=operation,
+                    )
+                    raise
+                if session.status is SessionStatus.READY:
+                    session = self._transition(
+                        session.id,
+                        SessionStatus.IN_PROGRESS,
+                        event_type=f"{operation}_requested",
+                    )
+                    scope = self._scope(session)
+                return session, reader(gateway, scope)
+            except LabManagerError:
+                raise
+            except Exception as exc:
+                raise self._manager_error(exc, operation=operation) from exc
+            finally:
+                gateway.close()
+
     def _require_lab(self, lab_id: str) -> LoadedLab:
         snapshot = self._registry.scan()
         match = next((lab for lab in snapshot.labs if lab.definition.metadata.id == lab_id), None)
@@ -536,10 +847,18 @@ def _registry_error_context(error: RegistryError) -> dict[str, Any]:
 __all__ = [
     "ClusterGateway",
     "GatewayFactory",
+    "HintResult",
     "InitialContractResult",
+    "LabCatalogItem",
+    "LabCatalogResult",
+    "LabDetailResult",
     "LabManager",
     "LabManagerError",
+    "LabProgress",
     "ManagerErrorCode",
+    "RetrospectiveEditState",
+    "SessionEvents",
+    "SessionResources",
     "SessionStatusResult",
     "ValidationService",
 ]

@@ -373,7 +373,36 @@ kubelab doctor
 
 只有明确重建了本地集群，导致CA、UID或API Server变化时，才重新执行`kubelab context trust`。
 
-## 14. 升级KubeLab
+## 14. 运行第一个故障实验
+
+```bash
+kubelab list
+kubelab show lab-005-image-pull
+kubelab start lab-005-image-pull
+```
+
+启动成功后，KubeLab会显示实验Namespace。继续使用普通kubectl练习排障：
+
+```bash
+kubelab status
+kubelab resources
+kubelab events
+
+kubectl get all -n kubelab-image-pull-backoff
+kubectl describe pod -n kubelab-image-pull-backoff <pod-name>
+```
+
+修复Manifest后验证并清理：
+
+```bash
+kubelab verify
+kubelab retrospective edit
+kubelab cleanup
+```
+
+卡住时运行`kubelab hint`，每次只会解锁下一层提示。`reset`和`cleanup`都会显示目标Namespace并要求确认。日常短命令默认选择唯一活动实验，不需要手工保存Session ID。
+
+## 15. 升级KubeLab
 
 ```bash
 cd "$HOME/projects/Kubelab"
@@ -384,7 +413,7 @@ kubelab --version
 kubelab doctor
 ```
 
-## 15. 开发者安装
+## 16. 开发者安装
 
 需要运行测试或修改源码时：
 
@@ -401,7 +430,7 @@ uv run mypy src
 
 不要在Windows和WSL之间复用`.venv`。
 
-## 16. 故障排查
+## 17. 故障排查
 
 ### 找不到kubelab、uv或kubectl
 
@@ -474,7 +503,7 @@ minikube logs
 
 常见原因包括镜像仓库不可达、代理配置或镜像地址错误。修复网络或镜像源后再重试；进入PVC实验前，`storage-provisioner`必须恢复正常。
 
-## 17. 卸载
+## 18. 卸载
 
 仅撤销KubeLab信任并卸载CLI：
 
@@ -491,7 +520,7 @@ uv tool uninstall kubelab
 minikube delete
 ```
 
-## 18. 验收清单
+## 19. 验收清单
 
 部署完成后逐项确认：
 
@@ -507,7 +536,7 @@ minikube delete
 - [ ] 配置文件权限为600；
 - [ ] 配置文件不含Token、私钥或证书原文。
 
-## 19. 官方参考
+## 20. 官方参考
 
 - [Microsoft：安装WSL](https://learn.microsoft.com/windows/wsl/install)
 - [Microsoft：WSL启用systemd](https://learn.microsoft.com/windows/wsl/systemd)

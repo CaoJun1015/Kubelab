@@ -12,15 +12,20 @@ from kubelab.config import TrustedContext
 from kubelab.context_trust import ContextNotTrustedError
 from kubelab.database import Database
 from kubelab.kubernetes_gateway import (
+    EventSummary,
     GatewayErrorCode,
     KubernetesGatewayError,
+    LogResult,
     NamespaceDeleteResult,
+    PodSummary,
+    ResourceSummary,
     SessionScope,
 )
 from kubelab.lab_manager import (
     InitialContractResult,
     LabManager,
     LabManagerError,
+    LabProgress,
     ManagerErrorCode,
 )
 from kubelab.lab_registry import LabRegistry, LoadedLab
@@ -28,6 +33,7 @@ from kubelab.operation_lock import OperationLock, OperationLockError
 from kubelab.repositories import ActiveSessionConflict
 from kubelab.session_state import (
     LabSessionSnapshot,
+    RetrospectiveInput,
     SessionStatus,
     ValidationStatus,
     VerificationPurpose,
@@ -149,6 +155,55 @@ class FakeGateway:
     def close(self) -> None:
         self.closed = True
 
+    def list_resources(self, scope: SessionScope) -> tuple[ResourceSummary, ...]:
+        self._call("resources")
+        return (
+            ResourceSummary(
+                api_version="apps/v1",
+                kind="Deployment",
+                namespace=scope.namespace,
+                name="web",
+            ),
+        )
+
+    def list_pods(self, scope: SessionScope) -> tuple[PodSummary, ...]:
+        del scope
+        self._call("pods")
+        return (
+            PodSummary(
+                name="web-abc",
+                phase="Running",
+                ready=True,
+                restart_count=0,
+                containers=(),
+            ),
+        )
+
+    def list_events(self, scope: SessionScope) -> tuple[EventSummary, ...]:
+        del scope
+        self._call("events")
+        return (EventSummary(type="Warning", reason="Failed"),)
+
+    def read_logs(
+        self,
+        scope: SessionScope,
+        pod: str,
+        *,
+        container: str | None = None,
+        previous: bool = False,
+        tail_lines: int = 200,
+    ) -> LogResult:
+        del scope
+        self._call("logs")
+        return LogResult(
+            pod=pod,
+            container=container,
+            previous=previous,
+            content="log",
+            truncated=False,
+            line_count=min(1, tail_lines),
+        )
+
 
 class FakeGatewayFactory:
     def __init__(self, *gateways: FakeGateway) -> None:
@@ -204,6 +259,104 @@ def persisted(database: Database, session_id: str) -> LabSessionSnapshot:
 def events(database: Database, session_id: str) -> tuple[str, ...]:
     with database.unit_of_work() as uow:
         return tuple(item.event_type for item in uow.sessions.list_events(session_id))
+
+
+def test_catalog_show_and_progress_hide_answers(database: Database, tmp_path: Path) -> None:
+    manager, _, _, _ = build_manager(database, tmp_path)
+
+    catalog = manager.list_labs(category="networking")
+    detail = manager.show_lab("complete-lab")
+
+    assert catalog.labs[0].progress is LabProgress.NOT_STARTED
+    assert detail.lab.id == "complete-lab"
+    assert detail.hint_count == 1
+    assert detail.initial_check_types
+    assert "expected" not in detail.model_dump_json().lower()
+    assert manager.list_labs(progress=LabProgress.COMPLETED).labs == ()
+
+
+def test_catalog_marks_active_then_completed_after_success(
+    database: Database, tmp_path: Path
+) -> None:
+    manager, _, _, _ = build_manager(database, tmp_path)
+    created = manager.start("complete-lab")
+
+    assert manager.list_labs().labs[0].progress is LabProgress.ACTIVE
+    manager.verify(created.id)
+    manager.cleanup(created.id)
+
+    assert manager.list_labs().labs[0].progress is LabProgress.COMPLETED
+    assert manager.session_snapshot(latest_if_inactive=True).status is SessionStatus.COMPLETED
+
+
+def test_safe_cluster_reads_move_ready_session_to_in_progress(
+    database: Database, tmp_path: Path
+) -> None:
+    manager, gateway, _, _ = build_manager(database, tmp_path)
+    created = manager.start("complete-lab")
+    gateway.calls.clear()
+
+    resources = manager.resources(created.id)
+    observed_events = manager.events(created.id)
+    logs = manager.logs("web-abc", container="web", previous=True, tail_lines=10)
+
+    assert resources.session.status is SessionStatus.IN_PROGRESS
+    assert resources.resources[0].name == "web"
+    assert resources.pods[0].name == "web-abc"
+    assert observed_events.events[0].reason == "Failed"
+    assert logs.content == "log"
+    assert gateway.calls == [
+        "exists",
+        "owned",
+        "resources",
+        "pods",
+        "exists",
+        "owned",
+        "events",
+        "exists",
+        "owned",
+        "logs",
+    ]
+
+
+def test_cluster_read_reconciles_missing_namespace(database: Database, tmp_path: Path) -> None:
+    manager, gateway, _, _ = build_manager(database, tmp_path)
+    created = manager.start("complete-lab")
+    gateway.exists = False
+
+    with pytest.raises(LabManagerError) as error:
+        manager.resources(created.id)
+
+    assert error.value.code == ManagerErrorCode.ENVIRONMENT_REMOVED
+    assert persisted(database, created.id).status is SessionStatus.COMPLETED
+
+
+def test_hints_unlock_in_order_and_last_hint_is_idempotent(
+    database: Database, tmp_path: Path
+) -> None:
+    manager, _, _, _ = build_manager(database, tmp_path)
+    created = manager.start("complete-lab")
+
+    first = manager.next_hint(created.id)
+    repeated = manager.next_hint(created.id)
+
+    assert (first.level, first.newly_unlocked) == (1, True)
+    assert (repeated.level, repeated.newly_unlocked) == (1, False)
+    assert persisted(database, created.id).status is SessionStatus.IN_PROGRESS
+
+
+def test_retrospective_can_be_saved_after_cleanup(database: Database, tmp_path: Path) -> None:
+    manager, _, _, _ = build_manager(database, tmp_path)
+    created = manager.start("complete-lab")
+    manager.cleanup(created.id)
+
+    value = RetrospectiveInput(root_cause="Wrong image", resolution="Corrected the tag")
+    saved = manager.save_retrospective(value)
+    loaded = manager.retrospective()
+
+    assert saved.session_id == created.id
+    assert loaded.retrospective is not None
+    assert loaded.retrospective.root_cause == "Wrong image"
 
 
 def test_start_creates_ready_session_in_dependency_order(

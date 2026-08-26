@@ -101,6 +101,28 @@ class SessionRepository:
         record = self._session.scalar(statement)
         return _session_snapshot(record) if record else None
 
+    def get_latest(self) -> LabSessionSnapshot | None:
+        statement: Select[tuple[LabSessionRecord]] = select(LabSessionRecord).order_by(
+            LabSessionRecord.created_at.desc(), LabSessionRecord.id.desc()
+        )
+        record = self._session.scalar(statement)
+        return _session_snapshot(record) if record else None
+
+    def list_all(self) -> tuple[LabSessionSnapshot, ...]:
+        statement: Select[tuple[LabSessionRecord]] = select(LabSessionRecord).order_by(
+            LabSessionRecord.created_at, LabSessionRecord.id
+        )
+        return tuple(_session_snapshot(record) for record in self._session.scalars(statement))
+
+    def passed_lab_ids(self) -> frozenset[str]:
+        statement = (
+            select(LabSessionRecord.lab_id)
+            .join(SessionEventRecord, SessionEventRecord.session_id == LabSessionRecord.id)
+            .where(SessionEventRecord.event_type == "success_contract_passed")
+            .distinct()
+        )
+        return frozenset(self._session.scalars(statement))
+
     def transition(
         self,
         session_id: str,
@@ -238,6 +260,14 @@ class HintRepository:
         except IntegrityError:
             return False
         return True
+
+    def used_levels(self, session_id: str) -> tuple[int, ...]:
+        statement: Select[tuple[int]] = (
+            select(HintUsageRecord.level)
+            .where(HintUsageRecord.session_id == session_id)
+            .order_by(HintUsageRecord.level)
+        )
+        return tuple(self._session.scalars(statement))
 
 
 class RetrospectiveRepository:

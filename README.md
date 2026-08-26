@@ -2,7 +2,7 @@
 
 KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 运维练习平台。它以本机 Docker Engine 和 minikube 为实验环境，目标是把云原生运维面试知识转化为可以反复操作、验证和复盘的故障实验。
 
-> 当前版本：`0.1.0a0`（M1-09）。项目仍处于早期开发阶段，目前提供环境诊断、minikube Context信任、实验Schema、安全加载、持久化、状态机、安全Kubernetes网关、内部实验生命周期管理、声明式验证引擎和首批三个故障实验；公开CLI实验命令和Web页面尚未实现。
+> 当前版本：`0.1.0a0`（M1 CLI闭环）。项目仍处于早期开发阶段，目前可以通过短命令完成实验目录浏览、启动、排障观察、验证、提示、重置、清理和复盘；Web页面尚未实现。
 
 ## 当前可用功能
 
@@ -31,6 +31,8 @@ KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 
 - LAB-005 ImagePullBackOff：精确验证镜像拉取waiting reason、正确镜像和Pod稳定Ready；
 - LAB-006 CrashLoopBackOff：精确验证CrashLoopBackOff、重启次数及修复后的零重启稳定窗口；
 - LAB-007 Service Selector错误：验证Deployment可用、Endpoint恢复和集群内HTTP 200；
+- `kubelab list/show/start/status/resources/events/logs/verify/hint/reset/cleanup`：提供完整的M1命令行排障闭环；
+- `kubelab retrospective edit`：在CLI中逐字段记录复盘，不启动外部编辑器；
 - 状态协调：外部删除环境时受控完成Session，Namespace身份不匹配时转为`error`且拒绝删除，reset保留Session ID并支持中断重试；
 - JSON输出、稳定退出码、凭证脱敏和原子配置写入。
 
@@ -107,6 +109,38 @@ kubelab context trust
 
 不要对陌生、公司生产或远程Context执行信任命令。
 
+### 开始第一个实验
+
+```bash
+# 浏览目录和任务说明
+kubelab list
+kubelab show lab-005-image-pull
+
+# 一次只允许启动一个实验
+kubelab start lab-005-image-pull
+
+# 使用外部kubectl调查和修复
+kubectl get pods -n kubelab-image-pull-backoff
+kubelab resources
+kubelab events
+kubelab logs <pod-name> --container web
+
+# 卡住时一次解锁一层提示；修复后验证
+kubelab hint
+kubelab verify
+
+# 重建初始故障，或安全清理实验Namespace
+kubelab reset
+kubelab cleanup
+
+# 清理后仍可编辑最近一次实验复盘
+kubelab retrospective edit
+```
+
+`status`、`resources`、`events`、`logs`、`verify`、`hint`、`reset`和`cleanup`默认作用于唯一活动Session，因此日常使用不需要复制Session ID。`reset`和`cleanup`会显示目标Namespace并要求确认，不提供绕过所有权校验的`--force`。
+
+所有目录、状态和验证命令均支持稳定的`--json`输出。`verify`未通过时退出码为1；参数或实验定义错误为2；环境或Context问题为3；活动Session冲突或非法状态为4；Kubernetes、数据库或内部故障为5。
+
 ### Doctor状态和退出码
 
 | 状态 | 含义 | 退出码 |
@@ -158,7 +192,7 @@ uv run ruff format --check .
 uv run mypy src
 ```
 
-当前质量基线：Windows和WSL的最终数据见TDD“当前环境说明”中的M1-09记录。两端均要求pytest覆盖率不低于90%，并通过Ruff、格式检查、strict mypy和`git diff --check`。真实集成测试默认关闭，只能在已信任的本地minikube中显式运行。
+当前质量基线：Windows和WSL的最终数据见TDD“当前环境说明”中的M1-10记录。两端均要求pytest覆盖率不低于90%，并通过Ruff、格式检查、strict mypy和`git diff --check`。真实集成测试默认关闭，只能在已信任的本地minikube中显式运行。
 
 只有在WSL中确认`kubelab context inspect`显示`trusted`后，才可显式运行真实网关测试：
 
@@ -173,7 +207,7 @@ KUBELAB_RUN_LAB_INTEGRATION=1 uv run pytest --no-cov -q tests/test_first_labs_in
 
 ## 安全边界
 
-- Schema和Registry扫描仍完全不访问集群；只有内部`KubernetesGateway`能够访问已信任Context，当前尚未提供面向用户的实验写命令；
+- Schema和Registry扫描仍完全不访问集群；CLI通过Application Service调用`KubernetesGateway`，不直接使用Kubernetes Client或ORM；
 - 数据库、备份和操作锁默认位于`${XDG_STATE_HOME:-~/.local/state}/kubelab/`，拒绝使用`/mnt/c`或`/mnt/d`作为正式状态目录；
 - SQLite启用WAL、外键和5000ms busy timeout，迁移前在独占锁内创建安全备份；
 - 仅允许显式信任可证明属于本机的minikube；
@@ -206,7 +240,7 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 - [x] M1-07 LabManager；
 - [x] M1-08 ValidationEngine；
 - [x] M1-09 首批三个故障实验；
-- [ ] M1-10 CLI垂直切片验收；
+- [x] M1-10 CLI垂直切片验收；
 - [ ] M2 本地Web界面。
 
 详细设计见[PRD](PRD-KubeLab.md)和[TDD](TDD-KubeLab.md)。
@@ -227,4 +261,4 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 
 ### 现在能开始故障实验吗？
 
-还不能通过公开命令开始。当前版本已经具备内部的安全资源网关、生命周期管理、验证引擎和三个正式故障实验；M1-10将把这些能力接入`list/start/status/verify/reset/cleanup`等用户命令。
+可以。在WSL Ubuntu中先确认`kubelab doctor`没有必需项失败、`kubelab context inspect`显示`trusted`，然后运行`kubelab list`并选择一个实验执行`kubelab start <lab-id>`。

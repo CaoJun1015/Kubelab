@@ -1386,6 +1386,10 @@ Fake契约测试对每个实验执行初始契约、成功预检、标准修复�
 
 完成标准：新建环境从doctor、trust、start、kubectl修复、verify到cleanup完整走通；所有自动化测试实际执行通过。
 
+实际实现新增共享`ApplicationRuntime`组合根，Typer只调用`LabManager`和稳定DTO，不直接访问ORM或Kubernetes Client。公开命令包括`list/show/start/status/resources/events/logs/verify/hint/reset/cleanup`和`retrospective edit`；活动实验命令默认选择唯一活动Session。目录与任务说明不返回check expected/actual或提示正文，`hint`按级别逐次解锁，Logs继续执行行数和字节上限，复盘使用CLI逐字段提示而不启动外部编辑器。`reset`和`cleanup`显示Namespace并交互确认，不提供`--force`。
+
+CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/retryable`，错误写入stderr且不显示堆栈。退出码正式实现为：成功或verify通过为0，verify未通过为1，参数/配置/实验定义为2，运行环境或Context信任为3，活动Session冲突/非法状态/操作锁冲突为4，Kubernetes/数据库/内部错误为5。实验命令的生产组合根明确拒绝在WSL2外运行。
+
 ---
 
 ## 20. 后续里程碑接口边界
@@ -1512,3 +1516,11 @@ Fake契约测试对每个实验执行初始契约、成功预检、标准修复�
 - Fake契约测试逐个证明`initialChecks通过 → successChecks预检失败 → 标准修复后通过 → reset sequence恢复初始故障`，并核对ImagePull waiting reason、CrashLoop重启边界、Service Endpoint、HTTP结果和验证记录持久化；
 - 在已信任minikube中显式执行真实契约测试预检，确认`nginx:1.27-alpine`、`busybox:1.36.1`和`curlimages/curl:8.12.1`均未缓存，因此3项测试在创建资源前按环境原因跳过；事后确认不存在`kubelab-test-*` Namespace或平台Probe Pod；
 - 本阶段完成代码和安全契约实现，但不声明三个实验的真实端到端集群验收已经通过。镜像缓存或拉取环境恢复后，必须重新运行`KUBELAB_RUN_LAB_INTEGRATION=1`质量门。
+
+2026-08-26，M1-10 CLI整合完成双环境自动化质量门和WSL只读烟测：
+
+- Windows Python 3.11下收集398项测试，391项通过，3项正式实验集成测试、2项网关集成测试和2项符号链接测试跳过，覆盖率91.36%；
+- WSL2 Ubuntu Python 3.11.16下收集398项测试，393项通过，3项正式实验集成测试和2项网关集成测试跳过，覆盖率91.55%；
+- 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`全部通过；新增CLI测试覆盖目录、任务说明、启动、状态、资源、Events、Logs、验证、提示、确认式重置/清理、复盘、JSON和退出码；
+- WSL生产组合根实际加载三个正式实验，`kubelab list --json`无Registry错误，`kubelab show lab-005-image-pull --json`成功且不泄露check expected/actual或提示正文；
+- 本阶段没有启动或修改真实实验Namespace。由于M1-09已确认固定镜像当前无法拉取，仍不声明`start → kubectl修复 → verify → cleanup`真实集群闭环验收通过；镜像环境恢复后应执行该手工验收及显式集成测试。
