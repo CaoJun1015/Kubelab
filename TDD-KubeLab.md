@@ -1334,6 +1334,8 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 
 完成标准：部分Apply失败后能够安全清理；重复reset恢复同一故障状态。
 
+实际实现提供`LabManager`应用服务及可替换的`ValidationService`、`ClusterGateway`和Gateway Factory协议。`start/status/reset/cleanup`统一使用跨进程操作锁，在集群写入前重新验证完整Context身份，并把数据库操作拆为短事务。启动或重置中的部分Apply和初始契约失败会尝试删除整个Namespace；回滚成功后启动Session受控完成，reset保留可重试的`error` Session；清理失败始终保留活动`error` Session。status能够协调外部删除、Namespace身份不匹配和Context漂移，不接管或越界删除资源。
+
 ### M1-08 ValidationEngine
 
 产出：
@@ -1470,3 +1472,10 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 - 两端`ruff check`、`ruff format --check`和strict mypy全部通过；
 - Fake客户端覆盖Context指纹漂移、外部或伪造Namespace、dry-run/apply顺序、API错误映射、Terminating超时、Secret脱敏、日志限制、多容器选择和Probe安全边界；
 - 在信任状态为`trusted`的本地minikube v1.35.1中显式运行1项集成测试，创建随机`kubelab-test-*` Namespace、核对归属并安全删除；测试后集群仅保留default和Kubernetes系统Namespace，无测试资源残留。
+
+2026-08-26，M1-07 LabManager完成双环境质量门：
+
+- Windows Python 3.11下收集304项测试，301项通过，2项因符号链接权限跳过，1项真实集成测试默认跳过，覆盖率92.45%；
+- WSL2 Ubuntu Python 3.11.16下收集304项测试，303项通过，1项真实集成测试默认跳过，覆盖率92.70%；
+- LabManager专项测试覆盖正常启动、活动Session冲突、create/apply/初始契约失败、回滚清理失败、外部删除协调、Namespace身份不匹配、Context漂移、reset中断重试、幂等cleanup及操作锁冲突；
+- 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`通过；本阶段新增测试全部使用Fake集群，没有创建、修改或删除真实minikube资源。

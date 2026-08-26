@@ -2,7 +2,7 @@
 
 KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 运维练习平台。它以本机 Docker Engine 和 minikube 为实验环境，目标是把云原生运维面试知识转化为可以反复操作、验证和复盘的故障实验。
 
-> 当前版本：`0.1.0a0`（M1-06）。项目仍处于早期开发阶段，目前提供环境诊断、minikube Context信任、实验Schema、安全加载、SQLite持久化、Session状态机和安全Kubernetes网关；公开的实验启动、自动验证、Web页面尚未实现。
+> 当前版本：`0.1.0a0`（M1-07）。项目仍处于早期开发阶段，目前提供环境诊断、minikube Context信任、实验Schema、安全加载、持久化、状态机、安全Kubernetes网关和内部实验生命周期管理；公开CLI实验命令、真实自动验证、Web页面尚未实现。
 
 ## 当前可用功能
 
@@ -23,6 +23,8 @@ KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 
 - Namespace删除前核对前缀、Session记录、管理标签、lab ID、Session ID和Context指纹；超时只报告finalizer和残留资源，不强制删除；
 - `LabRegistry.materialize_for_gateway()`：Apply前重新读取、校验摘要并执行安全扫描，阻止扫描后替换文件；
 - 受限curl探测Pod基础能力：固定镜像、资源限额和安全上下文，只允许访问当前实验Namespace的集群内Service DNS；
+- `LabManager`：通过短数据库事务协调`start/status/reset/cleanup`，在每次写操作前重新验证Context，并在部分Apply或初始契约失败时安全回滚；
+- 状态协调：外部删除环境时受控完成Session，Namespace身份不匹配时转为`error`且拒绝删除，reset保留Session ID并支持中断重试；
 - JSON输出、稳定退出码、凭证脱敏和原子配置写入。
 
 ## 支持环境
@@ -149,7 +151,7 @@ uv run ruff format --check .
 uv run mypy src
 ```
 
-当前质量基线：Windows下收集283项测试，280项通过、3项跳过，覆盖率92.36%；WSL下收集283项测试，282项通过、1项默认关闭的真实集成测试跳过，覆盖率92.63%。另在已信任minikube中显式运行1项Namespace创建/安全清理集成测试并确认无残留。两端Ruff、格式检查和strict mypy均通过。
+当前质量基线：Windows下收集304项测试，301项通过、3项跳过，覆盖率92.45%；WSL下收集304项测试，303项通过、1项默认关闭的真实集成测试跳过，覆盖率92.70%。M1-06另在已信任minikube中显式运行1项Namespace创建/安全清理集成测试并确认无残留。两端Ruff、格式检查和strict mypy均通过。
 
 只有在WSL中确认`kubelab context inspect`显示`trusted`后，才可显式运行真实网关测试：
 
@@ -191,7 +193,7 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 - [x] M1-04 实验Schema和LabRegistry；
 - [x] M1-05 SQLite、状态机和操作锁；
 - [x] M1-06 KubernetesGateway；
-- [ ] M1-07 LabManager；
+- [x] M1-07 LabManager；
 - [ ] M1-08 ValidationEngine；
 - [ ] M1-09 首批三个故障实验；
 - [ ] M1-10 CLI垂直切片验收；
@@ -215,4 +217,4 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 
 ### 现在能开始故障实验吗？
 
-还不能通过公开命令开始。当前版本已经具备内部的安全资源网关，但仍需M1-07 LabManager、M1-08 ValidationEngine和M1-10 CLI把启动、验证与清理串成用户工作流。
+还不能通过公开命令开始。当前版本已经具备内部的安全资源网关和生命周期管理，但仍需M1-08 ValidationEngine及M1-10 CLI把真实检查与用户命令接入。
