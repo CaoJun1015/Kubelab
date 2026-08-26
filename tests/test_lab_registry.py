@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import os
 import shutil
 from pathlib import Path
@@ -11,7 +12,12 @@ from typing import Any
 import pytest
 import yaml
 
-from kubelab.lab_registry import LabRegistry, RegistryErrorCode, _portable_relative_path
+from kubelab.lab_registry import (
+    LabMaterializationError,
+    LabRegistry,
+    RegistryErrorCode,
+    _portable_relative_path,
+)
 
 
 def lab_data(lab_id: str, manifest: str = "manifest.yaml") -> dict[str, Any]:
@@ -551,3 +557,84 @@ def test_copying_fixture_preserves_linux_and_windows_compatible_layout(tmp_path:
     snapshot = LabRegistry(destination).scan()
 
     assert [lab.definition.metadata.id for lab in snapshot.labs] == ["complete-lab"]
+
+
+def test_materialize_rereads_and_rescans_valid_lab(tmp_path: Path) -> None:
+    write_lab(tmp_path, "safe", lab_data("safe-lab"), pod_manifest("safe-lab"))
+    registry = LabRegistry(tmp_path)
+    loaded = registry.scan().labs[0]
+
+    materialized = registry.materialize_for_gateway(loaded)
+
+    assert len(materialized.documents) == 1
+    assert materialized.documents[0].data["kind"] == "Pod"
+
+
+def test_materialize_rejects_manifest_digest_change(tmp_path: Path) -> None:
+    directory = write_lab(tmp_path, "changed", lab_data("changed-lab"), pod_manifest("changed-lab"))
+    registry = LabRegistry(tmp_path)
+    loaded = registry.scan().labs[0]
+    (directory / "manifest.yaml").write_text(
+        yaml.safe_dump(pod_manifest("other-name")), encoding="utf-8"
+    )
+
+    with pytest.raises(LabMaterializationError) as error:
+        registry.materialize_for_gateway(loaded)
+
+    assert error.value.code == "LAB_SOURCE_CHANGED"
+    assert error.value.errors[0].code is RegistryErrorCode.LAB_SOURCE_CHANGED
+
+
+def test_materialize_rejects_definition_change(tmp_path: Path) -> None:
+    directory = write_lab(tmp_path, "changed", lab_data("changed-lab"), pod_manifest("changed-lab"))
+    registry = LabRegistry(tmp_path)
+    loaded = registry.scan().labs[0]
+    changed = lab_data("changed-lab")
+    changed["task"]["description"] = "Changed after scan."
+    (directory / "lab.yaml").write_text(yaml.safe_dump(changed), encoding="utf-8")
+
+    with pytest.raises(LabMaterializationError):
+        registry.materialize_for_gateway(loaded)
+
+
+def test_materialize_rescans_even_when_digest_metadata_is_spoofed(tmp_path: Path) -> None:
+    directory = write_lab(tmp_path, "unsafe", lab_data("unsafe-lab"), pod_manifest("unsafe-lab"))
+    registry = LabRegistry(tmp_path)
+    loaded = registry.scan().labs[0]
+    unsafe = pod_manifest(
+        "unsafe-lab",
+        {"hostNetwork": True, "containers": [{"name": "web", "image": "nginx:1.27"}]},
+    )
+    payload = yaml.safe_dump(unsafe).encode()
+    (directory / "manifest.yaml").write_bytes(payload)
+    spoofed = loaded.model_copy(update={"manifest_sha256": (hashlib.sha256(payload).hexdigest(),)})
+
+    with pytest.raises(LabMaterializationError) as error:
+        registry.materialize_for_gateway(spoofed)
+
+    assert error.value.errors[0].code is RegistryErrorCode.MANIFEST_UNSAFE
+
+
+def test_materialize_rejects_forged_lab_path_escape(tmp_path: Path) -> None:
+    write_lab(tmp_path, "safe", lab_data("safe-lab"), pod_manifest("safe-lab"))
+    registry = LabRegistry(tmp_path)
+    loaded = registry.scan().labs[0]
+    forged = loaded.model_copy(update={"lab_path": "../outside/lab.yaml"})
+
+    with pytest.raises(LabMaterializationError) as error:
+        registry.materialize_for_gateway(forged)
+
+    assert error.value.errors[0].code is RegistryErrorCode.LAB_SOURCE_CHANGED
+
+
+def test_materialize_supports_lab_at_registry_root(tmp_path: Path) -> None:
+    data = lab_data("root-lab")
+    (tmp_path / "lab.yaml").write_text(yaml.safe_dump(data), encoding="utf-8")
+    (tmp_path / "manifest.yaml").write_text(
+        yaml.safe_dump(pod_manifest("root-lab")), encoding="utf-8"
+    )
+    registry = LabRegistry(tmp_path)
+    loaded = registry.scan().labs[0]
+
+    assert loaded.lab_path == "lab.yaml"
+    assert registry.materialize_for_gateway(loaded).documents[0].data["kind"] == "Pod"

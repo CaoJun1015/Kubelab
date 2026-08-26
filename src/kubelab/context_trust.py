@@ -346,6 +346,23 @@ class ContextTrustService:
         )
 
 
+def trusted_context_fingerprint(record: TrustedContext) -> str:
+    """Return the stable Session fingerprint for a trusted cluster identity."""
+    payload = json.dumps(
+        {
+            "context_name": record.name,
+            "api_server": record.server,
+            "ca_sha256": record.ca_sha256,
+            "kube_system_uid": record.kube_system_uid,
+            "minikube_profile": record.minikube_profile,
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def build_context_trust_service() -> ContextTrustService:  # pragma: no cover
     """Build the production service against the explicit WSL kubeconfig."""
     config_path = get_config_path()

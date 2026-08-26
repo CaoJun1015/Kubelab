@@ -47,6 +47,9 @@ addopts = [
     "--cov-fail-under=90",
 ]
 testpaths = ["tests"]
+markers = [
+    "integration: opt-in tests that use the explicitly trusted local minikube cluster",
+]
 
 [tool.coverage.run]
 branch = true

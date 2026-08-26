@@ -1321,6 +1321,8 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 
 完成标准：测试Namespace内操作成功，任何越界Namespace操作都被拒绝。
 
+实际实现包含基于官方Kubernetes Client的显式kubeconfig/Context适配层、SessionScope写入边界、Namespace/ResourceQuota/LimitRange保护资源、全部Manifest先dry-run再按依赖顺序server-side apply、六项Namespace归属校验和最长120秒安全删除。资源、Pod、Events和Logs转换为脱敏冻结DTO；Secret只暴露名称、类型和key，日志限制为最多500行和256KiB。探测Pod固定curl镜像、资源限额和安全上下文，只允许访问当前实验Namespace的Service DNS。LabRegistry在Apply前重新读取Manifest、核对SHA256并再次安全扫描，阻止TOCTOU文件替换。
+
 ### M1-07 LabManager
 
 产出：
@@ -1460,3 +1462,11 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 - 双环境均验证Alembic迁移、迁移前备份、WAL、外键、5000ms busy timeout、活动Session数据库约束、事务回滚、JSON脱敏和跨进程文件锁；
 - 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`通过；
 - 测试数据库和锁全部位于临时目录，没有创建或修改真实用户数据库，也没有访问minikube。
+
+2026-08-26，M1-06 KubernetesGateway完成双环境质量门和显式真实集成验收：
+
+- Windows Python 3.11下收集283项测试，280项通过，2项因符号链接权限跳过，1项真实集成测试默认跳过，覆盖率92.36%；
+- WSL2 Ubuntu Python 3.11.16下收集283项测试，282项通过，1项真实集成测试默认跳过，覆盖率92.63%；
+- 两端`ruff check`、`ruff format --check`和strict mypy全部通过；
+- Fake客户端覆盖Context指纹漂移、外部或伪造Namespace、dry-run/apply顺序、API错误映射、Terminating超时、Secret脱敏、日志限制、多容器选择和Probe安全边界；
+- 在信任状态为`trusted`的本地minikube v1.35.1中显式运行1项集成测试，创建随机`kubelab-test-*` Namespace、核对归属并安全删除；测试后集群仅保留default和Kubernetes系统Namespace，无测试资源残留。

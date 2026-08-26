@@ -19,6 +19,7 @@ from kubelab.context_trust import (
     KubeconfigIdentityProvider,
     MinikubeProfileVerifier,
     TrustState,
+    trusted_context_fingerprint,
 )
 from kubelab.tools import (
     CommandResult,
@@ -137,6 +138,17 @@ def test_retrust_replaces_same_named_fingerprint_without_duplicates(tmp_path: Pa
 
     assert config.trusted_contexts == [current]
     assert current.server == "https://127.0.0.1:32771"
+
+
+def test_trusted_context_fingerprint_is_stable_and_covers_identity_fields() -> None:
+    record = trusted_record()
+
+    first = trusted_context_fingerprint(record)
+    same_identity_new_time = trusted_record(trusted_at="2026-08-26T00:00:00Z")
+
+    assert len(first) == 64
+    assert first == trusted_context_fingerprint(same_identity_new_time)
+    assert first != trusted_context_fingerprint(trusted_record(kube_system_uid="changed"))
 
 
 def test_untrust_is_local_idempotent_and_does_not_probe_cluster(tmp_path: Path) -> None:

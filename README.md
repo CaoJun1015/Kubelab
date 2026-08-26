@@ -2,7 +2,7 @@
 
 KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 运维练习平台。它以本机 Docker Engine 和 minikube 为实验环境，目标是把云原生运维面试知识转化为可以反复操作、验证和复盘的故障实验。
 
-> 当前版本：`0.1.0a0`（M1-05）。项目仍处于早期开发阶段，目前提供环境诊断、minikube Context信任、实验Schema、安全加载、SQLite持久化和Session状态机；实验启动、自动验证、Web页面尚未实现。
+> 当前版本：`0.1.0a0`（M1-06）。项目仍处于早期开发阶段，目前提供环境诊断、minikube Context信任、实验Schema、安全加载、SQLite持久化、Session状态机和安全Kubernetes网关；公开的实验启动、自动验证、Web页面尚未实现。
 
 ## 当前可用功能
 
@@ -19,6 +19,10 @@ KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 
 - `SessionStateMachine`：拒绝非法生命周期转换，并由SQLite条件唯一索引保证最多一个活动实验；
 - `SqlAlchemyUnitOfWork`和Repository：为后续CLI与Web提供统一事务边界；
 - `OperationLock`：跨进程序列化未来的集群和数据库写操作；
+- `KubernetesGateway`：只在Session作用域内创建受保护Namespace，执行server-side dry-run/apply，并提供脱敏资源、Pod、Events和受限Logs读取；
+- Namespace删除前核对前缀、Session记录、管理标签、lab ID、Session ID和Context指纹；超时只报告finalizer和残留资源，不强制删除；
+- `LabRegistry.materialize_for_gateway()`：Apply前重新读取、校验摘要并执行安全扫描，阻止扫描后替换文件；
+- 受限curl探测Pod基础能力：固定镜像、资源限额和安全上下文，只允许访问当前实验Namespace的集群内Service DNS；
 - JSON输出、稳定退出码、凭证脱敏和原子配置写入。
 
 ## 支持环境
@@ -145,18 +149,26 @@ uv run ruff format --check .
 uv run mypy src
 ```
 
-当前质量基线：Windows下收集238项测试，236项通过、2项因系统符号链接权限跳过，覆盖率92.25%；WSL下238项全部通过，覆盖率92.58%。两端Ruff、格式检查和strict mypy均通过。
+当前质量基线：Windows下收集283项测试，280项通过、3项跳过，覆盖率92.36%；WSL下收集283项测试，282项通过、1项默认关闭的真实集成测试跳过，覆盖率92.63%。另在已信任minikube中显式运行1项Namespace创建/安全清理集成测试并确认无残留。两端Ruff、格式检查和strict mypy均通过。
+
+只有在WSL中确认`kubelab context inspect`显示`trusted`后，才可显式运行真实网关测试：
+
+```bash
+KUBELAB_RUN_INTEGRATION=1 uv run pytest --no-cov -q tests/test_kubernetes_gateway_integration.py
+```
+
+该测试只创建一个随机`kubelab-test-*` Namespace，并通过所有权校验清理；不要在远程或生产Context运行。
 
 ## 安全边界
 
-- M1-04的Schema和Registry完全不访问集群，现有Doctor和Context操作仍然只读；
+- Schema和Registry扫描仍完全不访问集群；只有内部`KubernetesGateway`能够访问已信任Context，当前尚未提供面向用户的实验写命令；
 - 数据库、备份和操作锁默认位于`${XDG_STATE_HOME:-~/.local/state}/kubelab/`，拒绝使用`/mnt/c`或`/mnt/d`作为正式状态目录；
 - SQLite启用WAL、外键和5000ms busy timeout，迁移前在独占锁内创建安全备份；
 - 仅允许显式信任可证明属于本机的minikube；
 - API Server必须使用HTTPS，并且是回环地址或与`minikube ip`完全一致；
 - Context、Server、CA、`kube-system` UID或profile漂移时，未来写操作会被拒绝；
 - 不执行实验提供的任意宿主机命令；
-- 不自动删除Namespace、移除finalizer或修改`kube-system`；
+- 只删除数据库Session作用域和全部所有权元数据完全匹配的`kubelab-*` Namespace；绝不移除finalizer或修改`kube-system`；
 - 日志、JSON和配置不得保存Kubernetes凭证。
 
 ## 项目结构
@@ -178,7 +190,7 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 - [x] M1-03 minikube Context信任；
 - [x] M1-04 实验Schema和LabRegistry；
 - [x] M1-05 SQLite、状态机和操作锁；
-- [ ] M1-06 KubernetesGateway；
+- [x] M1-06 KubernetesGateway；
 - [ ] M1-07 LabManager；
 - [ ] M1-08 ValidationEngine；
 - [ ] M1-09 首批三个故障实验；
@@ -203,4 +215,4 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 
 ### 现在能开始故障实验吗？
 
-还不能。当前版本可以校验实验定义和拒绝危险Manifest，但资源创建、自动验证和清理能力仍将在后续M1阶段加入。
+还不能通过公开命令开始。当前版本已经具备内部的安全资源网关，但仍需M1-07 LabManager、M1-08 ValidationEngine和M1-10 CLI把启动、验证与清理串成用户工作流。

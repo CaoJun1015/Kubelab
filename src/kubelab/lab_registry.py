@@ -32,6 +32,17 @@ class RegistryErrorCode(StrEnum):
     MANIFEST_NAMESPACE_FORBIDDEN = "MANIFEST_NAMESPACE_FORBIDDEN"
     MANIFEST_UNSAFE = "MANIFEST_UNSAFE"
     LABS_DIR_INVALID = "LABS_DIR_INVALID"
+    LAB_SOURCE_CHANGED = "LAB_SOURCE_CHANGED"
+
+
+class LabMaterializationError(RuntimeError):
+    """Raised when a previously loaded lab can no longer be materialized safely."""
+
+    code = "LAB_SOURCE_CHANGED"
+
+    def __init__(self, errors: tuple[RegistryError, ...]) -> None:
+        super().__init__("The lab source changed after registry validation.")
+        self.errors = errors
 
 
 class LoadedLab(LabModel):
@@ -59,6 +70,17 @@ class RegistrySnapshot(LabModel):
 
     labs: tuple[LoadedLab, ...]
     errors: tuple[RegistryError, ...]
+
+
+@dataclass(frozen=True)
+class _MaterializedLab:
+    """Rescanned Manifest documents for immediate use by the cluster gateway.
+
+    This deliberately is not a Pydantic/public DTO because it contains raw Manifest
+    mappings, including possible Secret values. It must never cross a CLI or Web boundary.
+    """
+
+    documents: tuple[ManifestDocument, ...]
 
 
 @dataclass(frozen=True)
@@ -221,6 +243,64 @@ class LabRegistry:
             )
         )
         return RegistrySnapshot(labs=tuple(loaded), errors=tuple(errors))
+
+    def materialize_for_gateway(self, loaded: LoadedLab) -> _MaterializedLab:
+        """Re-read, digest-check, and rescan a loaded lab immediately before apply."""
+        root, root_error = self._resolve_root()
+        if root_error is not None or root is None:
+            raise LabMaterializationError((root_error,) if root_error is not None else ())
+
+        if (
+            not _portable_relative_path(loaded.lab_path)
+            or PurePosixPath(loaded.lab_path).name != "lab.yaml"
+        ):
+            raise LabMaterializationError((self._source_changed(loaded),))
+        lab_file = root.joinpath(*PurePosixPath(loaded.lab_path).parts)
+        try:
+            resolved_lab_file = lab_file.resolve(strict=True)
+        except OSError:
+            raise LabMaterializationError((self._source_changed(loaded),)) from None
+        if not _is_within(resolved_lab_file, root):
+            raise LabMaterializationError((self._source_changed(loaded),))
+        candidate, definition_errors = self._load_definition(root, lab_file)
+        if candidate is None or definition_errors:
+            raise LabMaterializationError(definition_errors)
+        if candidate.definition != loaded.definition or candidate.lab_path != loaded.lab_path:
+            raise LabMaterializationError((self._source_changed(loaded),))
+
+        bundle = self._load_manifests(root, candidate)
+        if bundle.errors:
+            raise LabMaterializationError(bundle.errors)
+        if bundle.paths != loaded.manifest_paths or bundle.digests != loaded.manifest_sha256:
+            raise LabMaterializationError((self._source_changed(loaded),))
+
+        issues = self._scanner.scan(
+            bundle.documents,
+            namespace=candidate.definition.environment.namespace,
+        )
+        if issues:
+            errors = tuple(
+                RegistryError(
+                    code=RegistryErrorCode(issue.code),
+                    message=issue.message,
+                    lab_path=issue.manifest_path,
+                    field_path=issue.field_path,
+                    lab_id=candidate.definition.metadata.id,
+                )
+                for issue in issues
+            )
+            raise LabMaterializationError(errors)
+        return _MaterializedLab(bundle.documents)
+
+    @staticmethod
+    def _source_changed(loaded: LoadedLab) -> RegistryError:
+        return RegistryError(
+            code=RegistryErrorCode.LAB_SOURCE_CHANGED,
+            message="Lab files changed after registry validation; reload the registry.",
+            lab_path=loaded.lab_path,
+            retryable=True,
+            lab_id=loaded.definition.metadata.id,
+        )
 
     def _resolve_root(self) -> tuple[Path | None, RegistryError | None]:
         if self._explicit_labs_dir is not None:
@@ -502,6 +582,7 @@ __all__ = [
     "LabMetadata",
     "LabDefinition",
     "LabRegistry",
+    "LabMaterializationError",
     "LoadedLab",
     "RegistryError",
     "RegistryErrorCode",
