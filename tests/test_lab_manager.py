@@ -26,7 +26,13 @@ from kubelab.lab_manager import (
 from kubelab.lab_registry import LabRegistry, LoadedLab
 from kubelab.operation_lock import OperationLock, OperationLockError
 from kubelab.repositories import ActiveSessionConflict
-from kubelab.session_state import LabSessionSnapshot, SessionStatus, ValidationStatus
+from kubelab.session_state import (
+    LabSessionSnapshot,
+    SessionStatus,
+    ValidationStatus,
+    VerificationPurpose,
+)
+from kubelab.validation_engine import ValidationRunResult
 
 
 def trusted_record() -> TrustedContext:
@@ -57,13 +63,40 @@ class FakeValidation:
     def __init__(self) -> None:
         self.result = InitialContractResult(status=ValidationStatus.PASSED)
         self.calls = 0
+        self.reset_sequences: list[int] = []
+        self.success_status = ValidationStatus.PASSED
 
     def validate_initial_contract(
-        self, scope: SessionScope, lab: LoadedLab, gateway: Any
+        self,
+        scope: SessionScope,
+        lab: LoadedLab,
+        gateway: Any,
+        reset_sequence: int,
     ) -> InitialContractResult:
         del scope, lab, gateway
         self.calls += 1
+        self.reset_sequences.append(reset_sequence)
         return self.result
+
+    def validate_success_contract(
+        self,
+        scope: SessionScope,
+        lab: LoadedLab,
+        gateway: Any,
+        reset_sequence: int,
+        purpose: VerificationPurpose = VerificationPurpose.MANUAL,
+    ) -> ValidationRunResult:
+        del lab, gateway
+        return ValidationRunResult(
+            id="123e4567-e89b-42d3-a456-426614174111",
+            session_id=scope.session_id,
+            purpose=purpose,
+            status=self.success_status,
+            reset_sequence=reset_sequence,
+            checked_at=datetime(2026, 8, 26, tzinfo=UTC),
+            duration_ms=10,
+            results=(),
+        )
 
 
 class FakeGateway:
@@ -186,6 +219,7 @@ def test_start_creates_ready_session_in_dependency_order(
     assert gateway.closed is True
     assert trust.calls == 1
     assert validation.calls == 1
+    assert validation.reset_sequences == [0]
     assert events(database, result.id) == ("session_created", "environment_ready")
 
 
@@ -370,6 +404,7 @@ def test_reset_preserves_session_id_and_increments_counter(
     assert result.reset_count == 1
     assert gateway.calls == ["delete", "create", "apply"]
     assert validation.calls == 2
+    assert validation.reset_sequences == [0, 1]
 
 
 def test_reset_failure_cleans_partial_environment_and_leaves_retryable_error(
@@ -449,6 +484,92 @@ def test_cleanup_failure_preserves_active_error_session(database: Database, tmp_
 
     assert error.value.code == GatewayErrorCode.OWNERSHIP_MISMATCH
     assert persisted(database, session.id).status is SessionStatus.ERROR
+
+
+def test_verify_advances_ready_session_to_passed(database: Database, tmp_path: Path) -> None:
+    manager, gateway, _, validation = build_manager(database, tmp_path)
+    session = manager.start("complete-lab")
+    gateway.calls.clear()
+
+    result = manager.verify(session.id)
+
+    assert result.status is ValidationStatus.PASSED
+    assert result.reset_sequence == 0
+    assert persisted(database, session.id).status is SessionStatus.PASSED
+    assert events(database, session.id)[-2:] == (
+        "verification_started",
+        "success_contract_passed",
+    )
+    assert validation.success_status is ValidationStatus.PASSED
+    assert gateway.closed is True
+
+
+def test_verify_failure_keeps_session_in_progress(database: Database, tmp_path: Path) -> None:
+    validation = FakeValidation()
+    validation.success_status = ValidationStatus.FAILED
+    manager, _, _, _ = build_manager(database, tmp_path, validation=validation)
+    session = manager.start("complete-lab")
+
+    result = manager.verify(session.id)
+
+    assert result.status is ValidationStatus.FAILED
+    assert persisted(database, session.id).status is SessionStatus.IN_PROGRESS
+
+
+def test_context_drift_blocks_verify_before_gateway_or_state_change(
+    database: Database, tmp_path: Path
+) -> None:
+    manager, gateway, trust, _ = build_manager(database, tmp_path)
+    session = manager.start("complete-lab")
+    gateway.calls.clear()
+    trust.error = ContextNotTrustedError("CA changed")
+
+    with pytest.raises(LabManagerError) as error:
+        manager.verify(session.id)
+
+    assert error.value.code == ManagerErrorCode.CONTEXT_DRIFT
+    assert gateway.calls == []
+    assert persisted(database, session.id).status is SessionStatus.READY
+
+
+def test_reverify_passed_session_does_not_repeat_transition(
+    database: Database, tmp_path: Path
+) -> None:
+    manager, _, _, _ = build_manager(database, tmp_path)
+    session = manager.start("complete-lab")
+    manager.verify(session.id)
+    before = events(database, session.id)
+
+    result = manager.verify(session.id)
+
+    assert result.status is ValidationStatus.PASSED
+    assert events(database, session.id) == before
+
+
+@pytest.mark.parametrize("terminal", [SessionStatus.ERROR, SessionStatus.COMPLETED])
+def test_verify_rejects_error_and_completed_sessions(
+    database: Database, tmp_path: Path, terminal: SessionStatus
+) -> None:
+    manager, _, _, _ = build_manager(database, tmp_path)
+    session = manager.start("complete-lab")
+    with database.unit_of_work() as uow:
+        if terminal is SessionStatus.ERROR:
+            uow.sessions.transition(
+                session.id, terminal, event_type="simulated_error", error_code="TEST"
+            )
+        else:
+            uow.sessions.transition(
+                session.id, SessionStatus.CLEANING, event_type="simulated_cleanup"
+            )
+            uow.sessions.transition(
+                session.id, SessionStatus.COMPLETED, event_type="simulated_completed"
+            )
+        uow.commit()
+
+    with pytest.raises(LabManagerError) as error:
+        manager.verify(session.id)
+
+    assert error.value.code == "INVALID_SESSION_STATE"
 
 
 def test_missing_active_session_returns_stable_error(database: Database, tmp_path: Path) -> None:

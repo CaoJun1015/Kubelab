@@ -2,7 +2,7 @@
 
 KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 运维练习平台。它以本机 Docker Engine 和 minikube 为实验环境，目标是把云原生运维面试知识转化为可以反复操作、验证和复盘的故障实验。
 
-> 当前版本：`0.1.0a0`（M1-07）。项目仍处于早期开发阶段，目前提供环境诊断、minikube Context信任、实验Schema、安全加载、持久化、状态机、安全Kubernetes网关和内部实验生命周期管理；公开CLI实验命令、真实自动验证、Web页面尚未实现。
+> 当前版本：`0.1.0a0`（M1-08）。项目仍处于早期开发阶段，目前提供环境诊断、minikube Context信任、实验Schema、安全加载、持久化、状态机、安全Kubernetes网关、内部实验生命周期管理和声明式验证引擎；公开CLI实验命令、首批真实故障实验和Web页面尚未实现。
 
 ## 当前可用功能
 
@@ -22,8 +22,12 @@ KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 
 - `KubernetesGateway`：只在Session作用域内创建受保护Namespace，执行server-side dry-run/apply，并提供脱敏资源、Pod、Events和受限Logs读取；
 - Namespace删除前核对前缀、Session记录、管理标签、lab ID、Session ID和Context指纹；超时只报告finalizer和残留资源，不强制删除；
 - `LabRegistry.materialize_for_gateway()`：Apply前重新读取、校验摘要并执行安全扫描，阻止扫描后替换文件；
-- 受限curl探测Pod基础能力：固定镜像、资源限额和安全上下文，只允许访问当前实验Namespace的集群内Service DNS；
+- 8种声明式验证器：资源存在、Pod状态、Deployment可用副本、Service Endpoint、容器镜像、配置值、PVC状态和集群内HTTP响应；
+- `ValidationEngine`：顺序执行检查，使用500ms/1s/2s轮询、单项及全局deadline、Pod稳定窗口，并严格区分`passed/failed/error`；
+- 初始故障契约：证明所有初始条件成立，同时证明至少一项成功条件尚未满足；每次运行和逐项结果在短事务中原子持久化；
+- 受限curl探测Pod闭环：固定镜像、资源限额和安全上下文，只允许访问实验Service或内置minikube ingress-nginx目录，并在成功、失败或超时后清理；
 - `LabManager`：通过短数据库事务协调`start/status/reset/cleanup`，在每次写操作前重新验证Context，并在部分Apply或初始契约失败时安全回滚；
+- `LabManager.verify()`：READY首次验证转为IN_PROGRESS，仅在全部成功检查通过后转为PASSED；Context漂移或非法状态会被拒绝；
 - 状态协调：外部删除环境时受控完成Session，Namespace身份不匹配时转为`error`且拒绝删除，reset保留Session ID并支持中断重试；
 - JSON输出、稳定退出码、凭证脱敏和原子配置写入。
 
@@ -151,7 +155,7 @@ uv run ruff format --check .
 uv run mypy src
 ```
 
-当前质量基线：Windows下收集304项测试，301项通过、3项跳过，覆盖率92.45%；WSL下收集304项测试，303项通过、1项默认关闭的真实集成测试跳过，覆盖率92.70%。M1-06另在已信任minikube中显式运行1项Namespace创建/安全清理集成测试并确认无残留。两端Ruff、格式检查和strict mypy均通过。
+当前质量基线：Windows和WSL的最终数据见TDD“当前环境说明”中的M1-08记录。两端均要求pytest覆盖率不低于90%，并通过Ruff、格式检查、strict mypy和`git diff --check`。真实集成测试默认关闭，只能在已信任的本地minikube中显式运行。
 
 只有在WSL中确认`kubelab context inspect`显示`trusted`后，才可显式运行真实网关测试：
 
@@ -159,7 +163,7 @@ uv run mypy src
 KUBELAB_RUN_INTEGRATION=1 uv run pytest --no-cov -q tests/test_kubernetes_gateway_integration.py
 ```
 
-该测试只创建一个随机`kubelab-test-*` Namespace，并通过所有权校验清理；不要在远程或生产Context运行。
+该测试包含Namespace安全往返和Service HTTP Probe用例；每项只创建随机`kubelab-test-*` Namespace并通过所有权校验清理。可以用`-k service_http_probe`只运行HTTP用例；不要在远程或生产Context运行。
 
 ## 安全边界
 
@@ -194,7 +198,7 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 - [x] M1-05 SQLite、状态机和操作锁；
 - [x] M1-06 KubernetesGateway；
 - [x] M1-07 LabManager；
-- [ ] M1-08 ValidationEngine；
+- [x] M1-08 ValidationEngine；
 - [ ] M1-09 首批三个故障实验；
 - [ ] M1-10 CLI垂直切片验收；
 - [ ] M2 本地Web界面。
@@ -217,4 +221,4 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 
 ### 现在能开始故障实验吗？
 
-还不能通过公开命令开始。当前版本已经具备内部的安全资源网关和生命周期管理，但仍需M1-08 ValidationEngine及M1-10 CLI把真实检查与用户命令接入。
+还不能通过公开命令开始。当前版本已经具备内部的安全资源网关、生命周期管理和验证引擎，但仍需M1-09提供正式故障实验，并由M1-10 CLI把这些能力接入用户命令。

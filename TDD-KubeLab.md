@@ -438,7 +438,7 @@ P0验证类型：
 | type | 关键字段 | 判定 |
 |---|---|---|
 | `resource_exists` | apiVersion/kind/name | 资源存在 |
-| `pod_status` | selector/expectedPhase/minimumCount/minimumReady/stableSeconds | 匹配Pod达到目标Phase及可选Ready条件 |
+| `pod_status` | selector/expectedPhase/minimumCount/minimumReady/stableSeconds/ready/containerName/expectedWaitingReasons/minimumRestartCount/maximumRestartCount | 匹配Pod达到目标Phase，并可精确约束Pod或容器Ready、waiting reason和重启次数 |
 | `deployment_available` | name/minimumReplicas | availableReplicas达到下限 |
 | `service_endpoint_count` | name/minimum/maximum/exactly | EndpointSlice可用地址数量满足约束 |
 | `container_image` | workloadKind/workloadName/container/expectedImage | 容器镜像完全匹配 |
@@ -447,6 +447,8 @@ P0验证类型：
 | `http_response` | target/expectedStatus | 集群内HTTP返回预期状态 |
 
 `minimum`、`maximum`和`exactly`至少出现一个；使用`exactly`时不得同时设置其他数量字段。
+
+`pod_status`中的waiting reason和restart约束必须同时指定`containerName`；`minimumRestartCount`不得大于`maximumRestartCount`。`minimumReady`始终统计Pod Ready数量，`ready`在指定`containerName`时检查该容器，否则检查整个Pod。
 
 M1-04确认上述8种类型为`kubelab.io/v1alpha1`唯一正式协议，不兼容早期草案中的`resource_not_exists`、`pod_phase`、`pod_ready`、`pvc_phase`和`http_status`。`http_response.target`只接受结构化Service或Ingress引用，不接受任意URL。
 
@@ -1348,6 +1350,12 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 
 完成标准：failed与error严格区分，Probe成功、超时和清理失败均有测试。
 
+实际实现提供冻结的`ValidationRunResult`和`PublicCheckResult`，公开结果不携带expected/actual。8种检查统一顺序执行，单项deadline取检查超时与全局deadline的较早值，轮询间隔为500ms、1秒、2秒后保持2秒；`stableSeconds`要求条件连续成立，中途失败会重置窗口。聚合严格采用`error > failed > passed`。
+
+初始契约分别持久化`initial`与`success_contract`运行：全部初始检查必须通过，成功条件预检不得出现error且至少一项必须failed。手动成功验证由`LabManager.verify()`接入，READY首次验证转IN_PROGRESS，仅通过时转PASSED；failed或error保留IN_PROGRESS，PASSED可重复只读验证，ERROR和COMPLETED拒绝验证。
+
+Gateway验证接口只返回脱敏观察DTO：EndpointSlice地址去重且忽略`ready=false`，Secret在Gateway内部严格base64解码并使用常量时间比较，数据库只保存key存在性和matched布尔值。HTTP目标由结构化Service/Ingress引用解析；Ingress固定访问minikube官方`ingress-nginx-controller.ingress-nginx.svc.cluster.local`目录并设置Host头，实验不能提供外部URL或Controller地址。Probe固定使用`curlimages/curl:8.12.1`，在`finally`中清理，删除失败只返回非致命warning并由Namespace清理兜底。
+
 ### M1-09 三个实验
 
 产出：
@@ -1479,3 +1487,11 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 - WSL2 Ubuntu Python 3.11.16下收集304项测试，303项通过，1项真实集成测试默认跳过，覆盖率92.70%；
 - LabManager专项测试覆盖正常启动、活动Session冲突、create/apply/初始契约失败、回滚清理失败、外部删除协调、Namespace身份不匹配、Context漂移、reset中断重试、幂等cleanup及操作锁冲突；
 - 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`通过；本阶段新增测试全部使用Fake集群，没有创建、修改或删除真实minikube资源。
+
+2026-08-26，M1-08 ValidationEngine完成双环境质量门和受限真实集成检查：
+
+- Windows Python 3.11下收集368项测试，364项通过，2项因符号链接权限跳过，2项真实集成测试默认跳过，覆盖率92.45%；
+- WSL2 Ubuntu Python 3.11.16下收集368项测试，366项通过，2项真实集成测试默认跳过，覆盖率92.66%；
+- 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`全部通过；Fake测试逐项覆盖8种验证器的passed、failed、Kubernetes error和deadline，并覆盖轮询退避、全局deadline、稳定窗口、聚合、持久化脱敏、HTTP Probe和LabManager verify状态转换；
+- 在信任状态为`trusted`的本地minikube v1.35.1中显式启动Service HTTP Probe集成用例；固定测试镜像`nginx:1.27-alpine`出现`ErrImagePull`，测试按环境错误安全跳过，没有误记为验证失败；
+- 集成测试的`finally`安全删除随机`kubelab-test-*` Namespace，事后只读检查确认不存在测试Namespace或`kubelab.io/probe=true` Pod。本次不声明真实HTTP 200验收已经通过，待镜像拉取环境恢复后重跑。

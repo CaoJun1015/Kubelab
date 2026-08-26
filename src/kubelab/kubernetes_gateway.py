@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import copy
+import hmac
 import re
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -13,6 +16,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypeVar, cast
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 from kubernetes import client, config, dynamic
 from kubernetes.client.exceptions import ApiException
@@ -20,7 +24,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from urllib3.exceptions import ConnectTimeoutError, ReadTimeoutError
 
 from kubelab.lab_registry import LoadedLab
-from kubelab.manifest_security import ManifestDocument
+from kubelab.lab_schema import HttpTarget
+from kubelab.manifest_security import ALLOWED_RESOURCES, ManifestDocument
 
 FIELD_MANAGER = "kubelab"
 MANAGED_BY_LABEL = "kubelab.io/managed-by"
@@ -32,6 +37,9 @@ PROBE_LABEL = "kubelab.io/probe"
 _MAX_LOG_LINES = 500
 _DEFAULT_LOG_LINES = 200
 _MAX_LOG_BYTES = 256 * 1024
+_INGRESS_CONTROLLER_NAMESPACE = "ingress-nginx"
+_INGRESS_CONTROLLER_SERVICE = "ingress-nginx-controller"
+_INGRESS_CONTROLLER_HOST = "ingress-nginx-controller.ingress-nginx.svc.cluster.local"
 _APPLY_ORDER = {
     "ConfigMap": 0,
     "Secret": 0,
@@ -60,6 +68,7 @@ class GatewayErrorCode(StrEnum):
     OWNERSHIP_MISMATCH = "NAMESPACE_OWNERSHIP_MISMATCH"
     NAMESPACE_TERMINATING = "NAMESPACE_TERMINATING"
     LOG_CONTAINER_REQUIRED = "LOG_CONTAINER_REQUIRED"
+    INGRESS_CONTROLLER_UNAVAILABLE = "INGRESS_CONTROLLER_UNAVAILABLE"
 
 
 class KubernetesGatewayError(RuntimeError):
@@ -136,6 +145,7 @@ class ContainerSummary(GatewayModel):
 
 class PodSummary(GatewayModel):
     name: str
+    labels: dict[str, str] = Field(default_factory=dict)
     phase: str | None = None
     ready: bool
     restart_count: int
@@ -190,12 +200,49 @@ class ProbeSpec(GatewayModel):
         return value
 
 
+class ConfigMatchResult(GatewayModel):
+    resource_exists: bool
+    key_exists: bool
+    matched: bool
+    valid_encoding: bool = True
+
+
+class HttpProbeResult(GatewayModel):
+    target_available: bool = True
+    status_code: int | None = None
+    exit_code: int | None = None
+    infrastructure_error: bool = False
+    timed_out: bool = False
+    reason: str | None = None
+    cleanup_warning: str | None = None
+
+
 class KubernetesApi(Protocol):
     """Narrow adapter used by the gateway and replaced by fakes in unit tests."""
 
     def create_namespace(self, body: Mapping[str, Any], *, timeout: int) -> None: ...
 
     def read_namespace(self, name: str, *, timeout: int) -> Mapping[str, Any]: ...
+
+    def get_resource(
+        self,
+        api_version: str,
+        kind: str,
+        *,
+        namespace: str,
+        name: str,
+        timeout: int,
+    ) -> Mapping[str, Any] | None: ...
+
+    def list_resource(
+        self,
+        api_version: str,
+        kind: str,
+        *,
+        namespace: str,
+        label_selector: str | None,
+        timeout: int,
+    ) -> Sequence[Mapping[str, Any]]: ...
 
     def create_resource_quota(
         self, namespace: str, body: Mapping[str, Any], *, timeout: int
@@ -284,6 +331,43 @@ class OfficialKubernetesApi:  # pragma: no cover - exercised by opt-in WSL integ
     def read_namespace(self, name: str, *, timeout: int) -> Mapping[str, Any]:
         value = self._core.read_namespace(name, _request_timeout=timeout)
         return self._serialized(value)
+
+    def get_resource(
+        self,
+        api_version: str,
+        kind: str,
+        *,
+        namespace: str,
+        name: str,
+        timeout: int,
+    ) -> Mapping[str, Any] | None:
+        resource = self._dynamic.resources.get(api_version=api_version, kind=kind)
+        try:
+            response = resource.get(name=name, namespace=namespace, _request_timeout=timeout)
+        except ApiException as exc:
+            if exc.status == 404:
+                return None
+            raise
+        return self._serialized(response)
+
+    def list_resource(
+        self,
+        api_version: str,
+        kind: str,
+        *,
+        namespace: str,
+        label_selector: str | None,
+        timeout: int,
+    ) -> Sequence[Mapping[str, Any]]:
+        resource = self._dynamic.resources.get(api_version=api_version, kind=kind)
+        kwargs: dict[str, Any] = {
+            "namespace": namespace,
+            "_request_timeout": timeout,
+        }
+        if label_selector:
+            kwargs["label_selector"] = label_selector
+        response = resource.get(**kwargs)
+        return [self._serialized(item) for item in response.items]
 
     def create_resource_quota(
         self, namespace: str, body: Mapping[str, Any], *, timeout: int
@@ -576,6 +660,291 @@ class KubernetesGateway:
         )
         return tuple(sorted((_pod_summary(item) for item in documents), key=lambda item: item.name))
 
+    def resource_exists(
+        self, scope: SessionScope, *, api_version: str, kind: str, name: str
+    ) -> bool:
+        """Check one allowlisted namespaced object without exposing its body."""
+        self.assert_namespace_owned(scope)
+        if (api_version, kind) not in ALLOWED_RESOURCES:
+            raise self._scope_error("Validation requested an unsupported resource kind.")
+        document = self._call(
+            lambda: self._api.get_resource(
+                api_version,
+                kind,
+                namespace=scope.namespace,
+                name=name,
+                timeout=self._request_timeout,
+            )
+        )
+        return document is not None
+
+    def validation_pods(
+        self, scope: SessionScope, selector: Mapping[str, str]
+    ) -> tuple[PodSummary, ...]:
+        """Return safe Pod observations matching every requested label."""
+        pods = self.list_pods(scope)
+        return tuple(
+            pod
+            for pod in pods
+            if all(pod.labels.get(key) == value for key, value in selector.items())
+        )
+
+    def deployment_available_replicas(self, scope: SessionScope, name: str) -> int | None:
+        document = self._get_validation_resource(scope, "apps/v1", "Deployment", name)
+        if document is None:
+            return None
+        value = _as_mapping(document.get("status")).get("availableReplicas", 0)
+        return int(value) if isinstance(value, int) else 0
+
+    def service_endpoint_count(self, scope: SessionScope, name: str) -> int | None:
+        service = self._get_validation_resource(scope, "v1", "Service", name)
+        if service is None:
+            return None
+        slices = self._call(
+            lambda: self._api.list_resource(
+                "discovery.k8s.io/v1",
+                "EndpointSlice",
+                namespace=scope.namespace,
+                label_selector=f"kubernetes.io/service-name={name}",
+                timeout=self._request_timeout,
+            )
+        )
+        addresses: set[str] = set()
+        for item in slices:
+            for endpoint in _sequence_of_mappings(item.get("endpoints")):
+                conditions = _as_mapping(endpoint.get("conditions"))
+                if conditions.get("ready") is False:
+                    continue
+                for address in endpoint.get("addresses", ()):
+                    if isinstance(address, str):
+                        addresses.add(address)
+        return len(addresses)
+
+    def workload_container_image(
+        self,
+        scope: SessionScope,
+        *,
+        workload_kind: str,
+        workload_name: str,
+        container: str,
+    ) -> str | None:
+        api_versions = {
+            "Pod": "v1",
+            "Deployment": "apps/v1",
+            "StatefulSet": "apps/v1",
+            "DaemonSet": "apps/v1",
+            "Job": "batch/v1",
+            "CronJob": "batch/v1",
+        }
+        api_version = api_versions.get(workload_kind)
+        if api_version is None:
+            raise self._scope_error("Validation requested an unsupported workload kind.")
+        document = self._get_validation_resource(scope, api_version, workload_kind, workload_name)
+        if document is None:
+            return None
+        pod_spec = _workload_pod_spec(document, workload_kind)
+        for item in _sequence_of_mappings(pod_spec.get("containers")):
+            if item.get("name") == container:
+                return _optional_string(item.get("image"))
+        return None
+
+    def config_value_matches(
+        self,
+        scope: SessionScope,
+        *,
+        source_kind: str,
+        source_name: str,
+        key: str,
+        expected_value: str,
+    ) -> ConfigMatchResult:
+        if source_kind not in {"ConfigMap", "Secret"}:
+            raise self._scope_error("Validation requested an unsupported configuration source.")
+        document = self._get_validation_resource(scope, "v1", source_kind, source_name)
+        if document is None:
+            return ConfigMatchResult(resource_exists=False, key_exists=False, matched=False)
+        data = _as_mapping(document.get("data"))
+        raw = data.get(key)
+        if not isinstance(raw, str):
+            return ConfigMatchResult(resource_exists=True, key_exists=False, matched=False)
+        if source_kind == "ConfigMap":
+            return ConfigMatchResult(
+                resource_exists=True,
+                key_exists=True,
+                matched=hmac.compare_digest(raw, expected_value),
+            )
+        try:
+            decoded = base64.b64decode(raw, validate=True).decode("utf-8")
+        except (binascii.Error, UnicodeError):
+            return ConfigMatchResult(
+                resource_exists=True,
+                key_exists=True,
+                matched=False,
+                valid_encoding=False,
+            )
+        return ConfigMatchResult(
+            resource_exists=True,
+            key_exists=True,
+            matched=hmac.compare_digest(decoded, expected_value),
+        )
+
+    def pvc_phase(self, scope: SessionScope, name: str) -> str | None:
+        document = self._get_validation_resource(scope, "v1", "PersistentVolumeClaim", name)
+        if document is None:
+            return None
+        return _optional_string(_as_mapping(document.get("status")).get("phase"))
+
+    def run_http_probe(
+        self, scope: SessionScope, target: HttpTarget, *, deadline: float
+    ) -> HttpProbeResult:
+        """Resolve a structured target, run curl in-cluster, and always clean the Pod."""
+        self.assert_namespace_owned(scope)
+        resolved = self._resolve_http_target(scope, target)
+        if resolved is None:
+            return HttpProbeResult(target_available=False, reason="Target route was not found.")
+        url, host_header = resolved
+        remaining = max(1, min(60, int(deadline - self._monotonic())))
+        name = f"kubelab-probe-{uuid4().hex[:8]}"
+        spec = ProbeSpec(
+            name=name,
+            url=url,
+            host_header=host_header,
+            timeout_seconds=remaining,
+        )
+        created = False
+        result: HttpProbeResult | None = None
+        cleanup_warning: str | None = None
+        try:
+            body = _probe_manifest(scope, spec)
+            self._call(
+                lambda: self._api.create_probe(scope.namespace, body, timeout=self._request_timeout)
+            )
+            created = True
+            while self._monotonic() < deadline:
+                document = self._call(
+                    lambda: self._api.read_pod(scope.namespace, name, timeout=self._request_timeout)
+                )
+                phase = _optional_string(_as_mapping(document.get("status")).get("phase"))
+                if phase in {"Succeeded", "Failed"}:
+                    exit_code, reason = _probe_termination(document)
+                    pod_reason = _optional_string(_as_mapping(document.get("status")).get("reason"))
+                    if (
+                        exit_code is None
+                        or pod_reason in {"DeadlineExceeded", "Evicted"}
+                        or reason
+                        in {
+                            "OOMKilled",
+                            "ContainerCannotRun",
+                            "StartError",
+                        }
+                    ):
+                        result = HttpProbeResult(
+                            exit_code=exit_code,
+                            infrastructure_error=True,
+                            timed_out=pod_reason == "DeadlineExceeded",
+                            reason=pod_reason
+                            or reason
+                            or "Probe Pod failed before curl completed.",
+                        )
+                        break
+                    raw = self._call(
+                        lambda: self._api.read_logs(
+                            scope.namespace,
+                            name,
+                            container="curl",
+                            previous=False,
+                            tail_lines=10,
+                            timeout=self._request_timeout,
+                        )
+                    )
+                    status_code = _parse_http_status(raw)
+                    result = HttpProbeResult(
+                        status_code=status_code,
+                        exit_code=exit_code,
+                        infrastructure_error=exit_code == 0 and status_code is None,
+                        reason=reason,
+                    )
+                    break
+                self._sleep(min(0.5, max(0.0, deadline - self._monotonic())))
+            if result is None:
+                result = HttpProbeResult(
+                    infrastructure_error=True,
+                    timed_out=True,
+                    reason="Probe Pod did not complete before the deadline.",
+                )
+        finally:
+            if created:
+                try:
+                    self._call(
+                        lambda: self._api.delete_probe(
+                            scope.namespace, name, timeout=self._request_timeout
+                        )
+                    )
+                except KubernetesGatewayError as exc:
+                    if exc.code is not GatewayErrorCode.NOT_FOUND:
+                        cleanup_warning = "Probe cleanup failed; Namespace cleanup will retry."
+        if result is None:  # pragma: no cover - defensive assignment
+            raise KubernetesGatewayError(
+                GatewayErrorCode.API_ERROR, "Probe execution produced no result."
+            )
+        return result.model_copy(update={"cleanup_warning": cleanup_warning})
+
+    def _get_validation_resource(
+        self, scope: SessionScope, api_version: str, kind: str, name: str
+    ) -> Mapping[str, Any] | None:
+        self.assert_namespace_owned(scope)
+        if (api_version, kind) not in ALLOWED_RESOURCES:
+            raise self._scope_error("Validation requested an unsupported resource kind.")
+        return self._call(
+            lambda: self._api.get_resource(
+                api_version,
+                kind,
+                namespace=scope.namespace,
+                name=name,
+                timeout=self._request_timeout,
+            )
+        )
+
+    def _resolve_http_target(
+        self, scope: SessionScope, target: HttpTarget
+    ) -> tuple[str, str | None] | None:
+        if target.mode == "service":
+            service = self._get_validation_resource(scope, "v1", "Service", target.name)
+            if service is None or not _service_has_port(service, target.port):
+                return None
+            return (
+                f"{target.scheme}://{target.name}.{scope.namespace}.svc:{target.port}{target.path}",
+                None,
+            )
+
+        ingress = self._get_validation_resource(
+            scope, "networking.k8s.io/v1", "Ingress", target.name
+        )
+        if ingress is None:
+            return None
+        host = _ingress_host_for_target(ingress, target)
+        if host is None:
+            return None
+        controller = self._call(
+            lambda: self._api.get_resource(
+                "v1",
+                "Service",
+                namespace=_INGRESS_CONTROLLER_NAMESPACE,
+                name=_INGRESS_CONTROLLER_SERVICE,
+                timeout=self._request_timeout,
+            )
+        )
+        if controller is None:
+            raise KubernetesGatewayError(
+                GatewayErrorCode.INGRESS_CONTROLLER_UNAVAILABLE,
+                "The minikube ingress-nginx controller Service is unavailable.",
+                retryable=True,
+            )
+        controller_port = 443 if target.scheme == "https" else 80
+        return (
+            f"{target.scheme}://{_INGRESS_CONTROLLER_HOST}:{controller_port}{target.path}",
+            host,
+        )
+
     def list_events(self, scope: SessionScope) -> tuple[EventSummary, ...]:
         self.assert_namespace_owned(scope)
         documents = self._call(
@@ -642,7 +1011,7 @@ class KubernetesGateway:
             f".{scope.namespace}.svc",
             f".{scope.namespace}.svc.cluster.local",
         )
-        if not hostname.endswith(allowed_suffixes):
+        if hostname != _INGRESS_CONTROLLER_HOST and not hostname.endswith(allowed_suffixes):
             raise self._scope_error("Probe target is outside the experiment Namespace.")
         body = _probe_manifest(scope, spec)
         self._call(
@@ -937,6 +1306,7 @@ def _pod_summary(document: Mapping[str, Any]) -> PodSummary:
     restart_count = sum(item.restart_count for item in containers)
     return PodSummary(
         name=str(metadata.get("name", "unknown")),
+        labels=_string_mapping(metadata.get("labels")),
         phase=_optional_string(status.get("phase")),
         ready=ready,
         restart_count=restart_count,
@@ -987,6 +1357,67 @@ def _container_names(document: Mapping[str, Any]) -> tuple[str, ...]:
     )
 
 
+def _sequence_of_mappings(value: Any) -> tuple[Mapping[str, Any], ...]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return ()
+    return tuple(item for item in value if isinstance(item, Mapping))
+
+
+def _workload_pod_spec(document: Mapping[str, Any], kind: str) -> Mapping[str, Any]:
+    spec = _as_mapping(document.get("spec"))
+    if kind == "Pod":
+        return spec
+    if kind == "CronJob":
+        job_template = _as_mapping(spec.get("jobTemplate"))
+        job_spec = _as_mapping(job_template.get("spec"))
+        template = _as_mapping(job_spec.get("template"))
+        return _as_mapping(template.get("spec"))
+    template = _as_mapping(spec.get("template"))
+    return _as_mapping(template.get("spec"))
+
+
+def _service_has_port(document: Mapping[str, Any], port: int) -> bool:
+    spec = _as_mapping(document.get("spec"))
+    return any(item.get("port") == port for item in _sequence_of_mappings(spec.get("ports")))
+
+
+def _ingress_host_for_target(document: Mapping[str, Any], target: HttpTarget) -> str | None:
+    spec = _as_mapping(document.get("spec"))
+    for rule in _sequence_of_mappings(spec.get("rules")):
+        host = rule.get("host")
+        http = _as_mapping(rule.get("http"))
+        for path in _sequence_of_mappings(http.get("paths")):
+            backend = _as_mapping(path.get("backend"))
+            service = _as_mapping(backend.get("service"))
+            port = _as_mapping(service.get("port"))
+            if (
+                path.get("path") == target.path
+                and service.get("name") is not None
+                and port.get("number") == target.port
+            ):
+                return str(host) if isinstance(host, str) and host else "localhost"
+    return None
+
+
+def _probe_termination(document: Mapping[str, Any]) -> tuple[int | None, str | None]:
+    status = _as_mapping(document.get("status"))
+    for container in _sequence_of_mappings(status.get("containerStatuses")):
+        if container.get("name") != "curl":
+            continue
+        terminated = _as_mapping(_as_mapping(container.get("state")).get("terminated"))
+        exit_code = terminated.get("exitCode")
+        return (
+            int(exit_code) if isinstance(exit_code, int) else None,
+            _optional_string(terminated.get("reason")),
+        )
+    return None, _optional_string(status.get("reason"))
+
+
+def _parse_http_status(value: str) -> int | None:
+    candidate = value.strip().splitlines()[-1] if value.strip() else ""
+    return int(candidate) if re.fullmatch(r"[1-5][0-9]{2}", candidate) else None
+
+
 def _truncate_log(content: str, *, tail_lines: int, max_bytes: int) -> tuple[str, bool]:
     lines = content.splitlines()
     truncated = len(lines) > tail_lines
@@ -1021,10 +1452,12 @@ def _optional_string(value: Any) -> str | None:
 
 __all__ = [
     "ContainerSummary",
+    "ConfigMatchResult",
     "EventSummary",
     "GatewayErrorCode",
     "KubernetesGateway",
     "KubernetesGatewayError",
+    "HttpProbeResult",
     "LogResult",
     "NamespaceDeleteResult",
     "PodSummary",

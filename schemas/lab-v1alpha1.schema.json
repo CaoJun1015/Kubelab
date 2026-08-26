@@ -516,6 +516,21 @@
     "PodStatusCheck": {
       "additionalProperties": false,
       "properties": {
+        "containerName": {
+          "anyOf": [
+            {
+              "maxLength": 253,
+              "minLength": 1,
+              "pattern": "^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Containername"
+        },
         "expectedPhase": {
           "enum": [
             "Pending",
@@ -527,12 +542,42 @@
           "title": "Expectedphase",
           "type": "string"
         },
+        "expectedWaitingReasons": {
+          "anyOf": [
+            {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expectedwaitingreasons"
+        },
         "id": {
           "maxLength": 63,
           "minLength": 2,
           "pattern": "^[a-z][a-z0-9-]{1,62}$",
           "title": "Id",
           "type": "string"
+        },
+        "maximumRestartCount": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maximumrestartcount"
         },
         "minimumCount": {
           "default": 1,
@@ -552,6 +597,31 @@
           ],
           "default": null,
           "title": "Minimumready"
+        },
+        "minimumRestartCount": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimumrestartcount"
+        },
+        "ready": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ready"
         },
         "selector": {
           "minProperties": 1,

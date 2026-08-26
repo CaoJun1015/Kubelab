@@ -27,6 +27,12 @@ from kubelab.session_state import (
     NewLabSession,
     SessionStatus,
     ValidationStatus,
+    VerificationPurpose,
+)
+from kubelab.validation_engine import (
+    InitialContractResult,
+    ValidationGateway,
+    ValidationRunResult,
 )
 
 
@@ -62,14 +68,6 @@ class ManagerModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-class InitialContractResult(ManagerModel):
-    """M1-07 seam replaced by the real ValidationEngine in M1-08."""
-
-    status: ValidationStatus
-    error_code: str | None = None
-    retryable: bool = False
-
-
 class SessionStatusResult(ManagerModel):
     session: LabSessionSnapshot
     namespace_exists: bool
@@ -78,11 +76,24 @@ class SessionStatusResult(ManagerModel):
 
 class ValidationService(Protocol):
     def validate_initial_contract(
-        self, scope: SessionScope, lab: LoadedLab, gateway: ClusterGateway
+        self,
+        scope: SessionScope,
+        lab: LoadedLab,
+        gateway: ValidationGateway,
+        reset_sequence: int,
     ) -> InitialContractResult: ...
 
+    def validate_success_contract(
+        self,
+        scope: SessionScope,
+        lab: LoadedLab,
+        gateway: ValidationGateway,
+        reset_sequence: int,
+        purpose: VerificationPurpose = VerificationPurpose.MANUAL,
+    ) -> ValidationRunResult: ...
 
-class ClusterGateway(Protocol):
+
+class ClusterGateway(ValidationGateway, Protocol):
     def create_environment(self, scope: SessionScope) -> None: ...
 
     def apply_lab(self, scope: SessionScope, loaded: LoadedLab, registry: LabRegistry) -> None: ...
@@ -148,7 +159,9 @@ class LabManager:
             try:
                 gateway.create_environment(scope)
                 gateway.apply_lab(scope, lab, self._registry)
-                result = self._validation.validate_initial_contract(scope, lab, gateway)
+                result = self._validation.validate_initial_contract(
+                    scope, lab, gateway, reset_sequence=0
+                )
                 if result.status is not ValidationStatus.PASSED:
                     raise LabManagerError(
                         result.error_code or ManagerErrorCode.INITIAL_CONTRACT_FAILED,
@@ -225,7 +238,10 @@ class LabManager:
                 gateway.create_environment(self._scope(session))
                 gateway.apply_lab(self._scope(session), lab, self._registry)
                 result = self._validation.validate_initial_contract(
-                    self._scope(session), lab, gateway
+                    self._scope(session),
+                    lab,
+                    gateway,
+                    reset_sequence=session.reset_count + 1,
                 )
                 if result.status is not ValidationStatus.PASSED:
                     raise LabManagerError(
@@ -276,6 +292,50 @@ class LabManager:
                     operation="cleanup",
                 )
                 raise self._manager_error(exc, operation="cleanup") from exc
+            finally:
+                gateway.close()
+
+    def verify(self, session_id: str | None = None) -> ValidationRunResult:
+        """Run successChecks and advance an in-progress Session only on success."""
+        with self._operation_lock:
+            session = self._require_session(session_id, allow_completed=True)
+            if session.status not in {
+                SessionStatus.READY,
+                SessionStatus.IN_PROGRESS,
+                SessionStatus.PASSED,
+            }:
+                raise LabManagerError(
+                    "INVALID_SESSION_STATE",
+                    "The Session cannot be verified in its current state.",
+                )
+            lab = self._require_lab(session.lab_id)
+            trusted, fingerprint = self._trusted_for_session(session)
+            if session.status is SessionStatus.READY:
+                session = self._transition(
+                    session.id,
+                    SessionStatus.IN_PROGRESS,
+                    event_type="verification_started",
+                )
+            gateway = self._gateway_factory(trusted, fingerprint)
+            try:
+                result = self._validation.validate_success_contract(
+                    self._scope(session),
+                    lab,
+                    gateway,
+                    reset_sequence=session.reset_count,
+                    purpose=VerificationPurpose.MANUAL,
+                )
+                if (
+                    result.status is ValidationStatus.PASSED
+                    and session.status is SessionStatus.IN_PROGRESS
+                ):
+                    self._transition(
+                        session.id,
+                        SessionStatus.PASSED,
+                        event_type="success_contract_passed",
+                        context={"verification_run_id": result.id},
+                    )
+                return result
             finally:
                 gateway.close()
 

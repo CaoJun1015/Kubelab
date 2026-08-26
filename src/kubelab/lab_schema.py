@@ -134,6 +134,20 @@ class PodStatusCheck(CheckBase):
     minimum_count: int = Field(alias="minimumCount", ge=1, default=1)
     minimum_ready: int | None = Field(alias="minimumReady", ge=0, default=None)
     stable_seconds: int | None = Field(alias="stableSeconds", ge=0, le=120, default=None)
+    ready: bool | None = None
+    container_name: KubernetesName | None = Field(alias="containerName", default=None)
+    expected_waiting_reasons: tuple[NonEmptyText, ...] | None = Field(
+        alias="expectedWaitingReasons", min_length=1, default=None
+    )
+    minimum_restart_count: int | None = Field(alias="minimumRestartCount", ge=0, default=None)
+    maximum_restart_count: int | None = Field(alias="maximumRestartCount", ge=0, default=None)
+
+    @field_validator("expected_waiting_reasons")
+    @classmethod
+    def waiting_reasons_are_unique(cls, value: tuple[str, ...] | None) -> tuple[str, ...] | None:
+        if value is not None and len(value) != len(set(value)):
+            raise ValueError("expectedWaitingReasons must be unique")
+        return value
 
     @model_validator(mode="after")
     def readiness_is_consistent(self) -> PodStatusCheck:
@@ -141,6 +155,22 @@ class PodStatusCheck(CheckBase):
             raise ValueError("minimumReady cannot exceed minimumCount")
         if self.stable_seconds is not None and self.minimum_ready is None:
             raise ValueError("stableSeconds requires minimumReady")
+        container_constraints = (
+            self.expected_waiting_reasons,
+            self.minimum_restart_count,
+            self.maximum_restart_count,
+        )
+        if (
+            any(value is not None for value in container_constraints)
+            and self.container_name is None
+        ):
+            raise ValueError("container status constraints require containerName")
+        if (
+            self.minimum_restart_count is not None
+            and self.maximum_restart_count is not None
+            and self.minimum_restart_count > self.maximum_restart_count
+        ):
+            raise ValueError("minimumRestartCount cannot exceed maximumRestartCount")
         return self
 
 

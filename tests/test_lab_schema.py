@@ -209,6 +209,47 @@ def test_cross_field_invariants_are_enforced(change: Any) -> None:
         LabDefinition.model_validate(data)
 
 
+def test_pod_status_accepts_precise_container_failure_contract() -> None:
+    data = complete_lab()
+    data["initialChecks"][1].update(
+        ready=False,
+        containerName="web",
+        expectedWaitingReasons=["ErrImagePull", "ImagePullBackOff"],
+        minimumRestartCount=1,
+        maximumRestartCount=3,
+    )
+
+    lab = LabDefinition.model_validate(data)
+    check = lab.initial_checks[1]
+
+    assert check.type == "pod_status"
+    assert check.container_name == "web"
+    assert check.expected_waiting_reasons == ("ErrImagePull", "ImagePullBackOff")
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda check: check.update(expectedWaitingReasons=["CrashLoopBackOff"]),
+        lambda check: check.update(minimumRestartCount=1),
+        lambda check: check.update(maximumRestartCount=2),
+        lambda check: check.update(
+            containerName="web", minimumRestartCount=4, maximumRestartCount=3
+        ),
+        lambda check: check.update(
+            containerName="web",
+            expectedWaitingReasons=["CrashLoopBackOff", "CrashLoopBackOff"],
+        ),
+    ],
+)
+def test_pod_container_status_constraints_are_consistent(change: Any) -> None:
+    data = complete_lab()
+    change(data["initialChecks"][1])
+
+    with pytest.raises(ValidationError):
+        LabDefinition.model_validate(data)
+
+
 def test_json_schema_is_in_sync_and_deterministic() -> None:
     project_root = Path(__file__).resolve().parents[1]
     committed = (project_root / "schemas" / "lab-v1alpha1.schema.json").read_bytes()

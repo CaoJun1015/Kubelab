@@ -23,6 +23,7 @@ from kubelab.kubernetes_gateway import (
     SessionScope,
 )
 from kubelab.lab_registry import LabRegistry
+from kubelab.lab_schema import HttpTarget
 
 FINGERPRINT = "a" * 64
 SESSION_ID = "123e4567-e89b-42d3-a456-426614174000"
@@ -80,6 +81,9 @@ class FakeApi:
         self.read_error: Exception | None = None
         self.closed = False
         self.last_log_request: tuple[str | None, bool, int] | None = None
+        self.generic: dict[tuple[str, str, str, str], Mapping[str, Any]] = {}
+        self.generic_lists: dict[tuple[str, str, str], list[Mapping[str, Any]]] = {}
+        self.probe_reads: list[Mapping[str, Any]] = []
 
     def create_namespace(self, body: Mapping[str, Any], *, timeout: int) -> None:
         self.created_namespace = body
@@ -95,6 +99,29 @@ class FakeApi:
         if self.namespace is None:
             raise ApiException(status=404, reason="not found")
         return self.namespace
+
+    def get_resource(
+        self,
+        api_version: str,
+        kind: str,
+        *,
+        namespace: str,
+        name: str,
+        timeout: int,
+    ) -> Mapping[str, Any] | None:
+        return self.generic.get((api_version, kind, namespace, name))
+
+    def list_resource(
+        self,
+        api_version: str,
+        kind: str,
+        *,
+        namespace: str,
+        label_selector: str | None,
+        timeout: int,
+    ) -> Sequence[Mapping[str, Any]]:
+        del label_selector, timeout
+        return self.generic_lists.get((api_version, kind, namespace), [])
 
     def create_resource_quota(
         self, namespace: str, body: Mapping[str, Any], *, timeout: int
@@ -126,6 +153,8 @@ class FakeApi:
         return self.pods
 
     def read_pod(self, namespace: str, name: str, *, timeout: int) -> Mapping[str, Any]:
+        if name.startswith("kubelab-probe-") and self.probe_reads:
+            return self.probe_reads.pop(0) if len(self.probe_reads) > 1 else self.probe_reads[0]
         for pod in self.pods:
             if pod.get("metadata", {}).get("name") == name:  # type: ignore[union-attr]
                 return pod
@@ -608,3 +637,322 @@ def test_gateway_close_closes_client_adapter() -> None:
     KubernetesGateway(api, context_fingerprint=FINGERPRINT).close()
 
     assert api.closed is True
+
+
+def test_validation_resource_queries_are_namespaced_and_safe() -> None:
+    api = FakeApi()
+    key = ("apps/v1", "Deployment", scope().namespace, "web")
+    api.generic[key] = {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "metadata": {"name": "web"},
+        "status": {"availableReplicas": 2},
+    }
+    gateway = KubernetesGateway(api, context_fingerprint=FINGERPRINT)
+
+    assert gateway.resource_exists(scope(), api_version="apps/v1", kind="Deployment", name="web")
+    assert gateway.deployment_available_replicas(scope(), "web") == 2
+    assert gateway.deployment_available_replicas(scope(), "missing") is None
+    with pytest.raises(KubernetesGatewayError) as error:
+        gateway.resource_exists(scope(), api_version="v1", kind="Namespace", name="default")
+    assert error.value.code is GatewayErrorCode.SCOPE_INVALID
+
+
+def test_validation_pods_filter_labels() -> None:
+    api = FakeApi()
+    matching = pod_document("matching")
+    matching["metadata"]["labels"] = {"app": "web", "tier": "frontend"}
+    other = pod_document("other")
+    other["metadata"]["labels"] = {"app": "worker"}
+    api.pods = [other, matching]
+    gateway = KubernetesGateway(api, context_fingerprint=FINGERPRINT)
+
+    pods = gateway.validation_pods(scope(), {"app": "web", "tier": "frontend"})
+
+    assert [pod.name for pod in pods] == ["matching"]
+    assert pods[0].labels == {"app": "web", "tier": "frontend"}
+
+
+def test_endpoint_count_deduplicates_ready_addresses() -> None:
+    api = FakeApi()
+    api.generic[("v1", "Service", scope().namespace, "web")] = {
+        "apiVersion": "v1",
+        "kind": "Service",
+        "metadata": {"name": "web"},
+    }
+    api.generic_lists[("discovery.k8s.io/v1", "EndpointSlice", scope().namespace)] = [
+        {
+            "endpoints": [
+                {"addresses": ["10.0.0.1"], "conditions": {"ready": True}},
+                {"addresses": ["10.0.0.2"], "conditions": {"ready": False}},
+            ]
+        },
+        {"endpoints": [{"addresses": ["10.0.0.1", "10.0.0.3"], "conditions": {}}]},
+    ]
+    gateway = KubernetesGateway(api, context_fingerprint=FINGERPRINT)
+
+    assert gateway.service_endpoint_count(scope(), "web") == 2
+    assert gateway.service_endpoint_count(scope(), "missing") is None
+
+
+@pytest.mark.parametrize(
+    ("kind", "api_version", "spec"),
+    [
+        ("Pod", "v1", {"containers": [{"name": "web", "image": "nginx:1.27"}]}),
+        (
+            "Deployment",
+            "apps/v1",
+            {"template": {"spec": {"containers": [{"name": "web", "image": "nginx:1.27"}]}}},
+        ),
+        (
+            "CronJob",
+            "batch/v1",
+            {
+                "jobTemplate": {
+                    "spec": {
+                        "template": {
+                            "spec": {"containers": [{"name": "web", "image": "nginx:1.27"}]}
+                        }
+                    }
+                }
+            },
+        ),
+    ],
+)
+def test_workload_container_image_reads_pod_templates(
+    kind: str, api_version: str, spec: dict[str, Any]
+) -> None:
+    api = FakeApi()
+    api.generic[(api_version, kind, scope().namespace, "workload")] = {
+        "apiVersion": api_version,
+        "kind": kind,
+        "metadata": {"name": "workload"},
+        "spec": spec,
+    }
+    gateway = KubernetesGateway(api, context_fingerprint=FINGERPRINT)
+
+    assert (
+        gateway.workload_container_image(
+            scope(), workload_kind=kind, workload_name="workload", container="web"
+        )
+        == "nginx:1.27"
+    )
+
+
+def test_config_value_comparison_never_returns_values() -> None:
+    api = FakeApi()
+    api.generic[("v1", "ConfigMap", scope().namespace, "settings")] = {"data": {"mode": "practice"}}
+    api.generic[("v1", "Secret", scope().namespace, "credential")] = {
+        "data": {"token": "c3VwZXItc2VjcmV0"}
+    }
+    gateway = KubernetesGateway(api, context_fingerprint=FINGERPRINT)
+
+    config_result = gateway.config_value_matches(
+        scope(),
+        source_kind="ConfigMap",
+        source_name="settings",
+        key="mode",
+        expected_value="practice",
+    )
+    secret_result = gateway.config_value_matches(
+        scope(),
+        source_kind="Secret",
+        source_name="credential",
+        key="token",
+        expected_value="super-secret",
+    )
+
+    assert config_result.matched is True
+    assert secret_result.matched is True
+    assert "super-secret" not in repr(secret_result)
+
+
+def test_secret_invalid_base64_and_pvc_phase_are_structured() -> None:
+    api = FakeApi()
+    api.generic[("v1", "Secret", scope().namespace, "broken")] = {"data": {"token": "%%%"}}
+    api.generic[("v1", "PersistentVolumeClaim", scope().namespace, "data")] = {
+        "status": {"phase": "Bound"}
+    }
+    gateway = KubernetesGateway(api, context_fingerprint=FINGERPRINT)
+
+    result = gateway.config_value_matches(
+        scope(),
+        source_kind="Secret",
+        source_name="broken",
+        key="token",
+        expected_value="secret",
+    )
+
+    assert result.valid_encoding is False
+    assert gateway.pvc_phase(scope(), "data") == "Bound"
+
+
+def completed_probe(*, exit_code: int = 0, phase: str = "Succeeded") -> dict[str, Any]:
+    return {
+        "metadata": {"name": "probe"},
+        "status": {
+            "phase": phase,
+            "containerStatuses": [
+                {
+                    "name": "curl",
+                    "state": {"terminated": {"exitCode": exit_code, "reason": "Completed"}},
+                }
+            ],
+        },
+    }
+
+
+def test_service_http_probe_returns_status_and_cleans_pod() -> None:
+    api = FakeApi()
+    api.generic[("v1", "Service", scope().namespace, "web")] = {"spec": {"ports": [{"port": 80}]}}
+    api.probe_reads = [completed_probe()]
+    api.logs = "200\n"
+    clock = FakeClock()
+    gateway = KubernetesGateway(
+        api,
+        context_fingerprint=FINGERPRINT,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    )
+
+    result = gateway.run_http_probe(
+        scope(),
+        HttpTarget(mode="service", name="web", port=80, path="/health"),
+        deadline=5,
+    )
+
+    assert result.status_code == 200
+    assert result.exit_code == 0
+    assert api.deleted_probes[0].startswith("kubelab-probe-")
+    assert api.probes[0]["spec"]["containers"][0]["args"][-1] == (
+        "http://web.kubelab-complete-lab.svc:80/health"
+    )
+
+
+def test_probe_timeout_and_cleanup_failure_are_reported_safely() -> None:
+    api = FakeApi()
+    api.generic[("v1", "Service", scope().namespace, "web")] = {"spec": {"ports": [{"port": 80}]}}
+    api.probe_reads = [{"status": {"phase": "Pending"}}]
+    api.delete_probe_error = ApiException(status=500, reason="TOKEN private")
+    clock = FakeClock()
+    gateway = KubernetesGateway(
+        api,
+        context_fingerprint=FINGERPRINT,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    )
+
+    result = gateway.run_http_probe(
+        scope(), HttpTarget(mode="service", name="web", port=80), deadline=1
+    )
+
+    assert result.timed_out is True
+    assert result.infrastructure_error is True
+    assert result.cleanup_warning is not None
+    assert "private" not in result.cleanup_warning
+
+
+@pytest.mark.parametrize(
+    ("document", "logs", "timed_out"),
+    [
+        ({"status": {"phase": "Failed", "reason": "DeadlineExceeded"}}, "", True),
+        ({"status": {"phase": "Failed", "reason": "Evicted"}}, "", False),
+        (completed_probe(exit_code=0), "not-an-http-status", False),
+    ],
+)
+def test_probe_platform_failures_are_errors(
+    document: dict[str, Any], logs: str, timed_out: bool
+) -> None:
+    api = FakeApi()
+    api.generic[("v1", "Service", scope().namespace, "web")] = {"spec": {"ports": [{"port": 80}]}}
+    api.probe_reads = [document]
+    api.logs = logs
+    clock = FakeClock()
+    gateway = KubernetesGateway(
+        api,
+        context_fingerprint=FINGERPRINT,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    )
+
+    result = gateway.run_http_probe(
+        scope(), HttpTarget(mode="service", name="web", port=80), deadline=5
+    )
+
+    assert result.infrastructure_error is True
+    assert result.timed_out is timed_out
+    assert api.deleted_probes
+
+
+def test_ingress_probe_uses_only_builtin_controller_service() -> None:
+    api = FakeApi()
+    api.generic[("networking.k8s.io/v1", "Ingress", scope().namespace, "web")] = {
+        "spec": {
+            "rules": [
+                {
+                    "host": "app.test",
+                    "http": {
+                        "paths": [
+                            {
+                                "path": "/health",
+                                "backend": {"service": {"name": "web", "port": {"number": 8080}}},
+                            }
+                        ]
+                    },
+                }
+            ]
+        }
+    }
+    api.generic[("v1", "Service", "ingress-nginx", "ingress-nginx-controller")] = {
+        "metadata": {"name": "ingress-nginx-controller"}
+    }
+    api.probe_reads = [completed_probe()]
+    api.logs = "200"
+    clock = FakeClock()
+    gateway = KubernetesGateway(
+        api,
+        context_fingerprint=FINGERPRINT,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    )
+
+    result = gateway.run_http_probe(
+        scope(),
+        HttpTarget(mode="ingress", name="web", port=8080, path="/health"),
+        deadline=10,
+    )
+
+    args = api.probes[0]["spec"]["containers"][0]["args"]
+    assert result.status_code == 200
+    assert "Host: app.test" in args
+    assert args[-1] == ("http://ingress-nginx-controller.ingress-nginx.svc.cluster.local:80/health")
+
+
+def test_ingress_controller_missing_returns_retryable_error() -> None:
+    api = FakeApi()
+    api.generic[("networking.k8s.io/v1", "Ingress", scope().namespace, "web")] = {
+        "spec": {
+            "rules": [
+                {
+                    "host": "app.test",
+                    "http": {
+                        "paths": [
+                            {
+                                "path": "/",
+                                "backend": {"service": {"name": "web", "port": {"number": 80}}},
+                            }
+                        ]
+                    },
+                }
+            ]
+        }
+    }
+    gateway = KubernetesGateway(api, context_fingerprint=FINGERPRINT)
+
+    with pytest.raises(KubernetesGatewayError) as error:
+        gateway.run_http_probe(
+            scope(), HttpTarget(mode="ingress", name="web", port=80), deadline=10
+        )
+
+    assert error.value.code is GatewayErrorCode.INGRESS_CONTROLLER_UNAVAILABLE
+    assert error.value.retryable is True
