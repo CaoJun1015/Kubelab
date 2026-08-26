@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Annotated, Any, NoReturn
 
 import typer
+import uvicorn
 
 from kubelab import __version__
 from kubelab.config import ConfigError, ToolName, get_config_path, set_tool_path
@@ -31,6 +32,7 @@ from kubelab.runtime import (
     build_application_runtime,
 )
 from kubelab.session_state import RetrospectiveInput, ValidationStatus
+from kubelab.web import WEB_HOST, WEB_PORT, create_app
 
 app = typer.Typer(
     name="kubelab",
@@ -67,6 +69,12 @@ def main(
     ] = False,
 ) -> None:
     """Run KubeLab local Kubernetes practice workflows."""
+
+
+@app.command("serve")
+def serve_command() -> None:
+    """Serve the local REST API on the fixed loopback address."""
+    uvicorn.run(create_app(), host=WEB_HOST, port=WEB_PORT)
 
 
 @app.command("doctor")

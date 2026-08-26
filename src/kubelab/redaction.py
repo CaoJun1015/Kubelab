@@ -22,6 +22,10 @@ _BEARER_PATTERN = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+")
 _QUERY_SECRET_PATTERN = re.compile(
     r"(?i)([?&](?:access_token|api_key|password|secret|token)=)[^&#\s]+"
 )
+_KEY_VALUE_SECRET_PATTERN = re.compile(
+    r"(?i)(?<![?&])\b(authorization|credential|password|private[_-]?key|secret|token)"
+    r"\s*[:=]\s*[^\s,;]+"
+)
 _MAX_STRING_LENGTH = 4096
 
 
@@ -56,6 +60,7 @@ def _redact_text(value: str) -> str:
         return REDACTED
     redacted = _BEARER_PATTERN.sub("Bearer [REDACTED]", value)
     redacted = _QUERY_SECRET_PATTERN.sub(r"\1[REDACTED]", redacted)
+    redacted = _KEY_VALUE_SECRET_PATTERN.sub(r"\1=[REDACTED]", redacted)
     if len(redacted) > _MAX_STRING_LENGTH:
         return redacted[:_MAX_STRING_LENGTH] + "...[TRUNCATED]"
     return redacted

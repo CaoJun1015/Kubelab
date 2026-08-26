@@ -9,6 +9,7 @@ description = "Local Kubernetes operations practice platform"
 requires-python = ">=3.11,<3.12"
 dependencies = [
     "alembic>=1.14,<2",
+    "fastapi>=0.115,<1",
     "kubernetes>=31,<40",
     "pydantic>=2.10,<3",
     "portalocker>=3,<4",
@@ -16,6 +17,7 @@ dependencies = [
     "sqlalchemy>=2.0,<3",
     "tomli-w>=1.2,<2",
     "typer>=0.12,<1",
+    "uvicorn>=0.34,<1",
 ]
 
 [project.scripts]
@@ -23,6 +25,7 @@ kubelab = "kubelab.cli:app"
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28,<1",
     "mypy>=1.15,<2",
     "pytest>=8,<10",
     "pytest-cov>=6,<8",

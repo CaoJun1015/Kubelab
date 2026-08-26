@@ -27,6 +27,23 @@ def test_help_shows_product_and_usage() -> None:
     assert "doctor" in result.stdout
     assert "config" in result.stdout
     assert "context" in result.stdout
+    assert "serve" in result.stdout
+
+
+def test_serve_uses_only_the_fixed_loopback_endpoint(monkeypatch) -> None:
+    calls: list[tuple[object, ...]] = []
+    application = object()
+    monkeypatch.setattr(cli, "create_app", lambda: application)
+    monkeypatch.setattr(
+        cli.uvicorn,
+        "run",
+        lambda app, *, host, port: calls.append((app, host, port)),
+    )
+
+    result = runner.invoke(app, ["serve"])
+
+    assert result.exit_code == 0
+    assert calls == [(application, "127.0.0.1", 8765)]
 
 
 def test_version_reports_package_version() -> None:

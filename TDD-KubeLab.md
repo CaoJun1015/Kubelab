@@ -991,7 +991,7 @@ kubelab hint [--json]
 kubelab reset
 kubelab cleanup
 kubelab retrospective edit
-kubelab serve [--port 8765]
+kubelab serve
 ```
 
 MVP只有一个活动Session，因此status/verify/reset/cleanup默认作用于活动Session，不要求用户重复输入Session ID。JSON输出仍包含Session ID。
@@ -1024,39 +1024,32 @@ MVP只有一个活动Session，因此status/verify/reset/cleanup默认作用于�
 
 | Method | Path | 行为 |
 |---|---|---|
-| GET | `/api/v1/health` | 仅进程健康，不访问集群 |
-| POST | `/api/v1/environment/checks` | 重新执行Doctor |
-| GET | `/api/v1/environment` | 最近一次环境快照 |
+| GET | `/health` | 仅进程健康，不访问集群 |
+| GET | `/api/v1/environment` | 当前安全运行时快照，不访问集群 |
 | GET | `/api/v1/labs` | 实验目录和筛选 |
 | GET | `/api/v1/labs/{lab_id}` | 实验公开详情 |
-| POST | `/api/v1/labs/{lab_id}/sessions` | 创建活动Session |
+| POST | `/api/v1/labs/{lab_id}/start` | 创建活动Session |
 | GET | `/api/v1/sessions/active` | 当前活动Session |
-| GET | `/api/v1/sessions/{id}` | Session详情 |
-| GET | `/api/v1/sessions/{id}/resources` | 脱敏资源摘要 |
-| GET | `/api/v1/sessions/{id}/events` | 实验Events |
-| GET | `/api/v1/sessions/{id}/pods/{pod}/logs` | 当前/Previous日志 |
-| POST | `/api/v1/sessions/{id}/verify` | 执行成功验证 |
-| POST | `/api/v1/sessions/{id}/hints/next` | 解锁下一级提示 |
-| POST | `/api/v1/sessions/{id}/reset` | 安全重置 |
-| POST | `/api/v1/sessions/{id}/cleanup` | 安全清理 |
-| PUT | `/api/v1/sessions/{id}/retrospective` | 保存复盘 |
-| GET | `/api/v1/progress` | 完成记录与分类统计 |
+| GET | `/api/v1/sessions/active/resources` | 脱敏资源摘要 |
+| GET | `/api/v1/sessions/active/events` | 实验Events |
+| GET | `/api/v1/sessions/active/logs` | 查询参数指定Pod、Container、Previous和tail |
+| POST | `/api/v1/sessions/active/verify` | 执行成功验证 |
+| POST | `/api/v1/sessions/active/hint` | 解锁下一级提示 |
+| POST | `/api/v1/sessions/active/reset` | 精确Namespace确认后安全重置 |
+| POST | `/api/v1/sessions/active/cleanup` | 精确Namespace确认后安全清理 |
+| GET | `/api/v1/sessions/latest/retrospective` | 读取活动或最近Session复盘 |
+| PUT | `/api/v1/sessions/latest/retrospective` | 保存活动或最近Session复盘 |
 
-写接口返回最终操作结果；MVP不返回后台Operation ID。所有响应包含`requestId`。
+写接口返回最终操作结果；MVP不返回后台Operation ID。所有响应使用`X-Request-ID`响应头关联请求，不把内部对象或堆栈序列化到响应。
 
 ### 15.2 错误结构
 
 ```json
 {
-  "requestId": "...",
-  "error": {
-    "code": "CONTEXT_FINGERPRINT_MISMATCH",
-    "message": "当前Context与已信任记录不一致，已拒绝写操作。",
-    "context": {
-      "contextName": "minikube"
-    },
-    "retryable": false
-  }
+  "code": "CONTEXT_FINGERPRINT_MISMATCH",
+  "message": "当前Context与已信任记录不一致，已拒绝写操作。",
+  "context": {},
+  "retryable": false
 }
 ```
 
@@ -1078,7 +1071,9 @@ MVP只有一个活动Session，因此status/verify/reset/cleanup默认作用于�
 
 验证正常但未通过仍返回200，业务字段`status=failed`；验证器异常返回503或结构化run error。
 
-### 15.4 页面
+### 15.4 页面（M2-02）
+
+M2-01不实现HTML页面。后续页面继续使用上述REST API，不新增第二套业务逻辑：
 
 - `/`：环境状态、当前实验、总体进度；
 - `/labs`：实验目录；
@@ -1094,8 +1089,8 @@ MVP只有一个活动Session，因此status/verify/reset/cleanup默认作用于�
 
 - 只监听`127.0.0.1`，拒绝配置其他host；
 - 不配置CORS响应头；
-- 写请求要求Origin精确匹配`http://127.0.0.1:8765`或实际配置端口；
-- 首次页面访问生成随机CSRF token，保存为HttpOnly、SameSite=Strict Cookie，并在表单/请求头提交对应token；
+- 带Origin的请求必须精确匹配`http://127.0.0.1:8765`，所有写请求必须携带该Origin；
+- 首次安全读取生成随机CSRF token，保存为HttpOnly、SameSite=Strict Cookie，并通过同源响应头提供双提交值；
 - API拒绝缺少或不匹配的CSRF token；
 - 使用Jinja自动转义，禁止把Kubernetes日志当HTML渲染；
 - 页面不展示Secret值；
@@ -1396,10 +1391,10 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 
 ### M2 Web MVP
 
-- 复用Application Service和DTO；
-- 实现第15节REST API和页面；
-- 不通过CLI子进程调用业务能力；
-- 增加CSRF、Origin、资源轮询、日志和复盘测试；
+- M2-01已复用Application Service和公开DTO，实现第15.1节REST API；
+- FastAPI lifespan持有数据库与共享服务，Web不通过CLI子进程调用业务能力；
+- M2-01已增加Fake Application Service API、CSRF、Origin、日志、复盘和脱敏测试，不访问真实minikube；
+- M2-02实现第15.4节HTML页面与资源轮询；
 - 不新增浏览器终端。
 
 ### M3 十二实验
@@ -1524,3 +1519,12 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`全部通过；新增CLI测试覆盖目录、任务说明、启动、状态、资源、Events、Logs、验证、提示、确认式重置/清理、复盘、JSON和退出码；
 - WSL生产组合根实际加载三个正式实验，`kubelab list --json`无Registry错误，`kubelab show lab-005-image-pull --json`成功且不泄露check expected/actual或提示正文；
 - 本阶段没有启动或修改真实实验Namespace。由于M1-09已确认固定镜像当前无法拉取，仍不声明`start → kubectl修复 → verify → cleanup`真实集群闭环验收通过；镜像环境恢复后应执行该手工验收及显式集成测试。
+
+2026-08-26，M2-01 FastAPI应用基线与REST API完成双环境自动化质量门：
+
+- Windows Python 3.11下收集417项测试，410项通过，3项正式实验集成测试、2项网关集成测试和2项符号链接测试跳过，覆盖率91.99%；
+- WSL2 Ubuntu Python 3.11.16下收集417项测试，412项通过，3项正式实验集成测试和2项网关集成测试跳过，覆盖率92.17%；
+- 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`全部通过；
+- 18项Fake Application Service Web测试覆盖全部M2-01端点、lifespan关闭、固定loopback绑定、Origin、CSRF、Namespace确认、统一错误结构、request ID、输入校验、Secret/凭证/expected/actual/内部Session字段脱敏和CLI serve组合；
+- FastAPI路由只依赖`WebApplicationService`协议，生产适配器委托既有`LabManager`；没有启动CLI子进程，也没有让路由直接接触ORM Session或Kubernetes Client；
+- 双环境测试均未启用真实集成测试环境变量，没有访问或修改真实minikube资源；M2-01不实现HTML页面。
