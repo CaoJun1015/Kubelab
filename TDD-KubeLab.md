@@ -1367,6 +1367,14 @@ Gateway验证接口只返回脱敏观察DTO：EndpointSlice地址去重且忽略
 
 完成标准：三个实验完整契约测试在真实minikube通过。
 
+实际实验包均包含`lab.yaml`、安全Manifest、独立README和不被运行时自动加载的`solutions/fix.yaml`：
+
+- `lab-005-image-pull`使用`registry.invalid/kubelab/does-not-exist:v1`稳定制造镜像拉取失败，初始契约精确接受`ErrImagePull/ImagePullBackOff`；标准修复为`nginx:1.27-alpine`，成功契约同时检查镜像和Pod稳定Ready；
+- `lab-006-crash-loop`使用`busybox:1.36.1`主动以退出码1结束，初始契约检查`CrashLoopBackOff`和最小重启次数；标准修复仅更改启动命令，成功契约要求Deployment可用以及新Pod连续Ready且重启数为0；
+- `lab-007-service-selector`保持Deployment正常并让Service Selector故意不匹配，初始契约要求Deployment可用且Endpoint为0；标准修复只更新Selector，成功契约要求Ready Endpoint和集群内HTTP 200。
+
+Fake契约测试对每个实验执行初始契约、成功预检、标准修复验证和reset sequence验证，并检查验证记录持久化。真实minikube契约测试默认关闭，启用后会把实验复制到随机`kubelab-test-*` Namespace，执行`start → fix → verify → reset → cleanup`并验证Namespace无残留；运行前检查固定版本镜像是否已进入minikube缓存，缺失时报告环境跳过，不把镜像环境问题误判为实验失败。
+
 ### M1-10 CLI整合与验收
 
 产出：
@@ -1495,3 +1503,12 @@ Gateway验证接口只返回脱敏观察DTO：EndpointSlice地址去重且忽略
 - 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`全部通过；Fake测试逐项覆盖8种验证器的passed、failed、Kubernetes error和deadline，并覆盖轮询退避、全局deadline、稳定窗口、聚合、持久化脱敏、HTTP Probe和LabManager verify状态转换；
 - 在信任状态为`trusted`的本地minikube v1.35.1中显式启动Service HTTP Probe集成用例；固定测试镜像`nginx:1.27-alpine`出现`ErrImagePull`，测试按环境错误安全跳过，没有误记为验证失败；
 - 集成测试的`finally`安全删除随机`kubelab-test-*` Namespace，事后只读检查确认不存在测试Namespace或`kubelab.io/probe=true` Pod。本次不声明真实HTTP 200验收已经通过，待镜像拉取环境恢复后重跑。
+
+2026-08-26，M1-09首批三个故障实验完成实现和双环境质量门：
+
+- Windows Python 3.11下收集382项测试，375项通过，3项正式实验集成测试和2项网关集成测试默认跳过，2项因符号链接权限跳过，覆盖率92.66%；
+- WSL2 Ubuntu Python 3.11.16下收集382项测试，377项通过，3项正式实验集成测试和2项网关集成测试默认跳过，覆盖率92.88%；
+- 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`全部通过；默认Registry无错误加载三个实验，所有初始Manifest和标准修复Fixture均通过安全扫描；
+- Fake契约测试逐个证明`initialChecks通过 → successChecks预检失败 → 标准修复后通过 → reset sequence恢复初始故障`，并核对ImagePull waiting reason、CrashLoop重启边界、Service Endpoint、HTTP结果和验证记录持久化；
+- 在已信任minikube中显式执行真实契约测试预检，确认`nginx:1.27-alpine`、`busybox:1.36.1`和`curlimages/curl:8.12.1`均未缓存，因此3项测试在创建资源前按环境原因跳过；事后确认不存在`kubelab-test-*` Namespace或平台Probe Pod；
+- 本阶段完成代码和安全契约实现，但不声明三个实验的真实端到端集群验收已经通过。镜像缓存或拉取环境恢复后，必须重新运行`KUBELAB_RUN_LAB_INTEGRATION=1`质量门。

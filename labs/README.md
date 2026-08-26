@@ -1,16 +1,18 @@
 # KubeLab实验目录
 
-每个实验是一个独立目录，包含一个`lab.yaml`和一个或多个声明式Kubernetes Manifest。M1-04只负责加载、校验和安全扫描；实验目前还不能启动，也不会访问Kubernetes集群。
+每个实验是一个独立目录，包含一个`lab.yaml`、一个或多个声明式Kubernetes Manifest、练习说明和维护者标准修复。M1-09已经提供首批三个真实故障实验；公开CLI命令将在M1-10接入，因此当前仍不能直接执行`kubelab start`。
 
 ## 目录结构
 
 ```text
 labs/
-└── service-selector/
+└── lab-007-service-selector/
+    ├── README.md
     ├── lab.yaml
-    └── manifests/
-        ├── deployment.yaml
-        └── service.yaml
+    ├── manifests/
+    │   └── resources.yaml
+    └── solutions/
+        └── fix.yaml
 ```
 
 Registry会递归查找文件名严格为`lab.yaml`的实验。Manifest路径以该`lab.yaml`所在目录为基准，并必须使用`manifests/deployment.yaml`这样的POSIX相对路径。
@@ -91,7 +93,15 @@ uv run pytest tests/test_lab_schema.py
 - `pvc_status`
 - `http_response`
 
-验证器只描述未来的判定条件。M1-04不会执行它们。
+这些验证器由M1-08 ValidationEngine执行。每个实验必须同时证明初始故障契约、修复后的成功契约和重置后的故障恢复。
+
+## 首批实验
+
+- `lab-005-image-pull-backoff`：确定不存在的镜像，验证`ErrImagePull/ImagePullBackOff`、正确镜像和Pod稳定Ready；
+- `lab-006-crash-loop-backoff`：容器主动退出，验证`CrashLoopBackOff`、最小重启次数及修复后零重启稳定窗口；
+- `lab-007-service-selector`：Service Selector故意不匹配，验证Endpoint从0恢复并通过集群内HTTP 200探测。
+
+每个`solutions/fix.yaml`仅供契约测试和维护者核对，不在`lab.yaml.environment.manifests`中，因此Registry启动实验时不会读取或自动应用答案。
 
 ## Manifest约束
 

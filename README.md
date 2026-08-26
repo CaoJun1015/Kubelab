@@ -2,7 +2,7 @@
 
 KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 运维练习平台。它以本机 Docker Engine 和 minikube 为实验环境，目标是把云原生运维面试知识转化为可以反复操作、验证和复盘的故障实验。
 
-> 当前版本：`0.1.0a0`（M1-08）。项目仍处于早期开发阶段，目前提供环境诊断、minikube Context信任、实验Schema、安全加载、持久化、状态机、安全Kubernetes网关、内部实验生命周期管理和声明式验证引擎；公开CLI实验命令、首批真实故障实验和Web页面尚未实现。
+> 当前版本：`0.1.0a0`（M1-09）。项目仍处于早期开发阶段，目前提供环境诊断、minikube Context信任、实验Schema、安全加载、持久化、状态机、安全Kubernetes网关、内部实验生命周期管理、声明式验证引擎和首批三个故障实验；公开CLI实验命令和Web页面尚未实现。
 
 ## 当前可用功能
 
@@ -28,6 +28,9 @@ KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 
 - 受限curl探测Pod闭环：固定镜像、资源限额和安全上下文，只允许访问实验Service或内置minikube ingress-nginx目录，并在成功、失败或超时后清理；
 - `LabManager`：通过短数据库事务协调`start/status/reset/cleanup`，在每次写操作前重新验证Context，并在部分Apply或初始契约失败时安全回滚；
 - `LabManager.verify()`：READY首次验证转为IN_PROGRESS，仅在全部成功检查通过后转为PASSED；Context漂移或非法状态会被拒绝；
+- LAB-005 ImagePullBackOff：精确验证镜像拉取waiting reason、正确镜像和Pod稳定Ready；
+- LAB-006 CrashLoopBackOff：精确验证CrashLoopBackOff、重启次数及修复后的零重启稳定窗口；
+- LAB-007 Service Selector错误：验证Deployment可用、Endpoint恢复和集群内HTTP 200；
 - 状态协调：外部删除环境时受控完成Session，Namespace身份不匹配时转为`error`且拒绝删除，reset保留Session ID并支持中断重试；
 - JSON输出、稳定退出码、凭证脱敏和原子配置写入。
 
@@ -155,15 +158,18 @@ uv run ruff format --check .
 uv run mypy src
 ```
 
-当前质量基线：Windows和WSL的最终数据见TDD“当前环境说明”中的M1-08记录。两端均要求pytest覆盖率不低于90%，并通过Ruff、格式检查、strict mypy和`git diff --check`。真实集成测试默认关闭，只能在已信任的本地minikube中显式运行。
+当前质量基线：Windows和WSL的最终数据见TDD“当前环境说明”中的M1-09记录。两端均要求pytest覆盖率不低于90%，并通过Ruff、格式检查、strict mypy和`git diff --check`。真实集成测试默认关闭，只能在已信任的本地minikube中显式运行。
 
 只有在WSL中确认`kubelab context inspect`显示`trusted`后，才可显式运行真实网关测试：
 
 ```bash
 KUBELAB_RUN_INTEGRATION=1 uv run pytest --no-cov -q tests/test_kubernetes_gateway_integration.py
+
+# 三个正式实验的start → fix → verify → reset → cleanup契约
+KUBELAB_RUN_LAB_INTEGRATION=1 uv run pytest --no-cov -q tests/test_first_labs_integration.py
 ```
 
-该测试包含Namespace安全往返和Service HTTP Probe用例；每项只创建随机`kubelab-test-*` Namespace并通过所有权校验清理。可以用`-k service_http_probe`只运行HTTP用例；不要在远程或生产Context运行。
+这些测试只创建随机`kubelab-test-*` Namespace并通过所有权校验清理。正式实验契约在执行前要求固定版本镜像已进入minikube缓存；缺失时会报告环境跳过。可以用`-k service_http_probe`只运行网关HTTP用例；不要在远程或生产Context运行。
 
 ## 安全边界
 
@@ -199,7 +205,7 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 - [x] M1-06 KubernetesGateway；
 - [x] M1-07 LabManager；
 - [x] M1-08 ValidationEngine；
-- [ ] M1-09 首批三个故障实验；
+- [x] M1-09 首批三个故障实验；
 - [ ] M1-10 CLI垂直切片验收；
 - [ ] M2 本地Web界面。
 
@@ -221,4 +227,4 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 
 ### 现在能开始故障实验吗？
 
-还不能通过公开命令开始。当前版本已经具备内部的安全资源网关、生命周期管理和验证引擎，但仍需M1-09提供正式故障实验，并由M1-10 CLI把这些能力接入用户命令。
+还不能通过公开命令开始。当前版本已经具备内部的安全资源网关、生命周期管理、验证引擎和三个正式故障实验；M1-10将把这些能力接入`list/start/status/verify/reset/cleanup`等用户命令。
