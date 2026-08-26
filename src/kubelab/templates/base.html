@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>{{ title }} · KubeLab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+    <script src="{{ url_for('static', path='/app.js') }}" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
+    <header class="app-header">
+      <a class="brand" href="/" aria-label="KubeLab 首页">
+        <span class="brand-mark" aria-hidden="true">K</span>
+        <span>
+          <strong>KubeLab</strong>
+          <small>本地 Kubernetes 实战平台</small>
+        </span>
+      </a>
+      <nav aria-label="主导航">
+        <a href="/"{% if page == "dashboard" %} aria-current="page"{% endif %}>总览</a>
+        <a href="/labs"{% if page in ("labs", "lab-detail") %} aria-current="page"{% endif %}>实验</a>
+        <a href="/progress"{% if page == "progress" %} aria-current="page"{% endif %}>进度</a>
+      </nav>
+      <span class="local-badge"><span aria-hidden="true"></span>127.0.0.1</span>
+    </header>
+
+    <main
+      id="main-content"
+      class="page-shell"
+      data-page="{{ page }}"
+      {% if lab_id %}data-lab-id="{{ lab_id }}"{% endif %}
+      {% if session_id %}data-session-id="{{ session_id }}"{% endif %}
+    >
+      {% block content %}{% endblock %}
+    </main>
+
+    <div id="toast-region" class="toast-region" role="status" aria-live="polite"></div>
+    <footer class="app-footer">
+      <span>KubeLab {{ version }}</span>
+      <span>仅限本机 · WSL2 Ubuntu</span>
+    </footer>
+  </body>
+</html>

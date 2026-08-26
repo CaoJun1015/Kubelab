@@ -9,12 +9,15 @@ import secrets
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Literal, Protocol, cast
 from uuid import uuid4
 
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
@@ -56,6 +59,20 @@ CSRF_COOKIE = "kubelab_csrf"
 CSRF_HEADER = "X-CSRF-Token"
 REQUEST_ID_HEADER = "X-Request-ID"
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+_PACKAGE_DIR = Path(__file__).resolve().parent
+_CONTENT_SECURITY_POLICY = "; ".join(
+    (
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self'",
+        "img-src 'self'",
+        "connect-src 'self'",
+        "object-src 'none'",
+        "base-uri 'none'",
+        "frame-ancestors 'none'",
+        "form-action 'self'",
+    )
+)
 _PUBLIC_CONTEXT_KEYS = frozenset(
     {
         "already_absent",
@@ -294,6 +311,8 @@ def create_app(
         redoc_url=None,
         openapi_url=None,
     )
+    templates = Jinja2Templates(directory=_PACKAGE_DIR / "templates")
+    app.mount("/static", StaticFiles(directory=_PACKAGE_DIR / "static"), name="static")
 
     @app.middleware("http")
     async def local_request_security(
@@ -303,18 +322,24 @@ def create_app(
         request.state.request_id = request_id
         origin = request.headers.get("origin")
         if origin is not None and origin != WEB_ORIGIN:
-            return _error_response(
-                "ORIGIN_REJECTED",
-                "The request Origin is not allowed.",
-                status_code=403,
+            return _secure_response(
+                _error_response(
+                    "ORIGIN_REJECTED",
+                    "The request Origin is not allowed.",
+                    status_code=403,
+                    request_id=request_id,
+                ),
                 request_id=request_id,
             )
         if request.method not in _SAFE_METHODS:
             if origin != WEB_ORIGIN:
-                return _error_response(
-                    "ORIGIN_REQUIRED",
-                    "A same-origin request is required.",
-                    status_code=403,
+                return _secure_response(
+                    _error_response(
+                        "ORIGIN_REQUIRED",
+                        "A same-origin request is required.",
+                        status_code=403,
+                        request_id=request_id,
+                    ),
                     request_id=request_id,
                 )
             cookie_token = request.cookies.get(CSRF_COOKIE)
@@ -324,27 +349,33 @@ def create_app(
                 or not header_token
                 or not hmac.compare_digest(cookie_token, header_token)
             ):
-                return _error_response(
-                    "CSRF_TOKEN_INVALID",
-                    "A valid CSRF token is required.",
-                    status_code=403,
+                return _secure_response(
+                    _error_response(
+                        "CSRF_TOKEN_INVALID",
+                        "A valid CSRF token is required.",
+                        status_code=403,
+                        request_id=request_id,
+                    ),
                     request_id=request_id,
                 )
 
         response = cast(Response, await call_next(request))
-        response.headers[REQUEST_ID_HEADER] = request_id
-        if request.method in _SAFE_METHODS and not request.cookies.get(CSRF_COOKIE):
-            token = secrets.token_urlsafe(32)
+        csrf_token: str | None = None
+        set_csrf_cookie = False
+        if request.method in _SAFE_METHODS:
+            csrf_token = request.cookies.get(CSRF_COOKIE) or secrets.token_urlsafe(32)
+            response.headers[CSRF_HEADER] = csrf_token
+            set_csrf_cookie = not bool(request.cookies.get(CSRF_COOKIE))
+        if set_csrf_cookie and csrf_token is not None:
             response.set_cookie(
                 CSRF_COOKIE,
-                token,
+                csrf_token,
                 httponly=True,
                 samesite="strict",
                 secure=False,
                 path="/",
             )
-            response.headers[CSRF_HEADER] = token
-        return response
+        return _secure_response(response, request_id=request_id)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(
@@ -385,6 +416,63 @@ def create_app(
             status_code=status_code,
             request_id=_request_id(request),
         )
+
+    def render_page(
+        request: Request,
+        template_name: str,
+        *,
+        title: str,
+        page: str,
+        lab_id: str | None = None,
+        session_id: str | None = None,
+    ) -> Response:
+        return templates.TemplateResponse(
+            request,
+            template_name,
+            {
+                "title": title,
+                "page": page,
+                "lab_id": lab_id,
+                "session_id": session_id,
+                "version": __version__,
+            },
+        )
+
+    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+    def dashboard_page(request: Request) -> Response:
+        return render_page(request, "dashboard.html", title="总览", page="dashboard")
+
+    @app.get("/labs", response_class=HTMLResponse, include_in_schema=False)
+    def labs_page(request: Request) -> Response:
+        return render_page(request, "labs.html", title="实验目录", page="labs")
+
+    @app.get("/labs/{lab_id}", response_class=HTMLResponse, include_in_schema=False)
+    def lab_page(request: Request, lab_id: str) -> Response:
+        return render_page(
+            request,
+            "lab_detail.html",
+            title="实验详情",
+            page="lab-detail",
+            lab_id=lab_id,
+        )
+
+    @app.get(
+        "/sessions/{session_id}",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    def session_page(request: Request, session_id: str) -> Response:
+        return render_page(
+            request,
+            "session.html",
+            title="排障工作台",
+            page="session",
+            session_id=session_id,
+        )
+
+    @app.get("/progress", response_class=HTMLResponse, include_in_schema=False)
+    def progress_page(request: Request) -> Response:
+        return render_page(request, "progress.html", title="学习进度", page="progress")
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -599,6 +687,17 @@ def _error_response(
     )
     response = JSONResponse(status_code=status_code, content=payload.model_dump(mode="json"))
     response.headers[REQUEST_ID_HEADER] = request_id
+    return response
+
+
+def _secure_response(response: Response, *, request_id: str) -> Response:
+    response.headers[REQUEST_ID_HEADER] = request_id
+    response.headers["Content-Security-Policy"] = _CONTENT_SECURITY_POLICY
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Cache-Control"] = "no-store"
     return response
 
 

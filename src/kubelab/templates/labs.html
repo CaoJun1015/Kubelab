@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-heading">
+  <div><p class="eyebrow">LAB CATALOG</p><h1>实验目录</h1><p>选择一个故障场景，完成从观察到复盘的排障闭环。</p></div>
+</header>
+
+<div id="page-error" class="alert error hidden" role="alert"></div>
+
+<section class="filter-bar" aria-label="实验筛选">
+  <label>分类<select id="category-filter"><option value="">全部分类</option></select></label>
+  <label>进度<select id="progress-filter"><option value="">全部进度</option><option value="not_started">未开始</option><option value="active">进行中</option><option value="completed">已完成</option></select></label>
+  <span id="labs-count" class="result-count" aria-live="polite">读取中…</span>
+</section>
+
+<section id="labs-grid" class="card-grid labs-grid" aria-live="polite"></section>
+{% endblock %}

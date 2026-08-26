@@ -1073,7 +1073,7 @@ MVP只有一个活动Session，因此status/verify/reset/cleanup默认作用于�
 
 ### 15.4 页面（M2-02）
 
-M2-01不实现HTML页面。后续页面继续使用上述REST API，不新增第二套业务逻辑：
+M2-02使用Jinja2渲染安全页面壳，所有动态业务数据由原生JavaScript调用上述REST API，不新增第二套业务逻辑：
 
 - `/`：环境状态、当前实验、总体进度；
 - `/labs`：实验目录；
@@ -1083,6 +1083,8 @@ M2-01不实现HTML页面。后续页面继续使用上述REST API，不新增第
 
 页面每2秒轮询活动Session资源摘要；不可见标签页暂停轮询；Events和Logs由用户主动刷新，避免高频读取。
 
+实际实现为中文紧凑运维控制台。浏览器API客户端只在内存保存CSRF header值，写请求冲突时只针对`CSRF_TOKEN_INVALID`刷新并重试一次；start成功后进入Session工作台，cleanup成功后停止轮询并返回总览。学习进度从实验目录的公开`progress`字段计算，不新增数据库表或Repository接口。
+
 ---
 
 ## 16. Web本地安全
@@ -1090,9 +1092,10 @@ M2-01不实现HTML页面。后续页面继续使用上述REST API，不新增第
 - 只监听`127.0.0.1`，拒绝配置其他host；
 - 不配置CORS响应头；
 - 带Origin的请求必须精确匹配`http://127.0.0.1:8765`，所有写请求必须携带该Origin；
-- 首次安全读取生成随机CSRF token，保存为HttpOnly、SameSite=Strict Cookie，并通过同源响应头提供双提交值；
+- 首次安全读取生成随机CSRF token，保存为HttpOnly、SameSite=Strict Cookie；每个安全响应都通过同源响应头回显当前双提交值；
 - API拒绝缺少或不匹配的CSRF token；
 - 使用Jinja自动转义，禁止把Kubernetes日志当HTML渲染；
+- 动态页面内容只通过DOM `textContent`或文本节点写入，并配置仅允许self的CSP、`nosniff`、`no-referrer`、禁止frame和受限Permissions Policy；
 - 页面不展示Secret值；
 - 路径、Pod名、容器名等全部进行DNS名称校验；
 - 不提供用户可控的任意命令、任意文件路径或任意URL请求入口。
@@ -1394,7 +1397,8 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - M2-01已复用Application Service和公开DTO，实现第15.1节REST API；
 - FastAPI lifespan持有数据库与共享服务，Web不通过CLI子进程调用业务能力；
 - M2-01已增加Fake Application Service API、CSRF、Origin、日志、复盘和脱敏测试，不访问真实minikube；
-- M2-02实现第15.4节HTML页面与资源轮询；
+- M2-02已实现第15.4节五个HTML页面、2秒资源轮询、可见性暂停、手动Events/Logs、操作等待态、Namespace确认和复盘工作流；
+- Jinja模板和静态资源随wheel发布，页面和API保持同源且不引入Node构建链；
 - 不新增浏览器终端。
 
 ### M3 十二实验
@@ -1528,3 +1532,12 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - 18项Fake Application Service Web测试覆盖全部M2-01端点、lifespan关闭、固定loopback绑定、Origin、CSRF、Namespace确认、统一错误结构、request ID、输入校验、Secret/凭证/expected/actual/内部Session字段脱敏和CLI serve组合；
 - FastAPI路由只依赖`WebApplicationService`协议，生产适配器委托既有`LabManager`；没有启动CLI子进程，也没有让路由直接接触ORM Session或Kubernetes Client；
 - 双环境测试均未启用真实集成测试环境变量，没有访问或修改真实minikube资源；M2-01不实现HTML页面。
+
+2026-08-26，M2-02本地故障排查Web UI完成双环境自动化质量门和Fake浏览器验收：
+
+- Windows Python 3.11下收集428项测试，421项通过，3项正式实验集成测试、2项网关集成测试和2项符号链接测试跳过，覆盖率92.06%；
+- WSL2 Ubuntu Python 3.11.16使用独立`/tmp`虚拟环境收集428项测试，423项通过，3项正式实验集成测试和2项网关集成测试跳过，覆盖率92.24%；
+- 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`全部通过；Windows额外通过原生JavaScript语法检查；
+- 新增11项UI专项测试，覆盖五个页面壳、导航、Jinja转义、CSP与安全响应头、CSRF持续回显、文本DOM渲染约束、Session ID不匹配、轮询/可见性/手动刷新/重复提交/Namespace确认前端契约及wheel静态资源完整性；
+- 使用Fake Application Service完成真实浏览器验收，覆盖总览、实验详情、活动Session跳转、2秒资源刷新、Events、Logs、验证失败、逐级提示、复盘保存、重置、清理返回总览、Session地址不匹配和390px移动布局；浏览器控制台没有脚本或CSP错误；
+- 两端均显式关闭真实集成测试变量，浏览器验收只连接Fake服务，没有读取用户数据库、访问Kubernetes API或创建、修改、删除真实minikube资源。

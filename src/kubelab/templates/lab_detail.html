@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="面包屑"><a href="/labs">实验目录</a><span aria-hidden="true">/</span><span>实验详情</span></nav>
+<div id="page-error" class="alert error hidden" role="alert"></div>
+
+<article id="lab-detail" class="detail-layout" aria-live="polite">
+  <section class="panel detail-main">
+    <div class="panel-heading">
+      <div><p id="lab-category" class="eyebrow">LOADING</p><h1 id="lab-name">正在读取实验…</h1></div>
+      <span id="lab-progress" class="status-badge neutral">读取中</span>
+    </div>
+    <p id="lab-description" class="lead"></p>
+    <div class="task-brief">
+      <h2>你的任务</h2><p id="lab-task"></p>
+      <h3>完成标准</h3><p id="lab-completion"></p>
+    </div>
+    <section aria-labelledby="interview-title"><h2 id="interview-title">复盘思考</h2><ul id="interview-questions" class="question-list"></ul></section>
+  </section>
+
+  <aside class="panel detail-sidebar" aria-label="实验信息">
+    <h2>实验信息</h2>
+    <dl id="lab-facts" class="detail-list"></dl>
+    <div id="lab-tags" class="tag-list"></div>
+    <button id="start-lab" class="button primary full-width" type="button">启动实验</button>
+    <p class="fine-print">启动操作在 WSL2 中同步执行，完成前请勿关闭页面。</p>
+  </aside>
+</article>
+{% endblock %}

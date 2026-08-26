@@ -373,7 +373,7 @@ kubelab doctor
 
 只有明确重建了本地集群，导致CA、UID或API Server变化时，才重新执行`kubelab context trust`。
 
-### 13.1 启动本地REST API
+### 13.1 启动本地Web界面与REST API
 
 API进程必须在WSL2 Ubuntu内启动：
 
@@ -384,12 +384,14 @@ kubelab serve
 服务固定监听`127.0.0.1:8765`，不接受host或port覆盖。Windows浏览器或本地客户端可通过WSL localhost转发访问：
 
 ```text
-http://127.0.0.1:8765/health
+http://127.0.0.1:8765/
 ```
 
-M2-01只提供JSON REST API，不提供HTML页面。API不配置CORS；跨站Origin会被拒绝。所有`POST`和`PUT`请求都必须带精确的`Origin: http://127.0.0.1:8765`，并提交读取请求签发的HttpOnly、SameSite=Strict CSRF Cookie及同值`X-CSRF-Token`请求头。`reset`和`cleanup`还必须在JSON请求体中提交活动实验的精确Namespace。
+页面入口包括总览`/`、实验目录`/labs`和学习进度`/progress`。排障工作台会每2秒读取一次活动实验资源；切换到其他浏览器标签页时自动暂停，Events和Logs只在用户点击时读取。
 
-停止服务时在运行终端按`Ctrl+C`。不要用反向代理把该端口暴露到局域网或公网，也不要改为监听`0.0.0.0`。
+API不配置CORS；跨站Origin会被拒绝。所有`POST`和`PUT`请求都必须带精确的`Origin: http://127.0.0.1:8765`，并提交安全读取请求签发的HttpOnly、SameSite=Strict CSRF Cookie及同值`X-CSRF-Token`请求头。`reset`和`cleanup`还必须提交活动实验的精确Namespace。页面已经自动处理这些安全流程，直接调用API的客户端必须自行实现。
+
+停止服务时在运行终端按`Ctrl+C`。不要用反向代理把该端口暴露到局域网或公网，也不要改为监听`0.0.0.0`。Web界面不提供Shell，Kubernetes调查和修复操作仍在外部WSL终端中完成。
 
 ## 14. 运行第一个故障实验
 

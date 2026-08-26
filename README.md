@@ -2,7 +2,7 @@
 
 KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 运维练习平台。它以本机 Docker Engine 和 minikube 为实验环境，目标是把云原生运维面试知识转化为可以反复操作、验证和复盘的故障实验。
 
-> 当前版本：`0.1.0a0`（M2-01 REST API基线）。项目仍处于早期开发阶段，目前可以通过CLI或本地REST API完成实验目录浏览、启动、排障观察、验证、提示、重置、清理和复盘；HTML页面尚未实现。
+> 当前版本：`0.1.0a0`（M2 本地Web MVP）。项目仍处于早期开发阶段，目前可以通过CLI、本地REST API或中文运维控制台完成实验目录浏览、启动、排障观察、验证、提示、重置、清理和复盘。
 
 ## 当前可用功能
 
@@ -35,6 +35,8 @@ KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 
 - `kubelab retrospective edit`：在CLI中逐字段记录复盘，不启动外部编辑器；
 - `kubelab serve`：在WSL2中仅监听`127.0.0.1:8765`，提供复用同一Application Service的FastAPI REST API；
 - Web API使用Pydantic v2公开DTO、统一`code/message/context/retryable`错误、精确Origin与双提交CSRF校验；不启用CORS，不公开Secret值、验证expected/actual、完整Manifest、凭证或异常堆栈；
+- Jinja2与原生JavaScript本地界面：提供总览、实验目录、实验详情、排障工作台和学习进度；资源每2秒轮询，页面不可见时暂停，Events和Logs仅手动刷新；
+- Web页面使用严格CSP、安全响应头、Jinja自动转义和DOM文本渲染；reset与cleanup必须输入活动Namespace精确确认值；
 - 状态协调：外部删除环境时受控完成Session，Namespace身份不匹配时转为`error`且拒绝删除，reset保留Session ID并支持中断重试；
 - JSON输出、稳定退出码、凭证脱敏和原子配置写入。
 
@@ -143,7 +145,7 @@ kubelab retrospective edit
 
 所有目录、状态和验证命令均支持稳定的`--json`输出。`verify`未通过时退出码为1；参数或实验定义错误为2；环境或Context问题为3；活动Session冲突或非法状态为4；Kubernetes、数据库或内部故障为5。
 
-### 启动本地REST API
+### 启动本地Web界面与REST API
 
 在WSL2 Ubuntu中运行：
 
@@ -151,7 +153,7 @@ kubelab retrospective edit
 kubelab serve
 ```
 
-服务地址固定为`http://127.0.0.1:8765`，健康检查为`GET /health`。M2-01不提供HTML页面或浏览器终端。API不启用CORS；所有跨站Origin都会被拒绝，`POST`和`PUT`还必须同时提交由安全读取请求签发的HttpOnly、SameSite=Strict Cookie和同值`X-CSRF-Token`请求头。`reset`与`cleanup`请求体必须包含当前活动Session的精确Namespace确认值。
+在Windows浏览器打开`http://127.0.0.1:8765/`即可使用本地控制台；健康检查为`GET /health`，REST API位于`/api/v1/`。服务不提供浏览器终端、不启用CORS，并拒绝跨站Origin。写请求使用HttpOnly、SameSite=Strict Cookie与同值`X-CSRF-Token`双提交校验；reset与cleanup还必须提交当前活动Session的精确Namespace确认值。
 
 ### Doctor状态和退出码
 
@@ -206,7 +208,7 @@ uv run mypy src
 
 如果Windows与WSL对同一工作目录执行检查，必须为两端配置不同的uv虚拟环境路径，不能共享`.venv`；更推荐把正式WSL开发副本放在Linux文件系统中。
 
-当前质量基线：Windows和WSL的最终数据见TDD“当前环境说明”中的M2-01记录。两端均要求pytest覆盖率不低于90%，并通过Ruff、格式检查、strict mypy和`git diff --check`。真实集成测试默认关闭，只能在已信任的本地minikube中显式运行。
+当前质量基线：Windows和WSL的最终数据见TDD“当前环境说明”中的M2-02记录。两端均要求pytest覆盖率不低于90%，并通过Ruff、格式检查、strict mypy和`git diff --check`。真实集成测试默认关闭，只能在已信任的本地minikube中显式运行。
 
 只有在WSL中确认`kubelab context inspect`显示`trusted`后，才可显式运行真实网关测试：
 
@@ -234,7 +236,7 @@ KUBELAB_RUN_LAB_INTEGRATION=1 uv run pytest --no-cov -q tests/test_first_labs_in
 ## 项目结构
 
 ```text
-src/kubelab/              Python包、CLI和本地REST API
+src/kubelab/              Python包、CLI、本地REST API和Web界面
 tests/                    单元测试
 labs/                     后续实验定义
 docs/                     部署与环境文档
@@ -256,7 +258,7 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 - [x] M1-09 首批三个故障实验；
 - [x] M1-10 CLI垂直切片验收；
 - [x] M2-01 FastAPI应用基线与REST API；
-- [ ] M2-02 本地HTML页面。
+- [x] M2-02 本地HTML页面。
 
 详细设计见[PRD](PRD-KubeLab.md)和[TDD](TDD-KubeLab.md)。
 
