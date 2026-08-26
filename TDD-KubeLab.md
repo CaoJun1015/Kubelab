@@ -1295,6 +1295,8 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 
 ### M1-05 数据库与状态机
 
+状态：**已完成**。
+
 产出：
 
 - SQLAlchemy模型和Alembic迁移；
@@ -1304,6 +1306,8 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 - 跨进程操作锁。
 
 完成标准：非法转换、并发Session和锁冲突测试通过；SQLite外键、WAL和busy timeout生效。
+
+实际实现包含六张业务表、Alembic初始迁移、纯领域状态机、条件唯一活动Session索引、SQLAlchemy Unit of Work和四类Repository。数据库初始化在跨进程`operations.lock`内执行，仅在已有数据库存在待执行迁移时checkpoint并原子生成备份。JSON字段统一递归脱敏，ORM对象不暴露给CLI或未来Web。
 
 ### M1-06 KubernetesGateway
 
@@ -1448,3 +1452,11 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 - WSL2 Ubuntu Python 3.11.16下148项测试全部通过，包含内部符号链接和符号链接逃逸用例，覆盖率90.64%；
 - 两端`ruff check`、`ruff format --check`和strict mypy全部通过；
 - 测试只创建临时本地文件，没有调用kubectl、访问Kubernetes API或修改真实minikube集群。
+
+2026-08-26，M1-05持久化与状态机完成双环境质量门：
+
+- Windows Python 3.11下收集238项测试，236项通过，2项沿用M1-04的符号链接权限跳过，覆盖率92.25%；
+- WSL2 Ubuntu Python 3.11.16下238项测试全部通过，覆盖率92.58%；
+- 双环境均验证Alembic迁移、迁移前备份、WAL、外键、5000ms busy timeout、活动Session数据库约束、事务回滚、JSON脱敏和跨进程文件锁；
+- 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`通过；
+- 测试数据库和锁全部位于临时目录，没有创建或修改真实用户数据库，也没有访问minikube。

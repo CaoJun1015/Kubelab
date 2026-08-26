@@ -1,0 +1,1 @@
+"""Versioned KubeLab database migrations."""

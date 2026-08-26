@@ -6,4 +6,6 @@
 *.yaml text eol=lf
 *.yml text eol=lf
 *.json text eol=lf
+*.ini text eol=lf
+*.mako text eol=lf
 uv.lock text eol=lf
