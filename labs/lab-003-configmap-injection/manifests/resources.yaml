@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: app-settings, namespace: kubelab-configmap-injection}
+data: {APP_MODE: development}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: worker, namespace: kubelab-configmap-injection}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: configmap-injection-lab}
+  template:
+    metadata:
+      labels: {app: configmap-injection-lab}
+      annotations: {kubelab.io/config-revision: initial}
+    spec:
+      containers:
+        - name: worker
+          image: busybox:1.36.1
+          command: [sh, -c, "echo mode=$APP_MODE; while true; do sleep 30; done"]
+          envFrom:
+            - configMapRef: {name: app-settings}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}

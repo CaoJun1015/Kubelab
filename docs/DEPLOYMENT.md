@@ -422,6 +422,8 @@ kubelab cleanup
 
 卡住时运行`kubelab hint`，每次只会解锁下一层提示。`reset`和`cleanup`都会显示目标Namespace并要求确认。日常短命令默认选择唯一活动实验，不需要手工保存Session ID。
 
+当前目录包含12个实验。运行LAB-011前，必须确认`kubelab doctor`中的Ingress addon为可用；运行LAB-012前，必须确认默认StorageClass存在，并先修复任何`storage-provisioner`异常。任一前置条件不满足时不要启动对应实验。PVC的StorageClass字段不可原地修改，应按实验提示删除故障PVC后使用可用StorageClass重新创建。
+
 ## 15. 升级KubeLab
 
 ```bash

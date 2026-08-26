@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: web, namespace: kubelab-ingress-backend-port}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: ingress-backend-lab}
+  template:
+    metadata:
+      labels: {app: ingress-backend-lab}
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          ports: [{name: http, containerPort: 80}]
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: web, namespace: kubelab-ingress-backend-port}
+spec:
+  selector: {app: ingress-backend-lab}
+  ports: [{name: http, port: 80, targetPort: http}]
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: {name: web, namespace: kubelab-ingress-backend-port}
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: web.kubelab.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port: {number: 81}

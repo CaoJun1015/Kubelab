@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: web, namespace: kubelab-rolling-update}
+spec:
+  replicas: 2
+  strategy:
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app: rolling-update-lab}
+  template:
+    metadata:
+      labels: {app: rolling-update-lab}
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.26-alpine
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}

@@ -1403,10 +1403,11 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 
 ### M3 十二实验
 
-- 在既有Schema和验证器上增加另外九个实验；
-- 如果确需新验证类型，先扩展判别联合和测试，再增加实验；
-- 每个实验必须通过完整契约测试；
-- Ingress和PVC实验先由Doctor验证addon/StorageClass前置条件。
+- 已在既有Schema和八种验证器上增加LAB-001至004及LAB-008至012，无需新增第二套验证逻辑；
+- 十二个实验均包含`lab.yaml`、安全初始Manifest、独立README和不被运行时自动应用的`solutions/fix.yaml`；
+- Fake Gateway对全部实验证明初始契约成立、成功条件预检失败、标准修复通过及reset恢复，验证记录继续写入同一持久化模型；
+- LAB-011声明`ingress` addon要求，LAB-012的运行说明要求Doctor确认默认StorageClass和provisioner健康；前置条件不满足时不得进行真实实验；
+- 真实minikube契约测试仍只覆盖首批三个实验，其余九个在专用集成用例完成前不声明端到端兼容性。
 
 ### M4 开源包装
 
@@ -1541,3 +1542,11 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - 新增11项UI专项测试，覆盖五个页面壳、导航、Jinja转义、CSP与安全响应头、CSRF持续回显、文本DOM渲染约束、Session ID不匹配、轮询/可见性/手动刷新/重复提交/Namespace确认前端契约及wheel静态资源完整性；
 - 使用Fake Application Service完成真实浏览器验收，覆盖总览、实验详情、活动Session跳转、2秒资源刷新、Events、Logs、验证失败、逐级提示、复盘保存、重置、清理返回总览、Session地址不匹配和390px移动布局；浏览器控制台没有脚本或CSP错误；
 - 两端均显式关闭真实集成测试变量，浏览器验收只连接Fake服务，没有读取用户数据库、访问Kubernetes API或创建、修改、删除真实minikube资源。
+
+2026-08-26，M3十二实验完成实现和双环境自动化质量门：
+
+- Windows Python 3.11下收集449项测试，442项通过，3项首批实验集成测试、2项网关集成测试和2项符号链接测试跳过，覆盖率92.08%；
+- WSL2 Ubuntu Python 3.11.16使用独立`/tmp`虚拟环境收集449项测试，444项通过，3项首批实验集成测试和2项网关集成测试跳过，覆盖率92.26%；
+- 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`全部通过；Registry无错误加载12个实验，全部初始Manifest和标准修复Fixture通过安全扫描；
+- 32项实验专项测试覆盖目录完整性、修复差异、固定版本镜像、Ingress/PVC前置声明，以及每个实验的`initialChecks通过 → successChecks预检失败 → 标准修复后通过 → reset sequence恢复初始故障`和验证记录持久化；
+- 两端均显式关闭真实集成测试变量，没有访问Kubernetes API或创建、修改、删除真实minikube资源；新增九个实验尚未执行真实端到端契约测试，不作集群兼容性声明。

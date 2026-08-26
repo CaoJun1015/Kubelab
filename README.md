@@ -2,7 +2,7 @@
 
 KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 运维练习平台。它以本机 Docker Engine 和 minikube 为实验环境，目标是把云原生运维面试知识转化为可以反复操作、验证和复盘的故障实验。
 
-> 当前版本：`0.1.0a0`（M2 本地Web MVP）。项目仍处于早期开发阶段，目前可以通过CLI、本地REST API或中文运维控制台完成实验目录浏览、启动、排障观察、验证、提示、重置、清理和复盘。
+> 当前版本：`0.1.0a0`（M3 十二实验）。项目仍处于早期开发阶段，目前可以通过CLI、本地REST API或中文运维控制台完成12个实验的目录浏览、启动、排障观察、验证、提示、重置、清理和复盘。
 
 ## 当前可用功能
 
@@ -14,6 +14,7 @@ KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 
 - `ContextTrustService.assert_trusted_context()`：为后续所有Kubernetes写操作提供统一安全守卫；
 - `kubelab.io/v1alpha1`实验Schema：严格校验实验元数据、任务、检查、提示和声明式清理配置；
 - `LabRegistry`：确定性扫描本地实验，隔离损坏实验并拒绝危险Manifest、路径逃逸和集群级资源；
+- 十二个声明式实验：覆盖扩缩容、滚动更新、ConfigMap、探针、镜像、CrashLoop、Service、Readiness、OOM、Ingress和PVC；
 - 可重复生成的`schemas/lab-v1alpha1.schema.json`及错误脱敏；
 - SQLAlchemy 2与Alembic持久化：保存Session、状态事件、验证记录、提示和复盘；
 - `SessionStateMachine`：拒绝非法生命周期转换，并由SQLite条件唯一索引保证最多一个活动实验；
@@ -208,18 +209,18 @@ uv run mypy src
 
 如果Windows与WSL对同一工作目录执行检查，必须为两端配置不同的uv虚拟环境路径，不能共享`.venv`；更推荐把正式WSL开发副本放在Linux文件系统中。
 
-当前质量基线：Windows和WSL的最终数据见TDD“当前环境说明”中的M2-02记录。两端均要求pytest覆盖率不低于90%，并通过Ruff、格式检查、strict mypy和`git diff --check`。真实集成测试默认关闭，只能在已信任的本地minikube中显式运行。
+当前质量基线：Windows和WSL的最终数据见TDD“当前环境说明”中的M3记录。两端均要求pytest覆盖率不低于90%，并通过Ruff、格式检查、strict mypy和`git diff --check`。真实集成测试默认关闭，只能在已信任的本地minikube中显式运行。
 
 只有在WSL中确认`kubelab context inspect`显示`trusted`后，才可显式运行真实网关测试：
 
 ```bash
 KUBELAB_RUN_INTEGRATION=1 uv run pytest --no-cov -q tests/test_kubernetes_gateway_integration.py
 
-# 三个正式实验的start → fix → verify → reset → cleanup契约
+# 首批三个实验的真实start → fix → verify → reset → cleanup契约
 KUBELAB_RUN_LAB_INTEGRATION=1 uv run pytest --no-cov -q tests/test_first_labs_integration.py
 ```
 
-这些测试只创建随机`kubelab-test-*` Namespace并通过所有权校验清理。正式实验契约在执行前要求固定版本镜像已进入minikube缓存；缺失时会报告环境跳过。可以用`-k service_http_probe`只运行网关HTTP用例；不要在远程或生产Context运行。
+全部12个实验默认使用Fake Gateway证明`initial → success预检失败 → fix → reset`契约，不接触集群。上述显式真实测试目前只覆盖首批三个实验，只创建随机`kubelab-test-*` Namespace并通过所有权校验清理；执行前要求固定版本镜像已进入minikube缓存，缺失时会报告环境跳过。可以用`-k service_http_probe`只运行网关HTTP用例；不要在远程或生产Context运行。
 
 ## 安全边界
 
@@ -238,7 +239,7 @@ KUBELAB_RUN_LAB_INTEGRATION=1 uv run pytest --no-cov -q tests/test_first_labs_in
 ```text
 src/kubelab/              Python包、CLI、本地REST API和Web界面
 tests/                    单元测试
-labs/                     后续实验定义
+labs/                     十二个声明式实验定义
 docs/                     部署与环境文档
 PRD-KubeLab.md            产品需求基线
 TDD-KubeLab.md            技术设计基线
@@ -258,7 +259,8 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 - [x] M1-09 首批三个故障实验；
 - [x] M1-10 CLI垂直切片验收；
 - [x] M2-01 FastAPI应用基线与REST API；
-- [x] M2-02 本地HTML页面。
+- [x] M2-02 本地HTML页面；
+- [x] M3 十二个声明式实验。
 
 详细设计见[PRD](PRD-KubeLab.md)和[TDD](TDD-KubeLab.md)。
 

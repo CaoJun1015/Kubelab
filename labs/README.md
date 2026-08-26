@@ -1,6 +1,6 @@
 # KubeLab实验目录
 
-每个实验是一个独立目录，包含一个`lab.yaml`、一个或多个声明式Kubernetes Manifest、练习说明和维护者标准修复。M1-09已经提供首批三个真实故障实验；公开CLI命令将在M1-10接入，因此当前仍不能直接执行`kubelab start`。
+每个实验是一个独立目录，包含一个`lab.yaml`、一个或多个声明式Kubernetes Manifest、练习说明和维护者标准修复。M3目录包含12个实验，可以通过CLI、本地REST API或Web UI执行；同一时间只允许一个活动Session。
 
 ## 目录结构
 
@@ -95,11 +95,16 @@ uv run pytest tests/test_lab_schema.py
 
 这些验证器由M1-08 ValidationEngine执行。每个实验必须同时证明初始故障契约、修复后的成功契约和重置后的故障恢复。
 
-## 首批实验
+## 十二个实验
 
-- `lab-005-image-pull-backoff`：确定不存在的镜像，验证`ErrImagePull/ImagePullBackOff`、正确镜像和Pod稳定Ready；
-- `lab-006-crash-loop-backoff`：容器主动退出，验证`CrashLoopBackOff`、最小重启次数及修复后零重启稳定窗口；
-- `lab-007-service-selector`：Service Selector故意不匹配，验证Endpoint从0恢复并通过集群内HTTP 200探测。
+- LAB-001至004：Deployment扩缩容、滚动更新、ConfigMap注入和Liveness探针；
+- LAB-005至007：ImagePullBackOff、CrashLoopBackOff和Service Selector错误；
+- LAB-008至010：ConfigMap缺失、Readiness路径错误和OOMKilled；
+- LAB-011至012：Ingress后端端口错误和PVC无法绑定。
+
+全部实验使用Fake Gateway证明初始故障、成功条件预检失败、标准修复通过和reset恢复。首批三个实验另有默认关闭的真实minikube契约测试；其余实验在增加显式真实测试前不声明集群端到端验收。
+
+LAB-011要求Doctor确认`ingress` addon已启用。LAB-012要求Doctor确认默认StorageClass存在且`storage-provisioner`健康；PVC的`storageClassName`不可原地修改，修复时需要删除故障PVC后重新创建。
 
 每个`solutions/fix.yaml`仅供契约测试和维护者核对，不在`lab.yaml.environment.manifests`中，因此Registry启动实验时不会读取或自动应用答案。
 

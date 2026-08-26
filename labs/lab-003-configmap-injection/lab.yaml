@@ -1,0 +1,70 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-003-configmap-injection
+  name: LAB-003 ConfigMap注入
+  description: 应用通过ConfigMap注入了旧环境值，需要更新配置并滚动Pod。
+  difficulty: beginner
+  durationMinutes: 20
+  category: configuration
+  tags: [configmap, deployment, environment]
+requirements:
+  kubernetes: ">=1.28"
+  minimumCpu: 1
+  minimumMemoryMiB: 1024
+  addons: []
+environment:
+  namespace: kubelab-configmap-injection
+  manifests: [manifests/resources.yaml]
+  provisionTimeoutSeconds: 120
+task:
+  description: 把ConfigMap中的APP_MODE改为production，并让Deployment重新加载配置。
+  completionDescription: ConfigMap值正确，应用Pod重新创建后稳定Ready。
+  successMessage: 配置已经更新，工作负载加载了新的运行模式。
+initialChecks:
+  - id: old-config-value
+    type: config_value
+    sourceKind: ConfigMap
+    sourceName: app-settings
+    key: APP_MODE
+    expectedValue: development
+    timeoutSeconds: 10
+    unmetMessage: 初始ConfigMap值与实验契约不一致。
+  - id: initial-pod-ready
+    type: pod_status
+    selector: {app: configmap-injection-lab}
+    expectedPhase: Running
+    minimumCount: 1
+    minimumReady: 1
+    ready: true
+    timeoutSeconds: 60
+    unmetMessage: 初始应用Pod尚未Ready。
+successChecks:
+  - id: production-config-value
+    type: config_value
+    sourceKind: ConfigMap
+    sourceName: app-settings
+    key: APP_MODE
+    expectedValue: production
+    timeoutSeconds: 10
+    unmetMessage: ConfigMap尚未设置为production。
+  - id: reloaded-pod-ready
+    type: pod_status
+    selector: {app: configmap-injection-lab}
+    expectedPhase: Running
+    minimumCount: 1
+    minimumReady: 1
+    stableSeconds: 5
+    ready: true
+    timeoutSeconds: 60
+    unmetMessage: 重新加载配置后的Pod尚未稳定Ready。
+hints:
+  - {level: 1, content: 查看ConfigMap数据和Pod中的envFrom引用。}
+  - {level: 2, content: 更新ConfigMap不会自动重启通过环境变量取值的Pod。}
+  - {level: 3, content: 把APP_MODE改为production并重启Deployment。}
+cleanup: {deleteNamespace: true}
+interview:
+  questions:
+    - ConfigMap以环境变量和Volume挂载时更新行为有何不同？
+    - 为什么修改ConfigMap后环境变量不会自动刷新？
+    - 如何安全触发依赖配置的工作负载滚动更新？

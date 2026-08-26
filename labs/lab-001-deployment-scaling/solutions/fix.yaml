@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: kubelab-deployment-scaling
+spec:
+  replicas: 3
+  selector:
+    matchLabels: {app: deployment-scaling-lab}
+  template:
+    metadata:
+      labels: {app: deployment-scaling-lab}
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}

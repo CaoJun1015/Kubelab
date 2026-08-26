@@ -1,0 +1,63 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-004-probes
+  name: LAB-004 探针基础
+  description: Liveness探针访问不存在的路径，健康容器被kubelet反复重启。
+  difficulty: beginner
+  durationMinutes: 20
+  category: workloads
+  tags: [pod, probe, liveness]
+requirements:
+  kubernetes: ">=1.28"
+  minimumCpu: 1
+  minimumMemoryMiB: 1024
+  addons: []
+environment:
+  namespace: kubelab-probes
+  manifests: [manifests/deployment.yaml]
+  provisionTimeoutSeconds: 180
+task:
+  description: 分析kubelet探针事件，修复Liveness路径并让web停止重启。
+  completionDescription: web持续Running、Ready，修复后的Pod不再重启。
+  successMessage: Liveness探针已修复，容器恢复稳定运行。
+initialChecks:
+  - id: liveness-restarts
+    type: pod_status
+    selector: {app: probes-lab}
+    expectedPhase: Running
+    minimumCount: 1
+    ready: false
+    containerName: web
+    minimumRestartCount: 1
+    timeoutSeconds: 120
+    unmetMessage: Pod尚未呈现错误Liveness探针导致的重启。
+successChecks:
+  - id: probe-deployment-available
+    type: deployment_available
+    name: web
+    minimumReplicas: 1
+    timeoutSeconds: 60
+    unmetMessage: 修复后的Deployment尚未可用。
+  - id: probe-pod-stable
+    type: pod_status
+    selector: {app: probes-lab}
+    expectedPhase: Running
+    minimumCount: 1
+    minimumReady: 1
+    stableSeconds: 10
+    ready: true
+    containerName: web
+    maximumRestartCount: 0
+    timeoutSeconds: 60
+    unmetMessage: 修复后的新Pod仍未稳定或发生了重启。
+hints:
+  - {level: 1, content: 查看Pod Events中的Liveness probe failed。}
+  - {level: 2, content: 对比探针httpGet.path与容器实际可用路径。}
+  - {level: 3, content: 把Liveness路径从/does-not-exist改为/。}
+cleanup: {deleteNamespace: true}
+interview:
+  questions:
+    - Liveness和Readiness探针分别控制什么行为？
+    - 为什么错误的Liveness探针会放大故障？
+    - 修改Pod模板后为什么重启计数应从新Pod观察？

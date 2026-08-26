@@ -1,0 +1,57 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-001-deployment-scaling
+  name: LAB-001 Deployment扩缩容
+  description: Deployment当前只有一个副本，需要在保持服务可用的同时扩容。
+  difficulty: beginner
+  durationMinutes: 15
+  category: workloads
+  tags: [deployment, scaling, replicas]
+requirements:
+  kubernetes: ">=1.28"
+  minimumCpu: 1
+  minimumMemoryMiB: 1024
+  addons: []
+environment:
+  namespace: kubelab-deployment-scaling
+  manifests: [manifests/deployment.yaml]
+  provisionTimeoutSeconds: 120
+task:
+  description: 检查Deployment副本状态，把web扩容到三个可用副本。
+  completionDescription: Deployment至少有三个可用副本，Pod全部稳定Ready。
+  successMessage: Deployment已经完成扩容，三个副本均可用。
+initialChecks:
+  - id: initial-replica-available
+    type: deployment_available
+    name: web
+    minimumReplicas: 1
+    timeoutSeconds: 60
+    unmetMessage: 初始Deployment尚未形成一个可用副本。
+successChecks:
+  - id: scaled-replicas-available
+    type: deployment_available
+    name: web
+    minimumReplicas: 3
+    timeoutSeconds: 60
+    unmetMessage: Deployment尚未达到三个可用副本。
+  - id: scaled-pods-stable
+    type: pod_status
+    selector: {app: deployment-scaling-lab}
+    expectedPhase: Running
+    minimumCount: 3
+    minimumReady: 3
+    stableSeconds: 5
+    ready: true
+    timeoutSeconds: 60
+    unmetMessage: 扩容后的Pod尚未全部稳定Ready。
+hints:
+  - {level: 1, content: 对比Deployment的期望副本数与可用副本数。}
+  - {level: 2, content: 使用kubectl scale或编辑spec.replicas。}
+  - {level: 3, content: 把web Deployment的spec.replicas设置为3。}
+cleanup: {deleteNamespace: true}
+interview:
+  questions:
+    - Deployment期望副本数和可用副本数有什么区别？
+    - 扩容期间ReplicaSet如何创建Pod？
+    - HPA与手工扩缩容可能产生什么交互？
