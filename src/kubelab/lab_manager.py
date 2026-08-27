@@ -18,6 +18,7 @@ from kubelab.kubernetes_gateway import (
     PodSummary,
     ResourceSummary,
     SessionScope,
+    WorkspaceAccess,
 )
 from kubelab.lab_registry import LabRegistry, LoadedLab, RegistryError
 from kubelab.operation_lock import OperationLock
@@ -171,6 +172,10 @@ class ClusterGateway(ValidationGateway, Protocol):
 
     def assert_namespace_owned(self, scope: SessionScope) -> None: ...
 
+    def provision_workspace(self, scope: SessionScope) -> WorkspaceAccess: ...
+
+    def revoke_workspace(self, scope: SessionScope) -> None: ...
+
     def delete_environment(
         self, scope: SessionScope, *, wait_timeout_seconds: float = 120
     ) -> NamespaceDeleteResult: ...
@@ -320,6 +325,52 @@ class LabManager:
             ),
         )
         return result
+
+    def open_workspace(self, session_id: str | None = None) -> WorkspaceAccess:
+        """Issue short-lived namespace-only credentials for an interactive shell."""
+        with self._operation_lock:
+            session = self._require_session(session_id)
+            if session.status not in {
+                SessionStatus.READY,
+                SessionStatus.IN_PROGRESS,
+                SessionStatus.PASSED,
+            }:
+                raise LabManagerError(
+                    "INVALID_SESSION_STATE",
+                    "The workspace is unavailable in the current Session state.",
+                )
+            trusted, fingerprint = self._trusted_for_session(session)
+            gateway = self._gateway_factory(trusted, fingerprint)
+            try:
+                access = gateway.provision_workspace(self._scope(session))
+                if session.status is SessionStatus.READY:
+                    self._transition(
+                        session.id,
+                        SessionStatus.IN_PROGRESS,
+                        event_type="workspace_entered",
+                    )
+                return access
+            except Exception as exc:
+                raise self._manager_error(exc, operation="workspace") from exc
+            finally:
+                gateway.close()
+
+    def close_workspace(self, session_id: str) -> None:
+        """Revoke ephemeral workspace RBAC when its shell exits."""
+        with self._operation_lock:
+            session = self._require_session(session_id, allow_completed=True)
+            if session.status is SessionStatus.COMPLETED:
+                return
+            trusted, fingerprint = self._trusted_for_session(session)
+            gateway = self._gateway_factory(trusted, fingerprint)
+            try:
+                scope = self._scope(session)
+                if gateway.namespace_exists(scope):
+                    gateway.revoke_workspace(scope)
+            except Exception as exc:
+                raise self._manager_error(exc, operation="workspace cleanup") from exc
+            finally:
+                gateway.close()
 
     def next_hint(self, session_id: str | None = None) -> HintResult:
         """Reveal one hint level at a time and record first use."""
@@ -861,4 +912,5 @@ __all__ = [
     "SessionResources",
     "SessionStatusResult",
     "ValidationService",
+    "WorkspaceAccess",
 ]

@@ -312,7 +312,9 @@ class LabRegistry:
                 if not candidate.is_absolute():
                     return None, self._root_error("KUBELAB_LABS_DIR must be an absolute path.")
             else:
-                candidate = Path(__file__).resolve().parents[2] / "labs"
+                package_root = Path(__file__).resolve().parent / "labs"
+                project_root = Path(__file__).resolve().parents[2] / "labs"
+                candidate = package_root if package_root.is_dir() else project_root
         try:
             root = candidate.resolve(strict=True)
         except OSError:

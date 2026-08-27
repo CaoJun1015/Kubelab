@@ -15,6 +15,18 @@ spec:
       labels:
         app: image-pull-lab
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-run
+          emptyDir: {}
       containers:
         - name: web
           image: nginx:1.27-alpine
@@ -34,3 +46,8 @@ spec:
               drop: [ALL]
             seccompProfile:
               type: RuntimeDefault
+          volumeMounts:
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /run

@@ -5,12 +5,18 @@
 
 <header class="session-header">
   <div><p id="session-lab-id" class="eyebrow">ACTIVE SESSION</p><h1 id="session-title">正在读取 Session…</h1><p id="session-task"></p></div>
-  <div class="session-identity"><span id="session-status" class="status-badge neutral">读取中</span><code id="session-namespace">—</code></div>
+  <div class="session-identity"><span id="session-status" class="status-badge neutral">读取中</span><code id="session-namespace">—</code><button id="copy-namespace" class="button secondary small" type="button">复制 Namespace</button></div>
 </header>
 
 <nav class="workspace-nav" aria-label="工作台区域">
-  <a href="#resources">资源</a><a href="#events">Events</a><a href="#logs">Logs</a><a href="#verify">验证</a><a href="#retrospective">复盘</a>
+  <a href="#investigate">调查</a><a href="#resources">资源</a><a href="#events">Events</a><a href="#logs">Logs</a><a href="#verify">验证</a><a href="#retrospective">复盘</a>
 </nav>
+
+<section id="investigate" class="panel workspace-section" aria-labelledby="investigate-title">
+  <div class="panel-heading"><div><p class="eyebrow">WSL OPERATOR HANDOFF</p><h2 id="investigate-title">常用调查命令</h2></div><span class="quiet-text">命令仅复制到剪贴板，不在浏览器执行</span></div>
+  <p>推荐使用受限Workspace；所有命令由活动Session的Namespace安全生成。</p>
+  <div id="investigation-commands" class="command-list"></div>
+</section>
 
 <section id="resources" class="panel workspace-section" aria-labelledby="resources-title">
   <div class="panel-heading"><div><p class="eyebrow">LIVE · 2S</p><h2 id="resources-title">资源与 Pods</h2></div><span id="poll-status" class="quiet-text">等待轮询</span></div>

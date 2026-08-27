@@ -20,6 +20,7 @@ from kubelab.kubernetes_gateway import (
     PodSummary,
     ResourceSummary,
     SessionScope,
+    WorkspaceAccess,
 )
 from kubelab.lab_manager import (
     InitialContractResult,
@@ -139,6 +140,18 @@ class FakeGateway:
         self._call("owned")
         if not self.owned:
             raise KubernetesGatewayError(GatewayErrorCode.OWNERSHIP_MISMATCH, "ownership mismatch")
+
+    def provision_workspace(self, scope: SessionScope) -> WorkspaceAccess:
+        self._call("workspace")
+        return WorkspaceAccess(
+            session_id=scope.session_id,
+            namespace=scope.namespace,
+            token="temporary-token",
+        )
+
+    def revoke_workspace(self, scope: SessionScope) -> None:
+        del scope
+        self._call("workspace-revoke")
 
     def delete_environment(
         self, scope: SessionScope, *, wait_timeout_seconds: float = 120
@@ -481,6 +494,40 @@ def test_status_marks_ready_in_progress(database: Database, tmp_path: Path) -> N
     assert result.namespace_exists is True
     assert result.namespace_owned is True
     assert gateway.calls == ["exists", "owned"]
+
+
+def test_workspace_uses_trusted_active_session_and_revokes_access(
+    database: Database, tmp_path: Path
+) -> None:
+    manager, gateway, _, _ = build_manager(database, tmp_path)
+    session = manager.start("complete-lab")
+    gateway.calls.clear()
+
+    access = manager.open_workspace()
+
+    assert access.session_id == session.id
+    assert persisted(database, session.id).status is SessionStatus.IN_PROGRESS
+    assert gateway.calls == ["workspace"]
+    assert gateway.closed is True
+
+    gateway.closed = False
+    manager.close_workspace(session.id)
+
+    assert gateway.calls[-2:] == ["exists", "workspace-revoke"]
+    assert gateway.closed is True
+
+
+def test_workspace_rejects_context_drift_before_gateway(database: Database, tmp_path: Path) -> None:
+    manager, gateway, trust, _ = build_manager(database, tmp_path)
+    manager.start("complete-lab")
+    gateway.calls.clear()
+    trust.error = ContextNotTrustedError("drifted")
+
+    with pytest.raises(LabManagerError) as error:
+        manager.open_workspace()
+
+    assert error.value.code == ManagerErrorCode.CONTEXT_DRIFT
+    assert gateway.calls == []
 
 
 def test_status_reconciles_externally_removed_namespace(database: Database, tmp_path: Path) -> None:

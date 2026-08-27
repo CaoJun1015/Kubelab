@@ -299,6 +299,33 @@ button:disabled {
   margin-top: 1rem;
 }
 
+.command-list {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+.command-row {
+  align-items: center;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) / 2);
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 0.75rem 0.85rem;
+}
+
+.command-copy {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.command-copy code {
+  overflow-wrap: anywhere;
+}
+
 .dashboard-grid .panel + .panel,
 .workspace-columns .panel + .panel {
   margin-top: 0;

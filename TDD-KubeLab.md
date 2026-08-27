@@ -1398,7 +1398,7 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - FastAPI lifespan持有数据库与共享服务，Web不通过CLI子进程调用业务能力；
 - M2-01已增加Fake Application Service API、CSRF、Origin、日志、复盘和脱敏测试，不访问真实minikube；
 - M2-02已实现第15.4节五个HTML页面、2秒资源轮询、可见性暂停、手动Events/Logs、操作等待态、Namespace确认和复盘工作流；
-- Jinja模板和静态资源随wheel发布，页面和API保持同源且不引入Node构建链；
+- Jinja模板、静态资源和全部12个实验目录随wheel发布，页面和API保持同源且不引入Node构建链；
 - 不新增浏览器终端。
 
 ### M3 十二实验
@@ -1407,7 +1407,16 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - 十二个实验均包含`lab.yaml`、安全初始Manifest、独立README和不被运行时自动应用的`solutions/fix.yaml`；
 - Fake Gateway对全部实验证明初始契约成立、成功条件预检失败、标准修复通过及reset恢复，验证记录继续写入同一持久化模型；
 - LAB-011声明`ingress` addon要求，LAB-012的运行说明要求Doctor确认默认StorageClass和provisioner健康；前置条件不满足时不得进行真实实验；
-- 真实minikube契约测试仍只覆盖首批三个实验，其余九个在专用集成用例完成前不声明端到端兼容性。
+- 真实minikube契约测试已覆盖全部12个实验，标准修复通过临时ServiceAccount令牌和Namespace限定RBAC执行；测试同时断言不能读取Secret或集群级Namespace，并在每个实验后确认Namespace已清理。
+
+### M3-01 本地受限排障工作区
+
+- `kubelab workspace enter`只对唯一活动Session开放，并在每次进入前重验本机minikube Context指纹、Session状态和Namespace所有权；
+- Gateway只创建固定名称的ServiceAccount、Role和RoleBinding，通过TokenRequest签发一小时以内的短期令牌；Role不包含Secret、RBAC、Namespace或任何集群级资源；
+- 临时kubeconfig只复制当前集群Server和CA，使用短期令牌并固定活动Namespace，不复制管理员用户、客户端证书或私钥；以独占创建和0600权限写入，退出后撤销RBAC并删除临时目录；
+- CLI只启动固定`/bin/bash --noprofile --norc -i`，不接受任意shell、命令、路径或URL，不使用`shell=True`；
+- Web工作台只提供复制Namespace和基于该受控值生成的常用调查命令，继续不提供浏览器终端或第二套业务逻辑；
+- curl探针的单次网络请求上限为10秒、Pod上限为15秒；已观察到明确业务失败时，截止点的瞬时探针基础设施错误不覆盖该业务结果。
 
 ### M4 开源包装
 
@@ -1445,7 +1454,7 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - 修复后成功验证来自资源状态与业务探测，而非单一Pod Phase；
 - start/reset/cleanup失败均有明确状态、错误和恢复路径；
 - 日志、API和数据库不保存Secret或kubeconfig凭证；
-- 三个M1实验在真实minikube完成端到端契约测试；
+- 十二个实验在真实minikube完成端到端契约测试，且使用受限workspace执行标准修复；
 - Web API、CLI、Schema、数据库和状态机与本文档一致；
 - Docker、kubectl、minikube和Helm版本只有在实际发现并验证后才写入兼容列表。
 
@@ -1550,3 +1559,14 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`全部通过；Registry无错误加载12个实验，全部初始Manifest和标准修复Fixture通过安全扫描；
 - 32项实验专项测试覆盖目录完整性、修复差异、固定版本镜像、Ingress/PVC前置声明，以及每个实验的`initialChecks通过 → successChecks预检失败 → 标准修复后通过 → reset sequence恢复初始故障`和验证记录持久化；
 - 两端均显式关闭真实集成测试变量，没有访问Kubernetes API或创建、修改、删除真实minikube资源；新增九个实验尚未执行真实端到端契约测试，不作集群兼容性声明。
+
+2026-08-27，M3-01受限WSL工作区、wheel实验打包与12实验真实验收完成：
+
+- Windows Python 3.11下收集470项测试，454项通过，12项实验集成测试、2项网关集成测试和2项符号链接测试跳过，覆盖率91.85%；
+- WSL2 Ubuntu Python 3.11.16使用独立`.venv-wsl`收集470项测试，456项通过，12项实验集成测试和2项网关集成测试跳过，覆盖率92.02%；
+- 两端`ruff check`、`ruff format --check`、源码范围strict mypy和`git diff --check`全部通过；Windows额外通过原生JavaScript语法检查；
+- 实际构建`kubelab-0.1.0a0-py3-none-any.whl`并枚举内容，确认包含12个实验的`lab.yaml`、全部Jinja模板和静态资源；安装后的Registry优先读取包内实验，源码开发时保留仓库目录回退；
+- 新增`kubelab workspace enter`、短期TokenRequest、Namespace限定RBAC和临时0600 kubeconfig；自动化测试覆盖状态/所有权/Context守卫、固定bash、凭证不序列化、不允许Secret/RBAC/集群级访问以及异常退出清理；
+- 在已信任的本机minikube Kubernetes 1.35.1中缓存`nginx:1.26-alpine`、`nginx:1.27-alpine`、`busybox:1.36.1`和`curlimages/curl:8.12.1`，启用并确认Ingress Controller、storage-provisioner和默认`standard` StorageClass Ready；
+- 显式真实集成测试对LAB-001至LAB-012逐个完成`start → 受限workspace标准修复 → verify → reset → cleanup`，12项全部通过；测试同时证明workspace可修复工作负载但不能读取Secret或集群级Namespace；
+- 真实验收后只读核验不存在`kubelab.io/managed-by=kubelab`的Namespace、ServiceAccount、Role、RoleBinding、PVC或PV残留；未操作远程或生产集群。

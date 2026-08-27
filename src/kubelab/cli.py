@@ -1,6 +1,8 @@
 """KubeLab command-line entry point."""
 
 import json
+import os
+import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -33,6 +35,7 @@ from kubelab.runtime import (
 )
 from kubelab.session_state import RetrospectiveInput, ValidationStatus
 from kubelab.web import WEB_HOST, WEB_PORT, create_app
+from kubelab.workspace import WorkspaceError, workspace_environment
 
 app = typer.Typer(
     name="kubelab",
@@ -45,9 +48,11 @@ context_app = typer.Typer(
     help="Inspect and trust the local minikube context.", no_args_is_help=True
 )
 retrospective_app = typer.Typer(help="Record the troubleshooting retrospective.")
+workspace_app = typer.Typer(help="Enter the active lab's restricted WSL workspace.")
 app.add_typer(config_app, name="config")
 app.add_typer(context_app, name="context")
 app.add_typer(retrospective_app, name="retrospective")
+app.add_typer(workspace_app, name="workspace")
 
 
 def _show_version(value: bool) -> None:
@@ -350,18 +355,45 @@ def retrospective_edit_command(
         typer.echo(f"Retrospective saved for Session {result.session_id}.")
 
 
+@workspace_app.command("enter")
+def workspace_enter_command() -> None:
+    """Open a fixed Bash shell with short-lived access to only the active Namespace."""
+    with _runtime(json_output=False) as runtime:
+        with workspace_environment(runtime.manager, runtime.kubeconfig_path) as environment:
+            typer.echo(f"Restricted workspace: {environment.namespace}")
+            typer.echo("Secret and cluster-scoped access are blocked; exit with Ctrl-D.")
+            shell_environment = os.environ.copy()
+            shell_environment["KUBECONFIG"] = str(environment.kubeconfig_path)
+            shell_environment["KUBELAB_NAMESPACE"] = environment.namespace
+            shell_environment["PS1"] = f"kubelab:{environment.namespace} $ "
+            result = subprocess.run(
+                ["/bin/bash", "--noprofile", "--norc", "-i"],
+                check=False,
+                env=shell_environment,
+            )
+            if result.returncode != 0:
+                raise typer.Exit(code=result.returncode)
+
+
 @contextmanager
 def _application(json_output: bool) -> Iterator[LabManager]:
+    with _runtime(json_output) as runtime:
+        yield runtime.manager
+
+
+@contextmanager
+def _runtime(json_output: bool) -> Iterator[ApplicationRuntime]:
     runtime: ApplicationRuntime | None = None
     try:
         runtime = build_application_runtime()
-        yield runtime.manager
+        yield runtime
     except (
         ConfigError,
         DatabaseError,
         ContextError,
         LabManagerError,
         RuntimeEnvironmentError,
+        WorkspaceError,
     ) as exc:
         _raise_application_error(exc, json_output=json_output)
     except ActiveSessionConflict as exc:

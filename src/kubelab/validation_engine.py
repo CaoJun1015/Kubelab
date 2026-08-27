@@ -294,6 +294,7 @@ class ValidationEngine:
         interval = 0.5
         stable_started: float | None = None
         last = _Observation(satisfied=False, expected={}, actual={})
+        last_non_error: _Observation | None = None
         while True:
             try:
                 last = self._observe(scope, check, gateway, deadline=deadline)
@@ -321,6 +322,18 @@ class ValidationEngine:
                 )
 
             if last.error_code is not None:
+                if (
+                    last_non_error is not None
+                    and not last_non_error.satisfied
+                    and self._monotonic() >= deadline
+                ):
+                    return self._finished(
+                        check,
+                        last_non_error,
+                        ValidationStatus.FAILED,
+                        check.unmet_message,
+                        started,
+                    )
                 return self._finished(
                     check,
                     last,
@@ -328,6 +341,7 @@ class ValidationEngine:
                     "Validation could not be completed.",
                     started,
                 )
+            last_non_error = last
             if last.satisfied:
                 stable_seconds = (
                     check.stable_seconds

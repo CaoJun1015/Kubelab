@@ -566,6 +566,33 @@ def test_http_outcomes_distinguish_failed_and_error(
     assert result.status is expected
 
 
+def test_late_probe_error_does_not_override_observed_business_failure(
+    database: Database, loaded_lab: LoadedLab
+) -> None:
+    clock = FakeClock()
+
+    class DeadlineProbeGateway(FakeValidationGateway):
+        def run_http_probe(
+            self, scope: SessionScope, target: Any, *, deadline: float
+        ) -> HttpProbeResult:
+            del scope, target
+            if self.calls.count("http") == 0:
+                self.calls.append("http")
+                return HttpProbeResult(status_code=None, exit_code=7)
+            self.calls.append("http")
+            clock.value = deadline
+            return HttpProbeResult(infrastructure_error=True, timed_out=True)
+
+    gateway = DeadlineProbeGateway()
+
+    result = engine(database, clock).validate_success_contract(
+        scope(), with_checks(loaded_lab, all_checks()[7]), gateway, 0
+    )
+
+    assert result.status is ValidationStatus.FAILED
+    assert result.results[0].message == all_checks()[7].unmet_message
+
+
 def test_probe_cleanup_warning_is_nonfatal(database: Database, loaded_lab: LoadedLab) -> None:
     clock = FakeClock()
     gateway = FakeValidationGateway()

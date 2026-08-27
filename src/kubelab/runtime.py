@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import platform
+from pathlib import Path
 from types import TracebackType
 
 from kubelab.config import TrustedContext, load_config, resolve_kubeconfig_path
@@ -19,9 +20,10 @@ from kubelab.validation_engine import ValidationEngine
 class ApplicationRuntime:
     """Own process-local resources used by one CLI invocation."""
 
-    def __init__(self, database: Database, manager: LabManager) -> None:
+    def __init__(self, database: Database, manager: LabManager, kubeconfig_path: Path) -> None:
         self.database = database
         self.manager = manager
+        self.kubeconfig_path = kubeconfig_path
 
     def close(self) -> None:
         self.database.dispose()
@@ -72,7 +74,7 @@ def build_application_runtime() -> ApplicationRuntime:  # pragma: no cover - com
             gateway_factory=gateway_factory,
             validation=validation,
         )
-        return ApplicationRuntime(database, manager)
+        return ApplicationRuntime(database, manager, kubeconfig_path)
     except Exception:
         database.dispose()
         raise

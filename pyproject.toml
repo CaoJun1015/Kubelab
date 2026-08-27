@@ -40,6 +40,9 @@ package = true
 [tool.hatch.build.targets.wheel]
 packages = ["src/kubelab"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"labs" = "kubelab/labs"
+
 [tool.pytest.ini_options]
 addopts = [
     "--strict-config",

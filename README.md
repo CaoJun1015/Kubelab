@@ -2,7 +2,7 @@
 
 KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 运维练习平台。它以本机 Docker Engine 和 minikube 为实验环境，目标是把云原生运维面试知识转化为可以反复操作、验证和复盘的故障实验。
 
-> 当前版本：`0.1.0a0`（M3 十二实验）。项目仍处于早期开发阶段，目前可以通过CLI、本地REST API或中文运维控制台完成12个实验的目录浏览、启动、排障观察、验证、提示、重置、清理和复盘。
+> 当前版本：`0.1.0a0`（M3 十二实验与受限工作区）。项目仍处于早期开发阶段，目前可以通过CLI、本地REST API或中文运维控制台完成12个实验的目录浏览、启动、排障观察、验证、提示、重置、清理和复盘，并在WSL2中进入当前实验专属的受限kubectl环境调查和修复。
 
 ## 当前可用功能
 
@@ -15,6 +15,7 @@ KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 
 - `kubelab.io/v1alpha1`实验Schema：严格校验实验元数据、任务、检查、提示和声明式清理配置；
 - `LabRegistry`：确定性扫描本地实验，隔离损坏实验并拒绝危险Manifest、路径逃逸和集群级资源；
 - 十二个声明式实验：覆盖扩缩容、滚动更新、ConfigMap、探针、镜像、CrashLoop、Service、Readiness、OOM、Ingress和PVC；
+- wheel内置全部12个实验目录、Jinja模板和静态资源，安装后不依赖源码仓库中的`labs/`；
 - 可重复生成的`schemas/lab-v1alpha1.schema.json`及错误脱敏；
 - SQLAlchemy 2与Alembic持久化：保存Session、状态事件、验证记录、提示和复盘；
 - `SessionStateMachine`：拒绝非法生命周期转换，并由SQLite条件唯一索引保证最多一个活动实验；
@@ -34,9 +35,11 @@ KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 
 - LAB-007 Service Selector错误：验证Deployment可用、Endpoint恢复和集群内HTTP 200；
 - `kubelab list/show/start/status/resources/events/logs/verify/hint/reset/cleanup`：提供完整的M1命令行排障闭环；
 - `kubelab retrospective edit`：在CLI中逐字段记录复盘，不启动外部编辑器；
+- `kubelab workspace enter`：为唯一活动Session创建短期ServiceAccount令牌和Namespace限定RBAC，只启动固定的交互式bash；退出时撤销工作区RBAC并删除临时0600 kubeconfig；
 - `kubelab serve`：在WSL2中仅监听`127.0.0.1:8765`，提供复用同一Application Service的FastAPI REST API；
 - Web API使用Pydantic v2公开DTO、统一`code/message/context/retryable`错误、精确Origin与双提交CSRF校验；不启用CORS，不公开Secret值、验证expected/actual、完整Manifest、凭证或异常堆栈；
 - Jinja2与原生JavaScript本地界面：提供总览、实验目录、实验详情、排障工作台和学习进度；资源每2秒轮询，页面不可见时暂停，Events和Logs仅手动刷新；
+- 排障工作台可安全复制活动Namespace和常用只读调查命令；页面不提供终端，实际调查和修复必须进入WSL受限工作区；
 - Web页面使用严格CSP、安全响应头、Jinja自动转义和DOM文本渲染；reset与cleanup必须输入活动Namespace精确确认值；
 - 状态协调：外部删除环境时受控完成Session，Namespace身份不匹配时转为`error`且拒绝删除，reset保留Session ID并支持中断重试；
 - JSON输出、稳定退出码、凭证脱敏和原子配置写入。
@@ -144,6 +147,22 @@ kubelab retrospective edit
 
 `status`、`resources`、`events`、`logs`、`verify`、`hint`、`reset`和`cleanup`默认作用于唯一活动Session，因此日常使用不需要复制Session ID。`reset`和`cleanup`会显示目标Namespace并要求确认，不提供绕过所有权校验的`--force`。
 
+推荐的Web与WSL协作流程：
+
+```bash
+# Web中选择并启动实验后，在WSL进入该Session的受限环境
+kubelab workspace enter
+
+# shell已经固定当前Namespace，可使用kubectl调查和修复
+kubectl get all
+kubectl get events --sort-by=.lastTimestamp
+
+# 完成后退出，临时令牌、RBAC和kubeconfig会被撤销
+exit
+```
+
+工作区只能访问活动实验Namespace中的非敏感资源，不能读取Secret、修改RBAC或访问集群级Namespace。不要在另一个普通管理员终端执行实验修复；回到Web点击“验证”，通过后保存复盘并清理。
+
 所有目录、状态和验证命令均支持稳定的`--json`输出。`verify`未通过时退出码为1；参数或实验定义错误为2；环境或Context问题为3；活动Session冲突或非法状态为4；Kubernetes、数据库或内部故障为5。
 
 ### 启动本地Web界面与REST API
@@ -154,7 +173,7 @@ kubelab retrospective edit
 kubelab serve
 ```
 
-在Windows浏览器打开`http://127.0.0.1:8765/`即可使用本地控制台；健康检查为`GET /health`，REST API位于`/api/v1/`。服务不提供浏览器终端、不启用CORS，并拒绝跨站Origin。写请求使用HttpOnly、SameSite=Strict Cookie与同值`X-CSRF-Token`双提交校验；reset与cleanup还必须提交当前活动Session的精确Namespace确认值。
+在Windows浏览器打开`http://127.0.0.1:8765/`即可使用本地控制台；健康检查为`GET /health`，REST API位于`/api/v1/`。Session工作台提供“复制Namespace”和常用调查命令，但不提供浏览器终端。服务不启用CORS，并拒绝跨站Origin。写请求使用HttpOnly、SameSite=Strict Cookie与同值`X-CSRF-Token`双提交校验；reset与cleanup还必须提交当前活动Session的精确Namespace确认值。
 
 ### Doctor状态和退出码
 
@@ -209,18 +228,18 @@ uv run mypy src
 
 如果Windows与WSL对同一工作目录执行检查，必须为两端配置不同的uv虚拟环境路径，不能共享`.venv`；更推荐把正式WSL开发副本放在Linux文件系统中。
 
-当前质量基线：Windows和WSL的最终数据见TDD“当前环境说明”中的M3记录。两端均要求pytest覆盖率不低于90%，并通过Ruff、格式检查、strict mypy和`git diff --check`。真实集成测试默认关闭，只能在已信任的本地minikube中显式运行。
+当前质量基线：Windows和WSL的最终数据见TDD“当前环境说明”中的M3-01记录。两端均要求pytest覆盖率不低于90%，并通过Ruff、格式检查、strict mypy和`git diff --check`。真实集成测试默认关闭，只能在已信任的本地minikube中显式运行。
 
 只有在WSL中确认`kubelab context inspect`显示`trusted`后，才可显式运行真实网关测试：
 
 ```bash
 KUBELAB_RUN_INTEGRATION=1 uv run pytest --no-cov -q tests/test_kubernetes_gateway_integration.py
 
-# 首批三个实验的真实start → fix → verify → reset → cleanup契约
+# 全部12个实验的真实start → 受限workspace修复 → verify → reset → cleanup契约
 KUBELAB_RUN_LAB_INTEGRATION=1 uv run pytest --no-cov -q tests/test_first_labs_integration.py
 ```
 
-全部12个实验默认使用Fake Gateway证明`initial → success预检失败 → fix → reset`契约，不接触集群。上述显式真实测试目前只覆盖首批三个实验，只创建随机`kubelab-test-*` Namespace并通过所有权校验清理；执行前要求固定版本镜像已进入minikube缓存，缺失时会报告环境跳过。可以用`-k service_http_probe`只运行网关HTTP用例；不要在远程或生产Context运行。
+全部12个实验默认使用Fake Gateway证明`initial → success预检失败 → fix → reset`契约，不接触集群。显式真实测试覆盖12个实验，只创建随机`kubelab-test-*` Namespace；标准修复通过短期令牌和Namespace限定RBAC应用，并验证不能读取Secret或集群级Namespace，最后执行所有权校验和清理。执行前要求固定版本镜像已进入minikube缓存，LAB-011要求Ingress Controller可用，LAB-012要求默认`standard` StorageClass和storage-provisioner可用；缺失时会报告环境跳过。不要在远程或生产Context运行。
 
 ## 安全边界
 
@@ -233,6 +252,7 @@ KUBELAB_RUN_LAB_INTEGRATION=1 uv run pytest --no-cov -q tests/test_first_labs_in
 - 不执行实验提供的任意宿主机命令；
 - 只删除数据库Session作用域和全部所有权元数据完全匹配的`kubelab-*` Namespace；绝不移除finalizer或修改`kube-system`；
 - 日志、JSON和配置不得保存Kubernetes凭证。
+- workspace临时kubeconfig只包含当前集群CA、短期ServiceAccount令牌和活动Namespace；文件权限为0600，shell退出后先撤销固定RBAC再删除临时目录；
 
 ## 项目结构
 
@@ -261,6 +281,7 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 - [x] M2-01 FastAPI应用基线与REST API；
 - [x] M2-02 本地HTML页面；
 - [x] M3 十二个声明式实验。
+- [x] M3-01 受限WSL工作区、wheel实验打包与12实验真实验收。
 
 详细设计见[PRD](PRD-KubeLab.md)和[TDD](TDD-KubeLab.md)。
 

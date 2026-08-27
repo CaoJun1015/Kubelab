@@ -20,7 +20,7 @@ from uuid import uuid4
 
 from kubernetes import client, config, dynamic
 from kubernetes.client.exceptions import ApiException
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from urllib3.exceptions import ConnectTimeoutError, ReadTimeoutError
 
 from kubelab.lab_registry import LoadedLab
@@ -33,6 +33,9 @@ LAB_ID_LABEL = "kubelab.io/lab-id"
 SESSION_ID_ANNOTATION = "kubelab.io/session-id"
 CONTEXT_FINGERPRINT_ANNOTATION = "kubelab.io/context-fingerprint"
 PROBE_LABEL = "kubelab.io/probe"
+WORKSPACE_NAME = "kubelab-workspace"
+WORKSPACE_TOKEN_AUDIENCE = "https://kubernetes.default.svc.cluster.local"
+WORKSPACE_TOKEN_SECONDS = 3600
 
 _MAX_LOG_LINES = 500
 _DEFAULT_LOG_LINES = 200
@@ -179,6 +182,15 @@ class NamespaceDeleteResult(GatewayModel):
     already_absent: bool = False
 
 
+class WorkspaceAccess(GatewayModel):
+    """Ephemeral credentials for one namespace-restricted troubleshooting shell."""
+
+    session_id: str
+    namespace: str
+    service_account: str = WORKSPACE_NAME
+    token: SecretStr = Field(exclude=True, repr=False)
+
+
 class ProbeSpec(GatewayModel):
     name: str = Field(max_length=63, pattern=r"^kubelab-probe-[a-z0-9-]+$")
     image: Literal["curlimages/curl:8.12.1"] = "curlimages/curl:8.12.1"
@@ -285,6 +297,18 @@ class KubernetesApi(Protocol):
     def create_probe(self, namespace: str, body: Mapping[str, Any], *, timeout: int) -> None: ...
 
     def delete_probe(self, namespace: str, name: str, *, timeout: int) -> None: ...
+
+    def provision_workspace_access(
+        self,
+        namespace: str,
+        *,
+        labels: Mapping[str, str],
+        annotations: Mapping[str, str],
+        expiration_seconds: int,
+        timeout: int,
+    ) -> str: ...
+
+    def delete_workspace_access(self, namespace: str, *, timeout: int) -> None: ...
 
     def close(self) -> None: ...
 
@@ -453,11 +477,83 @@ class OfficialKubernetesApi:  # pragma: no cover - exercised by opt-in WSL integ
     def delete_probe(self, namespace: str, name: str, *, timeout: int) -> None:
         self._core.delete_namespaced_pod(name, namespace, _request_timeout=timeout)
 
+    def provision_workspace_access(
+        self,
+        namespace: str,
+        *,
+        labels: Mapping[str, str],
+        annotations: Mapping[str, str],
+        expiration_seconds: int,
+        timeout: int,
+    ) -> str:
+        for document in _workspace_manifests(namespace, labels, annotations):
+            self._apply_platform_resource(document, namespace=namespace, timeout=timeout)
+        request = client.AuthenticationV1TokenRequest(
+            spec=client.V1TokenRequestSpec(
+                audiences=[WORKSPACE_TOKEN_AUDIENCE],
+                expiration_seconds=expiration_seconds,
+            )
+        )
+        response = self._core.create_namespaced_service_account_token(
+            WORKSPACE_NAME,
+            namespace,
+            body=request,
+            _request_timeout=timeout,
+        )
+        token = getattr(getattr(response, "status", None), "token", None)
+        if not isinstance(token, str) or not token:
+            raise KubernetesGatewayError(
+                GatewayErrorCode.API_ERROR,
+                "Kubernetes did not return a workspace token.",
+            )
+        return token
+
+    def delete_workspace_access(self, namespace: str, *, timeout: int) -> None:
+        for api_version, kind in (
+            ("rbac.authorization.k8s.io/v1", "RoleBinding"),
+            ("rbac.authorization.k8s.io/v1", "Role"),
+            ("v1", "ServiceAccount"),
+        ):
+            resource = self._dynamic.resources.get(api_version=api_version, kind=kind)
+            try:
+                resource.delete(
+                    name=WORKSPACE_NAME,
+                    namespace=namespace,
+                    _request_timeout=timeout,
+                )
+            except ApiException as exc:
+                if exc.status != 404:
+                    raise
+
+    def _apply_platform_resource(
+        self, document: Mapping[str, Any], *, namespace: str, timeout: int
+    ) -> None:
+        resource = self._dynamic.resources.get(
+            api_version=str(document["apiVersion"]), kind=str(document["kind"])
+        )
+        resource.patch(
+            name=WORKSPACE_NAME,
+            namespace=namespace,
+            body=document,
+            content_type="application/apply-patch+yaml",
+            field_manager=f"{FIELD_MANAGER}-workspace",
+            force=False,
+            _request_timeout=timeout,
+        )
+
     def close(self) -> None:
         self._api_client.close()
 
     def _serialized(self, value: Any) -> Mapping[str, Any]:
-        result = self._api_client.sanitize_for_serialization(value)
+        try:
+            result = self._api_client.sanitize_for_serialization(value)
+        except AttributeError:
+            to_dict = getattr(value, "to_dict", None)
+            if not callable(to_dict):
+                raise
+            result = to_dict()
+        if not isinstance(result, Mapping):
+            raise TypeError("Kubernetes API response did not serialize to an object")
         return cast(Mapping[str, Any], result)
 
 
@@ -601,6 +697,41 @@ class KubernetesGateway:
             raise self._ownership_error(
                 scope, "Namespace ownership metadata does not match the Session record."
             )
+
+    def provision_workspace(self, scope: SessionScope) -> WorkspaceAccess:
+        """Create short-lived, namespace-only credentials after ownership verification."""
+        self.assert_namespace_owned(scope)
+        labels = {
+            MANAGED_BY_LABEL: "kubelab",
+            LAB_ID_LABEL: scope.lab_id,
+        }
+        annotations = {
+            SESSION_ID_ANNOTATION: scope.session_id,
+            CONTEXT_FINGERPRINT_ANNOTATION: scope.context_fingerprint,
+        }
+        token = self._call(
+            lambda: self._api.provision_workspace_access(
+                scope.namespace,
+                labels=labels,
+                annotations=annotations,
+                expiration_seconds=WORKSPACE_TOKEN_SECONDS,
+                timeout=self._request_timeout,
+            )
+        )
+        return WorkspaceAccess(
+            session_id=scope.session_id,
+            namespace=scope.namespace,
+            token=SecretStr(token),
+        )
+
+    def revoke_workspace(self, scope: SessionScope) -> None:
+        """Remove only KubeLab's fixed workspace RBAC objects from an owned Namespace."""
+        self.assert_namespace_owned(scope)
+        self._call(
+            lambda: self._api.delete_workspace_access(
+                scope.namespace, timeout=self._request_timeout
+            )
+        )
 
     def delete_environment(
         self, scope: SessionScope, *, wait_timeout_seconds: float = 120
@@ -827,9 +958,11 @@ class KubernetesGateway:
                 if phase in {"Succeeded", "Failed"}:
                     exit_code, reason = _probe_termination(document)
                     pod_reason = _optional_string(_as_mapping(document.get("status")).get("reason"))
+                    curl_completed = exit_code is not None and 0 <= exit_code <= 99
                     if (
                         exit_code is None
-                        or pod_reason in {"DeadlineExceeded", "Evicted"}
+                        or pod_reason == "Evicted"
+                        or (pod_reason == "DeadlineExceeded" and not curl_completed)
                         or reason
                         in {
                             "OOMKilled",
@@ -1145,6 +1278,92 @@ def _resource_quota(scope: SessionScope) -> Mapping[str, Any]:
     }
 
 
+def _workspace_manifests(
+    namespace: str,
+    labels: Mapping[str, str],
+    annotations: Mapping[str, str],
+) -> tuple[Mapping[str, Any], ...]:
+    metadata = {
+        "name": WORKSPACE_NAME,
+        "namespace": namespace,
+        "labels": dict(labels),
+        "annotations": dict(annotations),
+    }
+    return (
+        {
+            "apiVersion": "v1",
+            "kind": "ServiceAccount",
+            "metadata": copy.deepcopy(metadata),
+            "automountServiceAccountToken": False,
+        },
+        {
+            "apiVersion": "rbac.authorization.k8s.io/v1",
+            "kind": "Role",
+            "metadata": copy.deepcopy(metadata),
+            "rules": [
+                {
+                    "apiGroups": [""],
+                    "resources": [
+                        "configmaps",
+                        "events",
+                        "persistentvolumeclaims",
+                        "pods",
+                        "services",
+                    ],
+                    "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"],
+                },
+                {
+                    "apiGroups": [""],
+                    "resources": ["pods/log"],
+                    "verbs": ["get"],
+                },
+                {
+                    "apiGroups": [""],
+                    "resources": ["limitranges", "resourcequotas"],
+                    "verbs": ["get", "list", "watch"],
+                },
+                {
+                    "apiGroups": ["apps"],
+                    "resources": ["daemonsets", "deployments", "replicasets", "statefulsets"],
+                    "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"],
+                },
+                {
+                    "apiGroups": ["batch"],
+                    "resources": ["cronjobs", "jobs"],
+                    "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"],
+                },
+                {
+                    "apiGroups": ["networking.k8s.io"],
+                    "resources": ["ingresses"],
+                    "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"],
+                },
+                {
+                    "apiGroups": ["discovery.k8s.io"],
+                    "resources": ["endpointslices"],
+                    "verbs": ["get", "list", "watch"],
+                },
+            ],
+        },
+        {
+            "apiVersion": "rbac.authorization.k8s.io/v1",
+            "kind": "RoleBinding",
+            "metadata": copy.deepcopy(metadata),
+            "subjects": [
+                {
+                    "kind": "ServiceAccount",
+                    "name": WORKSPACE_NAME,
+                    "namespace": namespace,
+                }
+            ],
+            "roleRef": {
+                "apiGroup": "rbac.authorization.k8s.io",
+                "kind": "Role",
+                "name": WORKSPACE_NAME,
+            },
+        },
+    )
+
+
 def _limit_range(scope: SessionScope) -> Mapping[str, Any]:
     return {
         "apiVersion": "v1",
@@ -1164,6 +1383,12 @@ def _limit_range(scope: SessionScope) -> Mapping[str, Any]:
 
 
 def _probe_manifest(scope: SessionScope, spec: ProbeSpec) -> Mapping[str, Any]:
+    # Leave enough time for curl to report a network timeout and for the
+    # kubelet to persist the terminated container state. If both deadlines
+    # are identical, an expected unreachable target can be misclassified as
+    # a probe-infrastructure DeadlineExceeded error instead of curl exit 28.
+    curl_timeout_seconds = max(1, min(10, spec.timeout_seconds - 5))
+    pod_deadline_seconds = min(spec.timeout_seconds, curl_timeout_seconds + 5)
     arguments = [
         "-sS",
         "-o",
@@ -1171,7 +1396,7 @@ def _probe_manifest(scope: SessionScope, spec: ProbeSpec) -> Mapping[str, Any]:
         "-w",
         "%{http_code}",
         "--max-time",
-        str(spec.timeout_seconds),
+        str(curl_timeout_seconds),
     ]
     if spec.host_header is not None:
         arguments.extend(["-H", f"Host: {spec.host_header}"])
@@ -1192,8 +1417,13 @@ def _probe_manifest(scope: SessionScope, spec: ProbeSpec) -> Mapping[str, Any]:
         "spec": {
             "automountServiceAccountToken": False,
             "restartPolicy": "Never",
-            "activeDeadlineSeconds": spec.timeout_seconds,
-            "securityContext": {"runAsNonRoot": True, "seccompProfile": {"type": "RuntimeDefault"}},
+            "activeDeadlineSeconds": pod_deadline_seconds,
+            "securityContext": {
+                "runAsNonRoot": True,
+                "runAsUser": 101,
+                "runAsGroup": 102,
+                "seccompProfile": {"type": "RuntimeDefault"},
+            },
             "containers": [
                 {
                     "name": "curl",
@@ -1465,4 +1695,5 @@ __all__ = [
     "ResourceCondition",
     "ResourceSummary",
     "SessionScope",
+    "WorkspaceAccess",
 ]

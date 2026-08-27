@@ -99,6 +99,8 @@ def test_frontend_uses_text_only_rendering_and_required_interaction_guards() -> 
     assert 'document.querySelector("#refresh-logs").addEventListener("click"' in script
     assert "input.value !== state.activeSession.namespace" in script
     assert 'button.dataset.busy === "true"' in script
+    assert "navigator.clipboard.writeText" in script
+    assert "kubelab workspace enter" in script
     assert "expected" not in script
     assert "actual" not in script
 
@@ -148,3 +150,8 @@ def test_built_wheel_contains_templates_and_static_assets(tmp_path: Path) -> Non
         "kubelab/templates/session.html",
         "kubelab/templates/progress.html",
     } <= files
+    lab_definitions = {
+        name for name in files if name.startswith("kubelab/labs/") and name.endswith("/lab.yaml")
+    }
+    assert len(lab_definitions) == 12
+    assert "kubelab/labs/lab-012-pvc-pending/lab.yaml" in lab_definitions

@@ -342,6 +342,45 @@
     status.className = `status-badge ${statusTone(session.status)}`;
   };
 
+  const copyText = async (value, label) => {
+    if (!navigator.clipboard || !navigator.clipboard.writeText) {
+      throw new Error("当前浏览器不支持安全剪贴板访问。");
+    }
+    await navigator.clipboard.writeText(value);
+    toast(`${label}已复制。`);
+  };
+
+  const renderInvestigationCommands = (namespace) => {
+    const commands = [
+      ["进入受限Workspace", "kubelab workspace enter"],
+      ["查看工作负载", `kubectl get all -n ${namespace}`],
+      ["查看Pod详情", `kubectl describe pods -n ${namespace}`],
+      ["按时间查看Events", `kubectl get events -n ${namespace} --sort-by=.lastTimestamp`],
+      ["查看EndpointSlice", `kubectl get endpointslice -n ${namespace}`],
+    ];
+    const target = document.querySelector("#investigation-commands");
+    clear(target);
+    commands.forEach(([label, command]) => {
+      const row = element("div", { className: "command-row" });
+      const content = element("div", { className: "command-copy" });
+      const copy = element("button", {
+        className: "button secondary small",
+        text: "复制",
+        type: "button",
+      });
+      copy.addEventListener("click", async () => {
+        try {
+          await copyText(command, label);
+        } catch (error) {
+          showPageError(error);
+        }
+      });
+      content.append(element("strong", { text: label }), element("code", { text: command }));
+      row.append(content, copy);
+      target.append(row);
+    });
+  };
+
   const renderRows = (target, rows, columns, emptyMessage) => {
     clear(target);
     if (!rows.length) {
@@ -541,6 +580,13 @@
   };
 
   const initializeSessionActions = () => {
+    document.querySelector("#copy-namespace").addEventListener("click", async () => {
+      try {
+        await copyText(state.activeSession.namespace, "Namespace");
+      } catch (error) {
+        showPageError(error);
+      }
+    });
     document.querySelector("#log-pod").addEventListener("change", updateContainerOptions);
     document.querySelector("#refresh-events").addEventListener("click", async (event) => {
       try { await loadEvents(event.currentTarget); } catch (error) { showPageError(error); }
@@ -619,6 +665,7 @@
     ]);
     text("#session-title", detail.lab.name);
     text("#session-task", detail.task);
+    renderInvestigationCommands(active.session.namespace);
     fillRetrospective(retrospective);
     initializeSessionActions();
     document.addEventListener("visibilitychange", () => {

@@ -21,6 +21,7 @@ from kubelab.kubernetes_gateway import (
     KubernetesGatewayError,
     ProbeSpec,
     SessionScope,
+    WorkspaceAccess,
 )
 from kubelab.lab_registry import LabRegistry
 from kubelab.lab_schema import HttpTarget
@@ -73,6 +74,9 @@ class FakeApi:
         self.logs = ""
         self.probes: list[Mapping[str, Any]] = []
         self.deleted_probes: list[str] = []
+        self.workspace_documents: tuple[Mapping[str, Any], ...] = ()
+        self.workspace_expiration_seconds: int | None = None
+        self.workspace_deleted = False
         self.deleted_namespace = False
         self.disappear_after_reads: int | None = None
         self.reads_after_delete = 0
@@ -184,6 +188,26 @@ class FakeApi:
             raise self.delete_probe_error
         self.deleted_probes.append(name)
 
+    def provision_workspace_access(
+        self,
+        namespace: str,
+        *,
+        labels: Mapping[str, str],
+        annotations: Mapping[str, str],
+        expiration_seconds: int,
+        timeout: int,
+    ) -> str:
+        from kubelab.kubernetes_gateway import _workspace_manifests
+
+        del timeout
+        self.workspace_documents = _workspace_manifests(namespace, labels, annotations)
+        self.workspace_expiration_seconds = expiration_seconds
+        return "short-lived-workspace-token"
+
+    def delete_workspace_access(self, namespace: str, *, timeout: int) -> None:
+        del namespace, timeout
+        self.workspace_deleted = True
+
     def close(self) -> None:
         self.closed = True
 
@@ -237,6 +261,37 @@ def test_create_environment_builds_owned_namespace_and_protection_resources() ->
         "requests.storage": "2Gi",
     }
     assert api.limits[0]["spec"]["limits"][0]["max"] == {"cpu": "2", "memory": "2Gi"}
+
+
+def test_workspace_access_is_namespaced_secret_free_and_revoked() -> None:
+    api = FakeApi()
+    gateway = KubernetesGateway(api, context_fingerprint=FINGERPRINT)
+
+    access = gateway.provision_workspace(scope())
+
+    assert isinstance(access, WorkspaceAccess)
+    assert access.namespace == "kubelab-complete-lab"
+    assert "short-lived-workspace-token" not in repr(access)
+    assert "token" not in access.model_dump()
+    assert api.workspace_expiration_seconds == 3600
+    assert [document["kind"] for document in api.workspace_documents] == [
+        "ServiceAccount",
+        "Role",
+        "RoleBinding",
+    ]
+    role = api.workspace_documents[1]
+    resources = {resource for rule in role["rules"] for resource in rule["resources"]}
+    assert "secrets" not in resources
+    assert "roles" not in resources
+    assert "rolebindings" not in resources
+    assert all(
+        document["metadata"]["namespace"] == scope().namespace
+        for document in api.workspace_documents
+    )
+
+    gateway.revoke_workspace(scope())
+
+    assert api.workspace_deleted is True
 
 
 def test_context_fingerprint_mismatch_rejects_write_before_api_call() -> None:
@@ -591,6 +646,9 @@ def test_probe_has_limits_hardening_labels_and_is_cleanable() -> None:
         "memory": "128Mi",
     }
     assert probe["spec"]["containers"][0]["securityContext"]["capabilities"] == {"drop": ["ALL"]}
+    arguments = probe["spec"]["containers"][0]["args"]
+    assert arguments[arguments.index("--max-time") + 1] == "10"
+    assert probe["spec"]["activeDeadlineSeconds"] == 15
     assert probe["spec"]["containers"][0]["args"][-1] == spec.url
     assert api.deleted_probes == [spec.name]
 
@@ -827,6 +885,12 @@ def test_service_http_probe_returns_status_and_cleans_pod() -> None:
     assert api.probes[0]["spec"]["containers"][0]["args"][-1] == (
         "http://web.kubelab-complete-lab.svc:80/health"
     )
+    assert api.probes[0]["spec"]["securityContext"] == {
+        "runAsNonRoot": True,
+        "runAsUser": 101,
+        "runAsGroup": 102,
+        "seccompProfile": {"type": "RuntimeDefault"},
+    }
 
 
 def test_probe_timeout_and_cleanup_failure_are_reported_safely() -> None:
@@ -881,6 +945,30 @@ def test_probe_platform_failures_are_errors(
 
     assert result.infrastructure_error is True
     assert result.timed_out is timed_out
+    assert api.deleted_probes
+
+
+def test_probe_preserves_curl_network_failure_when_pod_deadline_is_also_reported() -> None:
+    api = FakeApi()
+    api.generic[("v1", "Service", scope().namespace, "web")] = {"spec": {"ports": [{"port": 80}]}}
+    document = completed_probe(phase="Failed", exit_code=7)
+    document["status"]["reason"] = "DeadlineExceeded"
+    api.probe_reads = [document]
+    clock = FakeClock()
+    gateway = KubernetesGateway(
+        api,
+        context_fingerprint=FINGERPRINT,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    )
+
+    result = gateway.run_http_probe(
+        scope(), HttpTarget(mode="service", name="web", port=80), deadline=5
+    )
+
+    assert result.exit_code == 7
+    assert result.infrastructure_error is False
+    assert result.timed_out is False
     assert api.deleted_probes
 
 
