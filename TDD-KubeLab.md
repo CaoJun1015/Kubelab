@@ -1584,4 +1584,4 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - 最终Windows Python 3.11收集470项测试，454项通过、12项实验集成测试、2项网关集成测试和2项符号链接测试跳过，覆盖率91.85%；WSL2 Ubuntu Python 3.11.16收集470项测试，456项通过、14项真实集成测试默认跳过，覆盖率92.02%；
 - 两端Ruff、格式检查、源码strict mypy、JavaScript语法、`git diff --check`、wheel/sdist构建和统一产物检查全部通过；普通测试显式保持真实集成变量关闭；
 - 最终清理后不存在KubeLab管理的Namespace、workspace RBAC、PVC/PV、临时kubeconfig、Web监听或隔离验收目录残留；未访问远程或生产集群；
-- GitHub Actions已配置Windows与Ubuntu 22.04双矩阵，但只有推送分支并创建PR后才能获得远端CI结果；annotated tag和GitHub Release继续等待用户明确确认。
+- GitHub PR #3的Actions双矩阵已通过：Ubuntu 22.04用时38秒，Windows用时1分27秒；annotated tag和GitHub Release继续等待用户明确确认。
