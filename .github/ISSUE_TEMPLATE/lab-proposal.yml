@@ -1,0 +1,40 @@
+name: 实验提案
+description: 提议新的声明式 Kubernetes 故障实验
+title: "[Lab]: "
+labels: ["lab"]
+body:
+  - type: input
+    id: title
+    attributes:
+      label: 实验名称
+    validations:
+      required: true
+  - type: textarea
+    id: objective
+    attributes:
+      label: 学习目标与故障现象
+    validations:
+      required: true
+  - type: textarea
+    id: contract
+    attributes:
+      label: 初始故障与成功契约
+      description: 描述可观察条件，不要包含内部 expected/actual 或凭证。
+    validations:
+      required: true
+  - type: textarea
+    id: resources
+    attributes:
+      label: Namespace 内资源与镜像
+      description: 列出固定版本镜像、资源限制及必要 addon。
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: 安全确认
+      options:
+        - label: 实验不需要集群级资源、Secret 读取、宿主机路径、任意命令或外部 URL。
+          required: true
+        - label: 标准修复可在 Namespace 限定的受限 workspace 中完成。
+          required: true

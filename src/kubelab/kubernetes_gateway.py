@@ -1328,6 +1328,11 @@ def _workspace_manifests(
                     "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"],
                 },
                 {
+                    "apiGroups": ["apps"],
+                    "resources": ["deployments/scale"],
+                    "verbs": ["get", "update", "patch"],
+                },
+                {
                     "apiGroups": ["batch"],
                     "resources": ["cronjobs", "jobs"],
                     "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"],

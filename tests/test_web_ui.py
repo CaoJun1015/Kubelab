@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote
@@ -115,14 +117,13 @@ def test_session_mismatch_is_a_public_non_retryable_ui_error() -> None:
     assert "当前活动 Session 与页面地址不一致" in script
 
 
-def test_built_wheel_contains_templates_and_static_assets(tmp_path: Path) -> None:
+def test_built_distributions_pass_shared_release_verifier(tmp_path: Path) -> None:
     project = Path(__file__).parents[1]
-    output = tmp_path / "wheel"
+    output = tmp_path / "dist"
     subprocess.run(
         [
             "uv",
             "build",
-            "--wheel",
             "--cache-dir",
             str(project / ".uv-cache"),
             "--out-dir",
@@ -137,6 +138,27 @@ def test_built_wheel_contains_templates_and_static_assets(tmp_path: Path) -> Non
         env=os.environ.copy(),
     )
     wheel = next(output.glob("kubelab-*.whl"))
+    sdist = next(output.glob("kubelab-*.tar.gz"))
+    metadata = tomllib.loads((project / "pyproject.toml").read_text(encoding="utf-8"))
+    version = metadata["project"]["version"]
+    subprocess.run(
+        [
+            sys.executable,
+            str(project / "scripts" / "verify_distribution.py"),
+            "--wheel",
+            str(wheel),
+            "--sdist",
+            str(sdist),
+            "--version",
+            version,
+        ],
+        cwd=project,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     with ZipFile(wheel) as archive:
         files = set(archive.namelist())
 

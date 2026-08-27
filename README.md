@@ -2,7 +2,17 @@
 
 KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 运维练习平台。它以本机 Docker Engine 和 minikube 为实验环境，目标是把云原生运维面试知识转化为可以反复操作、验证和复盘的故障实验。
 
-> 当前版本：`0.1.0a0`（M3 十二实验与受限工作区）。项目仍处于早期开发阶段，目前可以通过CLI、本地REST API或中文运维控制台完成12个实验的目录浏览、启动、排障观察、验证、提示、重置、清理和复盘，并在WSL2中进入当前实验专属的受限kubectl环境调查和修复。
+> 当前版本：`0.1.0`。这是首个GitHub-only稳定版：可以通过CLI、本地REST API或中文运维控制台完成12个实验的目录浏览、启动、排障观察、验证、提示、重置、清理和复盘，并在WSL2中进入当前实验专属的受限kubectl环境调查和修复。
+
+## 界面预览
+
+![KubeLab总览](docs/assets/dashboard.jpg)
+
+| 实验目录 | Session排障工作台 |
+|---|---|
+| ![实验目录](docs/assets/labs.jpg) | ![Session排障工作台](docs/assets/session.jpg) |
+
+学习进度与390px移动端布局见[展示材料](docs/assets/README.md)。截图来自安装后的本地服务与安全实验数据，不含凭证、Token、用户路径或验证内部值。
 
 ## 当前可用功能
 
@@ -62,14 +72,15 @@ Windows只负责编辑代码和通过localhost访问本地Web API。`kubelab`、
 如果WSL2、Docker、minikube和kubectl已经可用：
 
 ```bash
-git clone https://github.com/CaoJun1015/Kubelab.git
-cd Kubelab
-
 curl -LsSf https://astral.sh/uv/0.12.5/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 
 uv python install 3.11
-uv tool install --python 3.11 .
+
+curl -LO https://github.com/CaoJun1015/Kubelab/releases/download/v0.1.0/kubelab-0.1.0-py3-none-any.whl
+curl -LO https://github.com/CaoJun1015/Kubelab/releases/download/v0.1.0/SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS
+uv tool install --python 3.11 ./kubelab-0.1.0-py3-none-any.whl
 
 minikube start \
   --driver=docker \
@@ -228,7 +239,7 @@ uv run mypy src
 
 如果Windows与WSL对同一工作目录执行检查，必须为两端配置不同的uv虚拟环境路径，不能共享`.venv`；更推荐把正式WSL开发副本放在Linux文件系统中。
 
-当前质量基线：Windows和WSL的最终数据见TDD“当前环境说明”中的M3-01记录。两端均要求pytest覆盖率不低于90%，并通过Ruff、格式检查、strict mypy和`git diff --check`。真实集成测试默认关闭，只能在已信任的本地minikube中显式运行。
+当前质量基线：Windows和WSL的最终数据见TDD“当前环境说明”中的M4记录。两端均要求pytest覆盖率不低于90%，并通过Ruff、格式检查、strict mypy、JavaScript语法、构建、统一产物检查和`git diff --check`。真实集成测试默认关闭，只能在已信任的本地minikube中显式运行。
 
 只有在WSL中确认`kubelab context inspect`显示`trusted`后，才可显式运行真实网关测试：
 
@@ -261,6 +272,8 @@ src/kubelab/              Python包、CLI、本地REST API和Web界面
 tests/                    单元测试
 labs/                     十二个声明式实验定义
 docs/                     部署与环境文档
+scripts/                  发布产物与WSL隔离验收脚本
+.github/                  双平台CI、Issue表单和PR模板
 PRD-KubeLab.md            产品需求基线
 TDD-KubeLab.md            技术设计基线
 cloud-native-ops-roadmap.html  云原生运维学习路线
@@ -282,8 +295,9 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 - [x] M2-02 本地HTML页面；
 - [x] M3 十二个声明式实验。
 - [x] M3-01 受限WSL工作区、wheel实验打包与12实验真实验收。
+- [x] M4 首个GitHub-only稳定版发布就绪。
 
-详细设计见[PRD](PRD-KubeLab.md)和[TDD](TDD-KubeLab.md)。
+详细设计见[PRD](PRD-KubeLab.md)、[TDD](TDD-KubeLab.md)、[架构说明](docs/ARCHITECTURE.md)、[实验开发指南](docs/LAB_DEVELOPMENT.md)、[贡献指南](CONTRIBUTING.md)和[安全策略](SECURITY.md)。
 
 ## 常见问题
 
