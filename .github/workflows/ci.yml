@@ -26,7 +26,6 @@ jobs:
     env:
       KUBELAB_RUN_INTEGRATION: "0"
       KUBELAB_RUN_LAB_INTEGRATION: "0"
-      UV_FROZEN: "1"
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
