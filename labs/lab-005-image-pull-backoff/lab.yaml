@@ -1,0 +1,78 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-005-image-pull
+  name: LAB-005 ImagePullBackOff
+  description: Deployment引用了确定不存在的镜像，Pod无法启动。
+  difficulty: beginner
+  durationMinutes: 20
+  category: workloads
+  tags: [deployment, image, troubleshooting]
+requirements:
+  kubernetes: ">=1.28"
+  minimumCpu: 1
+  minimumMemoryMiB: 1024
+  addons: []
+environment:
+  namespace: kubelab-image-pull-backoff
+  manifests:
+    - manifests/deployment.yaml
+  provisionTimeoutSeconds: 180
+task:
+  description: 定位Pod无法启动的原因，并把Deployment修复为可正常拉取和运行的镜像。
+  completionDescription: Deployment使用指定的正确镜像，Pod持续Running且Ready。
+  successMessage: 镜像问题已经修复，工作负载恢复Ready。
+initialChecks:
+  - id: deployment-created
+    type: resource_exists
+    apiVersion: apps/v1
+    kind: Deployment
+    name: web
+    timeoutSeconds: 10
+    unmetMessage: 故障Deployment未成功创建。
+  - id: image-pull-failure
+    type: pod_status
+    selector:
+      app: image-pull-lab
+    expectedPhase: Pending
+    minimumCount: 1
+    ready: false
+    containerName: web
+    expectedWaitingReasons: [ErrImagePull, ImagePullBackOff]
+    timeoutSeconds: 120
+    unmetMessage: Pod尚未呈现预期的镜像拉取故障。
+successChecks:
+  - id: expected-image
+    type: container_image
+    workloadKind: Deployment
+    workloadName: web
+    container: web
+    expectedImage: nginx:1.27-alpine
+    timeoutSeconds: 5
+    unmetMessage: Deployment仍未使用要求的正确镜像。
+  - id: pod-ready
+    type: pod_status
+    selector:
+      app: image-pull-lab
+    expectedPhase: Running
+    minimumCount: 1
+    minimumReady: 1
+    stableSeconds: 5
+    ready: true
+    containerName: web
+    timeoutSeconds: 30
+    unmetMessage: 修复后的Pod尚未稳定进入Running和Ready状态。
+hints:
+  - level: 1
+    content: 查看Pod事件和容器的waiting reason。
+  - level: 2
+    content: 比较Deployment中声明的镜像与可信镜像名称和标签。
+  - level: 3
+    content: 修改Deployment的web容器镜像为nginx:1.27-alpine。
+cleanup:
+  deleteNamespace: true
+interview:
+  questions:
+    - ErrImagePull和ImagePullBackOff分别表示什么？
+    - 你会如何区分镜像名称错误、认证失败和网络问题？
+    - 为什么修复后还要检查Pod Ready而不只检查镜像字段？

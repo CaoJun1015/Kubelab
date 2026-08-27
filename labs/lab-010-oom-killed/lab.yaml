@@ -1,0 +1,64 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-010-oom-killed
+  name: LAB-010 OOMKilled
+  description: worker内存上限过低并持续分配内存，容器被OOM终止后反复重启。
+  difficulty: beginner
+  durationMinutes: 25
+  category: resources
+  tags: [memory, oomkilled, limits]
+requirements:
+  kubernetes: ">=1.28"
+  minimumCpu: 1
+  minimumMemoryMiB: 1024
+  addons: []
+environment:
+  namespace: kubelab-oom-killed
+  manifests: [manifests/deployment.yaml]
+  provisionTimeoutSeconds: 180
+task:
+  description: 结合Last State和资源限制确认OOMKilled，调整工作负载使其稳定运行。
+  completionDescription: 新Pod持续Running且Ready，容器不再发生重启。
+  successMessage: 内存问题已经修复，worker恢复稳定运行。
+initialChecks:
+  - id: oom-restart-loop
+    type: pod_status
+    selector: {app: oom-killed-lab}
+    expectedPhase: Running
+    minimumCount: 1
+    ready: false
+    containerName: worker
+    expectedWaitingReasons: [CrashLoopBackOff]
+    minimumRestartCount: 1
+    timeoutSeconds: 120
+    unmetMessage: Pod尚未呈现OOM后重启退避的预期现象。
+successChecks:
+  - id: oom-deployment-available
+    type: deployment_available
+    name: worker
+    minimumReplicas: 1
+    timeoutSeconds: 60
+    unmetMessage: 修复后的Deployment尚未可用。
+  - id: oom-worker-stable
+    type: pod_status
+    selector: {app: oom-killed-lab}
+    expectedPhase: Running
+    minimumCount: 1
+    minimumReady: 1
+    stableSeconds: 10
+    ready: true
+    containerName: worker
+    maximumRestartCount: 0
+    timeoutSeconds: 60
+    unmetMessage: 新Pod尚未稳定运行或仍发生重启。
+hints:
+  - {level: 1, content: 查看容器Last State的Reason和Exit Code。}
+  - {level: 2, content: 对比容器内存使用模式与resources.limits.memory。}
+  - {level: 3, content: 停止无界内存分配并把内存上限调整为128Mi。}
+cleanup: {deleteNamespace: true}
+interview:
+  questions:
+    - OOMKilled与节点MemoryPressure有什么区别？
+    - 为什么当前状态可能只显示CrashLoopBackOff？
+    - requests和limits如何影响调度与运行时隔离？

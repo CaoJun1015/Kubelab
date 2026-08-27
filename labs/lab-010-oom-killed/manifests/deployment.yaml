@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: worker, namespace: kubelab-oom-killed}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: oom-killed-lab}
+  template:
+    metadata:
+      labels: {app: oom-killed-lab}
+    spec:
+      containers:
+        - name: worker
+          image: busybox:1.36.1
+          command: [sh, -c, "awk 'BEGIN { for (i=0; i<10000000; i++) values[i]=i; system(\"sleep 60\") }'"]
+          resources:
+            requests: {cpu: 25m, memory: 8Mi}
+            limits: {cpu: 200m, memory: 16Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}

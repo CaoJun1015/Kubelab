@@ -1,0 +1,63 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-002-rolling-update
+  name: LAB-002 滚动更新与回滚
+  description: web仍运行旧镜像版本，需要完成可观察、可验证的滚动更新。
+  difficulty: beginner
+  durationMinutes: 20
+  category: workloads
+  tags: [deployment, rollout, image]
+requirements:
+  kubernetes: ">=1.28"
+  minimumCpu: 1
+  minimumMemoryMiB: 1024
+  addons: []
+environment:
+  namespace: kubelab-rolling-update
+  manifests: [manifests/deployment.yaml]
+  provisionTimeoutSeconds: 120
+task:
+  description: 观察Rollout状态，把web从nginx:1.26-alpine更新到nginx:1.27-alpine。
+  completionDescription: 两个副本都运行目标镜像并保持可用。
+  successMessage: 滚动更新完成，目标版本的副本均已可用。
+initialChecks:
+  - id: old-version-present
+    type: container_image
+    workloadKind: Deployment
+    workloadName: web
+    container: web
+    expectedImage: nginx:1.26-alpine
+    timeoutSeconds: 10
+    unmetMessage: 初始Deployment未使用预期的旧镜像。
+  - id: old-version-available
+    type: deployment_available
+    name: web
+    minimumReplicas: 2
+    timeoutSeconds: 60
+    unmetMessage: 旧版本Deployment尚未稳定可用。
+successChecks:
+  - id: target-version-present
+    type: container_image
+    workloadKind: Deployment
+    workloadName: web
+    container: web
+    expectedImage: nginx:1.27-alpine
+    timeoutSeconds: 10
+    unmetMessage: Deployment尚未切换到目标镜像。
+  - id: target-version-available
+    type: deployment_available
+    name: web
+    minimumReplicas: 2
+    timeoutSeconds: 60
+    unmetMessage: 更新后的两个副本尚未全部可用。
+hints:
+  - {level: 1, content: 查看Deployment镜像和rollout status。}
+  - {level: 2, content: 通过set image触发滚动更新并观察ReplicaSet。}
+  - {level: 3, content: 把web容器镜像设置为nginx:1.27-alpine。}
+cleanup: {deleteNamespace: true}
+interview:
+  questions:
+    - 滚动更新期间为什么会同时存在两个ReplicaSet？
+    - maxSurge和maxUnavailable如何影响可用性？
+    - 什么时候应使用rollout undo？

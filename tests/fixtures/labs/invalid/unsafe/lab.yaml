@@ -1,0 +1,46 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: unsafe-lab
+  name: Unsafe lab
+  description: This fixture must be rejected.
+  difficulty: beginner
+  durationMinutes: 10
+  category: security
+  tags: [pod]
+requirements:
+  kubernetes: ">=1.28"
+  minimumCpu: 1
+  minimumMemoryMiB: 512
+  addons: []
+environment:
+  namespace: kubelab-unsafe-lab
+  manifests: [manifest.yaml]
+  provisionTimeoutSeconds: 30
+task:
+  description: This is never executed.
+  completionDescription: This is never completed.
+  successMessage: This is never shown.
+initialChecks:
+  - id: pod-running
+    type: pod_status
+    selector: {app: unsafe}
+    expectedPhase: Running
+    minimumCount: 1
+    timeoutSeconds: 10
+    unmetMessage: Pod is not running.
+successChecks:
+  - id: pod-exists
+    type: resource_exists
+    apiVersion: v1
+    kind: Pod
+    name: unsafe
+    timeoutSeconds: 10
+    unmetMessage: Pod is missing.
+hints:
+  - level: 1
+    content: This lab is intentionally unsafe.
+cleanup:
+  deleteNamespace: true
+interview:
+  questions: ["Why is privileged dangerous?"]

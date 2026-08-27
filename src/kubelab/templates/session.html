@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="面包屑"><a href="/labs">实验目录</a><span aria-hidden="true">/</span><span>排障工作台</span></nav>
+<div id="page-error" class="alert error hidden" role="alert"></div>
+
+<header class="session-header">
+  <div><p id="session-lab-id" class="eyebrow">ACTIVE SESSION</p><h1 id="session-title">正在读取 Session…</h1><p id="session-task"></p></div>
+  <div class="session-identity"><span id="session-status" class="status-badge neutral">读取中</span><code id="session-namespace">—</code><button id="copy-namespace" class="button secondary small" type="button">复制 Namespace</button></div>
+</header>
+
+<nav class="workspace-nav" aria-label="工作台区域">
+  <a href="#investigate">调查</a><a href="#resources">资源</a><a href="#events">Events</a><a href="#logs">Logs</a><a href="#verify">验证</a><a href="#retrospective">复盘</a>
+</nav>
+
+<section id="investigate" class="panel workspace-section" aria-labelledby="investigate-title">
+  <div class="panel-heading"><div><p class="eyebrow">WSL OPERATOR HANDOFF</p><h2 id="investigate-title">常用调查命令</h2></div><span class="quiet-text">命令仅复制到剪贴板，不在浏览器执行</span></div>
+  <p>推荐使用受限Workspace；所有命令由活动Session的Namespace安全生成。</p>
+  <div id="investigation-commands" class="command-list"></div>
+</section>
+
+<section id="resources" class="panel workspace-section" aria-labelledby="resources-title">
+  <div class="panel-heading"><div><p class="eyebrow">LIVE · 2S</p><h2 id="resources-title">资源与 Pods</h2></div><span id="poll-status" class="quiet-text">等待轮询</span></div>
+  <div class="table-wrap"><table><caption class="visually-hidden">Namespace 资源</caption><thead><tr><th>Kind</th><th>名称</th><th>状态</th></tr></thead><tbody id="resources-body"></tbody></table></div>
+  <h3>Pods</h3>
+  <div class="table-wrap"><table><caption class="visually-hidden">Pods 状态</caption><thead><tr><th>名称</th><th>Phase</th><th>Ready</th><th>重启</th><th>Containers</th></tr></thead><tbody id="pods-body"></tbody></table></div>
+</section>
+
+<div class="workspace-columns">
+  <section id="events" class="panel workspace-section" aria-labelledby="events-title">
+    <div class="panel-heading"><div><p class="eyebrow">MANUAL REFRESH</p><h2 id="events-title">Events</h2></div><button id="refresh-events" class="button secondary small" type="button">刷新</button></div>
+    <div id="events-list" class="stack-list empty-state"><p>点击刷新读取 Namespace Events。</p></div>
+  </section>
+  <section id="logs" class="panel workspace-section" aria-labelledby="logs-title">
+    <div class="panel-heading"><div><p class="eyebrow">BOUNDED OUTPUT</p><h2 id="logs-title">Logs</h2></div></div>
+    <div class="log-controls">
+      <label>Pod<select id="log-pod"><option value="">选择 Pod</option></select></label>
+      <label>Container<select id="log-container"><option value="">自动选择</option></select></label>
+      <label>行数<select id="log-tail"><option>50</option><option selected>200</option><option>500</option></select></label>
+      <label class="checkbox"><input id="log-previous" type="checkbox">Previous</label>
+      <button id="refresh-logs" class="button secondary small" type="button">读取日志</button>
+    </div>
+    <pre id="log-output" class="log-output" tabindex="0">尚未读取日志。</pre>
+  </section>
+</div>
+
+<section id="verify" class="panel workspace-section" aria-labelledby="verify-title">
+  <div class="panel-heading"><div><p class="eyebrow">SUCCESS CONTRACT</p><h2 id="verify-title">验证与提示</h2></div><div class="button-row"><button id="request-hint" class="button secondary" type="button">解锁提示</button><button id="run-verify" class="button primary" type="button">运行验证</button></div></div>
+  <div class="verify-grid"><div><h3>验证结果</h3><div id="verification-results" class="stack-list empty-state"><p>修复后运行验证，检查成功条件。</p></div></div><div><h3>当前提示</h3><div id="hint-result" class="hint-card empty-state"><p>卡住时一次解锁一层提示。</p></div></div></div>
+</section>
+
+<section id="retrospective" class="panel workspace-section" aria-labelledby="retrospective-title">
+  <div class="panel-heading"><div><p class="eyebrow">RETROSPECTIVE</p><h2 id="retrospective-title">故障复盘</h2></div></div>
+  <form id="retrospective-form" class="retrospective-form">
+    <label>现象<textarea name="symptom" rows="3"></textarea></label><label>影响<textarea name="impact" rows="3"></textarea></label>
+    <label>排查过程<textarea name="investigation" rows="4"></textarea></label><label>根因<textarea name="root_cause" rows="4"></textarea></label>
+    <label>解决方案<textarea name="resolution" rows="4"></textarea></label><label>预防措施<textarea name="prevention" rows="4"></textarea></label>
+    <label class="span-two">面试表述<textarea name="interview_summary" rows="4"></textarea></label>
+    <div class="span-two form-actions"><span id="retrospective-status" class="quiet-text"></span><button class="button primary" type="submit">保存复盘</button></div>
+  </form>
+</section>
+
+<section class="danger-zone" aria-labelledby="danger-title">
+  <div><p class="eyebrow">CONTROLLED ACTIONS</p><h2 id="danger-title">环境操作</h2><p>重置会重建初始故障；清理会删除当前实验 Namespace。</p></div>
+  <div class="button-row"><button id="reset-session" class="button warning" type="button">重置实验</button><button id="cleanup-session" class="button danger" type="button">清理环境</button></div>
+</section>
+
+<dialog id="confirmation-dialog" class="confirmation-dialog">
+  <form method="dialog">
+    <p class="eyebrow">NAMESPACE CONFIRMATION</p><h2 id="confirmation-title">确认操作</h2><p id="confirmation-copy"></p>
+    <label>输入目标 Namespace<input id="namespace-confirmation" autocomplete="off" spellcheck="false"></label>
+    <div class="dialog-actions"><button class="button secondary" value="cancel">取消</button><button id="confirm-destructive" class="button danger" value="confirm" disabled>确认</button></div>
+  </form>
+</dialog>
+{% endblock %}

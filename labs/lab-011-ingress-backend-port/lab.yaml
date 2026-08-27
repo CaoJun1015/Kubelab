@@ -1,0 +1,54 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-011-ingress-backend-port
+  name: LAB-011 Ingress后端端口错误
+  description: Ingress路由引用了Service不存在的端口，入口流量无法到达后端。
+  difficulty: beginner
+  durationMinutes: 25
+  category: networking
+  tags: [ingress, service, routing]
+requirements:
+  kubernetes: ">=1.28"
+  minimumCpu: 1
+  minimumMemoryMiB: 1536
+  addons: [ingress]
+environment:
+  namespace: kubelab-ingress-backend-port
+  manifests: [manifests/resources.yaml]
+  provisionTimeoutSeconds: 180
+task:
+  description: 检查Ingress、Service和Endpoint端口链路，修复后端Service端口引用。
+  completionDescription: Ingress路由指向Service的80端口，集群内入口探测返回HTTP 200。
+  successMessage: Ingress后端端口已经修复，入口访问恢复。
+initialChecks:
+  - id: ingress-created
+    type: resource_exists
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    name: web
+    timeoutSeconds: 10
+    unmetMessage: 故障Ingress未成功创建。
+  - id: backend-endpoint-ready
+    type: service_endpoint_count
+    name: web
+    minimum: 1
+    timeoutSeconds: 60
+    unmetMessage: 后端Service尚未形成Ready Endpoint。
+successChecks:
+  - id: ingress-http-restored
+    type: http_response
+    target: {mode: ingress, name: web, port: 80, path: /, scheme: http}
+    expectedStatus: 200
+    timeoutSeconds: 45
+    unmetMessage: Ingress入口HTTP访问仍未恢复。
+hints:
+  - {level: 1, content: 分别检查Ingress backend和Service ports。}
+  - {level: 2, content: Ingress backend端口必须引用Service暴露的端口。}
+  - {level: 3, content: 把Ingress backend service port number从81改为80。}
+cleanup: {deleteNamespace: true}
+interview:
+  questions:
+    - Ingress后端端口引用的是Service port还是containerPort？
+    - Service Endpoint正常为什么仍不能证明Ingress可访问？
+    - Ingress Controller如何根据Host和Path选择规则？

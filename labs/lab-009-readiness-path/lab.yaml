@@ -1,0 +1,71 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-009-readiness-path
+  name: LAB-009 Readiness路径错误
+  description: Pod持续Running，但错误的Readiness路径使它无法进入Service Endpoint。
+  difficulty: beginner
+  durationMinutes: 25
+  category: networking
+  tags: [readiness, service, endpoint]
+requirements:
+  kubernetes: ">=1.28"
+  minimumCpu: 1
+  minimumMemoryMiB: 1024
+  addons: []
+environment:
+  namespace: kubelab-readiness-path
+  manifests: [manifests/resources.yaml]
+  provisionTimeoutSeconds: 180
+task:
+  description: 定位Running但未Ready的原因，修复Readiness路径并恢复Service Endpoint。
+  completionDescription: Pod稳定Ready，Service具有Ready Endpoint并返回HTTP 200。
+  successMessage: Readiness探针已经修复，服务发现和访问均恢复。
+initialChecks:
+  - id: running-not-ready
+    type: pod_status
+    selector: {app: readiness-path-lab}
+    expectedPhase: Running
+    minimumCount: 1
+    ready: false
+    timeoutSeconds: 120
+    unmetMessage: Pod尚未呈现Running但未Ready的故障。
+  - id: no-ready-endpoint
+    type: service_endpoint_count
+    name: web
+    exactly: 0
+    timeoutSeconds: 30
+    unmetMessage: Service未呈现Endpoint为空的预期现象。
+successChecks:
+  - id: readiness-restored
+    type: pod_status
+    selector: {app: readiness-path-lab}
+    expectedPhase: Running
+    minimumCount: 1
+    minimumReady: 1
+    stableSeconds: 5
+    ready: true
+    timeoutSeconds: 60
+    unmetMessage: Pod尚未稳定Ready。
+  - id: endpoint-restored
+    type: service_endpoint_count
+    name: web
+    minimum: 1
+    timeoutSeconds: 30
+    unmetMessage: Service仍没有Ready Endpoint。
+  - id: readiness-http-restored
+    type: http_response
+    target: {mode: service, name: web, port: 80, path: /, scheme: http}
+    expectedStatus: 200
+    timeoutSeconds: 30
+    unmetMessage: Service集群内HTTP访问仍未恢复。
+hints:
+  - {level: 1, content: 对比Pod Phase、Ready条件和EndpointSlice。}
+  - {level: 2, content: 检查Readiness httpGet路径的响应状态。}
+  - {level: 3, content: 把Readiness路径从/not-ready改为/。}
+cleanup: {deleteNamespace: true}
+interview:
+  questions:
+    - 为什么Running Pod可能不会进入Service Endpoint？
+    - Readiness失败是否会重启容器？
+    - EndpointSlice中的ready条件来自哪里？

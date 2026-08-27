@@ -373,7 +373,128 @@ kubelab doctor
 
 只有明确重建了本地集群，导致CA、UID或API Server变化时，才重新执行`kubelab context trust`。
 
-## 14. 升级KubeLab
+### 13.1 启动本地Web界面与REST API
+
+API进程必须在WSL2 Ubuntu内启动：
+
+```bash
+kubelab serve
+```
+
+服务固定监听`127.0.0.1:8765`，不接受host或port覆盖。Windows浏览器或本地客户端可通过WSL localhost转发访问：
+
+```text
+http://127.0.0.1:8765/
+```
+
+页面入口包括总览`/`、实验目录`/labs`和学习进度`/progress`。排障工作台会每2秒读取一次活动实验资源；切换到其他浏览器标签页时自动暂停，Events和Logs只在用户点击时读取。工作台可以复制活动Namespace，并根据这个受控值生成常用调查命令；所有文本都通过DOM文本节点渲染。
+
+API不配置CORS；跨站Origin会被拒绝。所有`POST`和`PUT`请求都必须带精确的`Origin: http://127.0.0.1:8765`，并提交安全读取请求签发的HttpOnly、SameSite=Strict CSRF Cookie及同值`X-CSRF-Token`请求头。`reset`和`cleanup`还必须提交活动实验的精确Namespace。页面已经自动处理这些安全流程，直接调用API的客户端必须自行实现。
+
+停止服务时在运行终端按`Ctrl+C`。不要用反向代理把该端口暴露到局域网或公网，也不要改为监听`0.0.0.0`。Web界面不提供Shell，Kubernetes调查和修复操作必须在下节的受限WSL工作区中完成。
+
+## 14. 运行第一个故障实验
+
+```bash
+kubelab list
+kubelab show lab-005-image-pull-backoff
+kubelab start lab-005-image-pull-backoff
+```
+
+启动成功后，KubeLab会显示实验Namespace。在同一个WSL Ubuntu中进入受限工作区：
+
+```bash
+kubelab workspace enter
+```
+
+该命令只使用固定`/bin/bash --noprofile --norc -i`，不会接受任意shell、命令、路径或URL。KubeLab为活动Session创建固定名称的ServiceAccount、Role和RoleBinding，签发一小时以内的短期令牌，并生成权限为0600的临时kubeconfig。shell退出后在`finally`中撤销工作区资源并删除临时文件。
+
+工作区默认Namespace已经固定，可直接调查和修复：
+
+```bash
+kubectl get all
+kubectl describe pods
+kubectl get events --sort-by=.lastTimestamp
+kubectl get endpointslice
+```
+
+允许的权限只覆盖活动Namespace内排障所需的Pods、Logs、Events、ConfigMaps、Services、EndpointSlices、PVC和常见工作负载；不允许读取Secret、修改RBAC或访问集群级Namespace。可以用下面的命令自行验证边界：
+
+```bash
+kubectl auth can-i get pods          # yes
+kubectl auth can-i patch deployments # yes
+kubectl auth can-i get secrets       # no
+kubectl auth can-i get namespaces    # no
+```
+
+修复完成后输入`exit`，回到Web点击验证，或在普通KubeLab CLI中验证并清理：
+
+```bash
+kubelab verify
+kubelab retrospective edit
+kubelab cleanup
+```
+
+卡住时运行`kubelab hint`，每次只会解锁下一层提示。`reset`和`cleanup`都会显示目标Namespace并要求确认。日常短命令默认选择唯一活动实验，不需要手工保存Session ID。
+
+当前目录包含12个实验。运行LAB-011前，必须确认`kubelab doctor`中的Ingress addon为可用；运行LAB-012前，必须确认默认StorageClass存在，并先修复任何`storage-provisioner`异常。任一前置条件不满足时不要启动对应实验。PVC的StorageClass字段不可原地修改，应按实验提示删除故障PVC后使用可用StorageClass重新创建。
+
+### 14.1 固定版本实验镜像缓存
+
+真实实验不应依赖运行时公网拉取。先在WSL Docker中拉取并加载四个固定镜像：
+
+```bash
+docker pull nginx:1.26-alpine
+docker pull nginx:1.27-alpine
+docker pull busybox:1.36.1
+docker pull curlimages/curl:8.12.1
+
+minikube image load nginx:1.26-alpine
+minikube image load nginx:1.27-alpine
+minikube image load busybox:1.36.1
+minikube image load curlimages/curl:8.12.1
+minikube image ls
+```
+
+如果所在网络需要镜像代理，应在Docker daemon层配置可信镜像源，拉取后仍保留上述标准镜像名；不要把代理凭证或私有仓库Token写入KubeLab配置、实验Manifest或文档。
+
+### 14.2 Ingress和PVC前置修复
+
+一般环境先使用官方addon入口：
+
+```bash
+minikube addons enable ingress
+minikube addons enable default-storageclass
+minikube addons enable storage-provisioner
+
+kubectl rollout status deployment/ingress-nginx-controller -n ingress-nginx --timeout=120s
+kubectl wait --for=condition=Ready pod/storage-provisioner -n kube-system --timeout=120s
+kubectl get storageclass standard
+```
+
+若profile设置了全局镜像仓库，minikube可能把`k8s-minikube/storage-provisioner:v5`错误拼成仓库中不存在的嵌套路径。确认同仓库的扁平`storage-provisioner:v5`已经缓存后，可通过addon镜像槽位修复：
+
+```bash
+minikube addons disable storage-provisioner
+minikube addons enable storage-provisioner \
+  --images=StorageProvisioner=storage-provisioner:v5
+kubectl wait --for=condition=Ready pod/storage-provisioner -n kube-system --timeout=120s
+```
+
+Ingress遇到同类路径改写问题时，先用`minikube addons images ingress`查看当前版本和槽位，再为`IngressController`、`KubeWebhookCertgenCreate`、`KubeWebhookCertgenPatch`提供已经缓存且与默认版本一致的相对镜像名。不要凭猜测混用控制器或证书生成器版本。
+
+### 14.3 十二实验真实验收（仅本机受信任minikube）
+
+只有`kubelab context inspect`显示`trusted`，且当前Context明确为本机minikube时才运行：
+
+```bash
+KUBELAB_RUN_LAB_INTEGRATION=1 \
+  uv run pytest --no-cov -q tests/test_first_labs_integration.py
+```
+
+测试对全部12个实验执行`start → 受限workspace修复 → verify → reset → cleanup`，并验证工作区不能读取Secret或集群级Namespace。测试默认关闭；禁止在远程或生产集群设置该变量。
+
+## 15. 升级KubeLab
 
 ```bash
 cd "$HOME/projects/Kubelab"
@@ -384,7 +505,7 @@ kubelab --version
 kubelab doctor
 ```
 
-## 15. 开发者安装
+## 16. 开发者安装
 
 需要运行测试或修改源码时：
 
@@ -401,7 +522,7 @@ uv run mypy src
 
 不要在Windows和WSL之间复用`.venv`。
 
-## 16. 故障排查
+## 17. 故障排查
 
 ### 找不到kubelab、uv或kubectl
 
@@ -474,7 +595,7 @@ minikube logs
 
 常见原因包括镜像仓库不可达、代理配置或镜像地址错误。修复网络或镜像源后再重试；进入PVC实验前，`storage-provisioner`必须恢复正常。
 
-## 17. 卸载
+## 18. 卸载
 
 仅撤销KubeLab信任并卸载CLI：
 
@@ -491,7 +612,7 @@ uv tool uninstall kubelab
 minikube delete
 ```
 
-## 18. 验收清单
+## 19. 验收清单
 
 部署完成后逐项确认：
 
@@ -507,7 +628,7 @@ minikube delete
 - [ ] 配置文件权限为600；
 - [ ] 配置文件不含Token、私钥或证书原文。
 
-## 19. 官方参考
+## 20. 官方参考
 
 - [Microsoft：安装WSL](https://learn.microsoft.com/windows/wsl/install)
 - [Microsoft：WSL启用systemd](https://learn.microsoft.com/windows/wsl/systemd)

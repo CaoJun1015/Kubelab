@@ -1,0 +1,57 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-012-pvc-pending
+  name: LAB-012 PVC无法绑定
+  description: PVC引用了不存在的StorageClass，Pod因存储未绑定而无法调度。
+  difficulty: beginner
+  durationMinutes: 25
+  category: storage
+  tags: [pvc, storageclass, scheduling]
+requirements:
+  kubernetes: ">=1.28"
+  minimumCpu: 1
+  minimumMemoryMiB: 1024
+  addons: []
+environment:
+  namespace: kubelab-pvc-pending
+  manifests: [manifests/resources.yaml]
+  provisionTimeoutSeconds: 180
+task:
+  description: 检查PVC Events和StorageClass，把声明修复为可动态供应的存储类。
+  completionDescription: PVC进入Bound，使用该卷的Pod稳定Running且Ready。
+  successMessage: PVC已经绑定，依赖存储的Pod成功运行。
+initialChecks:
+  - id: pvc-remains-pending
+    type: pvc_status
+    name: data
+    expectedPhase: Pending
+    timeoutSeconds: 60
+    unmetMessage: PVC未呈现预期的Pending故障。
+successChecks:
+  - id: pvc-bound
+    type: pvc_status
+    name: data
+    expectedPhase: Bound
+    timeoutSeconds: 120
+    unmetMessage: PVC尚未进入Bound状态。
+  - id: storage-consumer-ready
+    type: pod_status
+    selector: {app: pvc-pending-lab}
+    expectedPhase: Running
+    minimumCount: 1
+    minimumReady: 1
+    stableSeconds: 5
+    ready: true
+    timeoutSeconds: 120
+    unmetMessage: 使用PVC的Pod尚未稳定Ready。
+hints:
+  - {level: 1, content: 查看PVC Events和集群中的StorageClass。}
+  - {level: 2, content: 对比PVC storageClassName与默认StorageClass名称。}
+  - {level: 3, content: 删除故障PVC并用storageClassName standard重新创建。}
+cleanup: {deleteNamespace: true}
+interview:
+  questions:
+    - PVC为何可能长期Pending？
+    - WaitForFirstConsumer绑定模式解决什么问题？
+    - 哪些PVC字段创建后不可修改？

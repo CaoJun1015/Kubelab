@@ -1,0 +1,69 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-008-configmap-missing
+  name: LAB-008 ConfigMap缺失
+  description: Deployment引用了不存在的ConfigMap，容器无法创建。
+  difficulty: beginner
+  durationMinutes: 20
+  category: configuration
+  tags: [configmap, deployment, troubleshooting]
+requirements:
+  kubernetes: ">=1.28"
+  minimumCpu: 1
+  minimumMemoryMiB: 1024
+  addons: []
+environment:
+  namespace: kubelab-configmap-missing
+  manifests: [manifests/deployment.yaml]
+  provisionTimeoutSeconds: 180
+task:
+  description: 根据Pod状态和Events定位缺失的配置对象，创建应用所需的ConfigMap。
+  completionDescription: ConfigMap存在，worker Pod稳定Running且Ready。
+  successMessage: 缺失的ConfigMap已经补齐，容器成功启动。
+initialChecks:
+  - id: dependent-deployment-created
+    type: resource_exists
+    apiVersion: apps/v1
+    kind: Deployment
+    name: worker
+    timeoutSeconds: 10
+    unmetMessage: 故障Deployment未成功创建。
+  - id: missing-config-observed
+    type: pod_status
+    selector: {app: configmap-missing-lab}
+    expectedPhase: Pending
+    minimumCount: 1
+    ready: false
+    containerName: worker
+    expectedWaitingReasons: [CreateContainerConfigError]
+    timeoutSeconds: 120
+    unmetMessage: Pod尚未呈现缺少ConfigMap的配置错误。
+successChecks:
+  - id: required-config-created
+    type: resource_exists
+    apiVersion: v1
+    kind: ConfigMap
+    name: app-settings
+    timeoutSeconds: 10
+    unmetMessage: 必需的ConfigMap仍不存在。
+  - id: configured-worker-ready
+    type: pod_status
+    selector: {app: configmap-missing-lab}
+    expectedPhase: Running
+    minimumCount: 1
+    minimumReady: 1
+    stableSeconds: 5
+    ready: true
+    timeoutSeconds: 60
+    unmetMessage: worker尚未在配置补齐后稳定Ready。
+hints:
+  - {level: 1, content: 查看Pod Events中的configmap not found消息。}
+  - {level: 2, content: 检查Deployment envFrom引用的对象名称。}
+  - {level: 3, content: 创建名为app-settings且包含APP_MODE键的ConfigMap。}
+cleanup: {deleteNamespace: true}
+interview:
+  questions:
+    - 缺少非optional ConfigMap时容器会处于什么状态？
+    - resource_exists检查为什么不能替代Pod Ready检查？
+    - 如何减少配置对象名称漂移？

@@ -380,7 +380,7 @@ successChecks:
     unmetMessage: Service仍未获得足够的可用后端。
 
   - id: http-restored
-    type: http_status
+    type: http_response
     target:
       mode: service
       name: web-service
@@ -438,17 +438,19 @@ P0验证类型：
 | type | 关键字段 | 判定 |
 |---|---|---|
 | `resource_exists` | apiVersion/kind/name | 资源存在 |
-| `resource_not_exists` | apiVersion/kind/name | 资源不存在 |
-| `pod_phase` | selector/expectedPhase/minimumCount | 匹配Pod达到目标Phase |
-| `pod_ready` | selector/minimumReady/stableSeconds | 足够Pod持续Ready |
+| `pod_status` | selector/expectedPhase/minimumCount/minimumReady/stableSeconds/ready/containerName/expectedWaitingReasons/minimumRestartCount/maximumRestartCount | 匹配Pod达到目标Phase，并可精确约束Pod或容器Ready、waiting reason和重启次数 |
 | `deployment_available` | name/minimumReplicas | availableReplicas达到下限 |
 | `service_endpoint_count` | name/minimum/maximum/exactly | EndpointSlice可用地址数量满足约束 |
 | `container_image` | workloadKind/workloadName/container/expectedImage | 容器镜像完全匹配 |
 | `config_value` | sourceKind/sourceName/key/expectedValue | ConfigMap或Secret中值匹配 |
-| `pvc_phase` | name/expectedPhase | PVC达到目标Phase |
-| `http_status` | target/expectedStatus | 集群内HTTP返回预期状态 |
+| `pvc_status` | name/expectedPhase | PVC达到目标Phase |
+| `http_response` | target/expectedStatus | 集群内HTTP返回预期状态 |
 
 `minimum`、`maximum`和`exactly`至少出现一个；使用`exactly`时不得同时设置其他数量字段。
+
+`pod_status`中的waiting reason和restart约束必须同时指定`containerName`；`minimumRestartCount`不得大于`maximumRestartCount`。`minimumReady`始终统计Pod Ready数量，`ready`在指定`containerName`时检查该容器，否则检查整个Pod。
+
+M1-04确认上述8种类型为`kubelab.io/v1alpha1`唯一正式协议，不兼容早期草案中的`resource_not_exists`、`pod_phase`、`pod_ready`、`pvc_phase`和`http_status`。`http_response.target`只接受结构化Service或Ingress引用，不接受任意URL。
 
 ### 6.5 初始故障契约
 
@@ -827,7 +829,7 @@ Secret只返回名称、类型、key列表和创建时间，不返回值。
 
 - 每个Check拥有独立超时；
 - 查询间隔从500ms开始，最高2秒，不超过总超时；
-- `pod_ready`可设置`stableSeconds`，避免瞬时Ready误判；
+- `pod_status`在设置`minimumReady`时可同时设置`stableSeconds`，避免瞬时Ready误判；
 - 用户手动执行verify时，整体上限为所有检查最大超时加5秒，而不是简单相加；
 - 同一run内无依赖的检查可以并发，但P0实现允许顺序执行以降低复杂度。
 
@@ -989,7 +991,7 @@ kubelab hint [--json]
 kubelab reset
 kubelab cleanup
 kubelab retrospective edit
-kubelab serve [--port 8765]
+kubelab serve
 ```
 
 MVP只有一个活动Session，因此status/verify/reset/cleanup默认作用于活动Session，不要求用户重复输入Session ID。JSON输出仍包含Session ID。
@@ -1022,39 +1024,32 @@ MVP只有一个活动Session，因此status/verify/reset/cleanup默认作用于�
 
 | Method | Path | 行为 |
 |---|---|---|
-| GET | `/api/v1/health` | 仅进程健康，不访问集群 |
-| POST | `/api/v1/environment/checks` | 重新执行Doctor |
-| GET | `/api/v1/environment` | 最近一次环境快照 |
+| GET | `/health` | 仅进程健康，不访问集群 |
+| GET | `/api/v1/environment` | 当前安全运行时快照，不访问集群 |
 | GET | `/api/v1/labs` | 实验目录和筛选 |
 | GET | `/api/v1/labs/{lab_id}` | 实验公开详情 |
-| POST | `/api/v1/labs/{lab_id}/sessions` | 创建活动Session |
+| POST | `/api/v1/labs/{lab_id}/start` | 创建活动Session |
 | GET | `/api/v1/sessions/active` | 当前活动Session |
-| GET | `/api/v1/sessions/{id}` | Session详情 |
-| GET | `/api/v1/sessions/{id}/resources` | 脱敏资源摘要 |
-| GET | `/api/v1/sessions/{id}/events` | 实验Events |
-| GET | `/api/v1/sessions/{id}/pods/{pod}/logs` | 当前/Previous日志 |
-| POST | `/api/v1/sessions/{id}/verify` | 执行成功验证 |
-| POST | `/api/v1/sessions/{id}/hints/next` | 解锁下一级提示 |
-| POST | `/api/v1/sessions/{id}/reset` | 安全重置 |
-| POST | `/api/v1/sessions/{id}/cleanup` | 安全清理 |
-| PUT | `/api/v1/sessions/{id}/retrospective` | 保存复盘 |
-| GET | `/api/v1/progress` | 完成记录与分类统计 |
+| GET | `/api/v1/sessions/active/resources` | 脱敏资源摘要 |
+| GET | `/api/v1/sessions/active/events` | 实验Events |
+| GET | `/api/v1/sessions/active/logs` | 查询参数指定Pod、Container、Previous和tail |
+| POST | `/api/v1/sessions/active/verify` | 执行成功验证 |
+| POST | `/api/v1/sessions/active/hint` | 解锁下一级提示 |
+| POST | `/api/v1/sessions/active/reset` | 精确Namespace确认后安全重置 |
+| POST | `/api/v1/sessions/active/cleanup` | 精确Namespace确认后安全清理 |
+| GET | `/api/v1/sessions/latest/retrospective` | 读取活动或最近Session复盘 |
+| PUT | `/api/v1/sessions/latest/retrospective` | 保存活动或最近Session复盘 |
 
-写接口返回最终操作结果；MVP不返回后台Operation ID。所有响应包含`requestId`。
+写接口返回最终操作结果；MVP不返回后台Operation ID。所有响应使用`X-Request-ID`响应头关联请求，不把内部对象或堆栈序列化到响应。
 
 ### 15.2 错误结构
 
 ```json
 {
-  "requestId": "...",
-  "error": {
-    "code": "CONTEXT_FINGERPRINT_MISMATCH",
-    "message": "当前Context与已信任记录不一致，已拒绝写操作。",
-    "context": {
-      "contextName": "minikube"
-    },
-    "retryable": false
-  }
+  "code": "CONTEXT_FINGERPRINT_MISMATCH",
+  "message": "当前Context与已信任记录不一致，已拒绝写操作。",
+  "context": {},
+  "retryable": false
 }
 ```
 
@@ -1076,7 +1071,9 @@ MVP只有一个活动Session，因此status/verify/reset/cleanup默认作用于�
 
 验证正常但未通过仍返回200，业务字段`status=failed`；验证器异常返回503或结构化run error。
 
-### 15.4 页面
+### 15.4 页面（M2-02）
+
+M2-02使用Jinja2渲染安全页面壳，所有动态业务数据由原生JavaScript调用上述REST API，不新增第二套业务逻辑：
 
 - `/`：环境状态、当前实验、总体进度；
 - `/labs`：实验目录；
@@ -1086,16 +1083,19 @@ MVP只有一个活动Session，因此status/verify/reset/cleanup默认作用于�
 
 页面每2秒轮询活动Session资源摘要；不可见标签页暂停轮询；Events和Logs由用户主动刷新，避免高频读取。
 
+实际实现为中文紧凑运维控制台。浏览器API客户端只在内存保存CSRF header值，写请求冲突时只针对`CSRF_TOKEN_INVALID`刷新并重试一次；start成功后进入Session工作台，cleanup成功后停止轮询并返回总览。学习进度从实验目录的公开`progress`字段计算，不新增数据库表或Repository接口。
+
 ---
 
 ## 16. Web本地安全
 
 - 只监听`127.0.0.1`，拒绝配置其他host；
 - 不配置CORS响应头；
-- 写请求要求Origin精确匹配`http://127.0.0.1:8765`或实际配置端口；
-- 首次页面访问生成随机CSRF token，保存为HttpOnly、SameSite=Strict Cookie，并在表单/请求头提交对应token；
+- 带Origin的请求必须精确匹配`http://127.0.0.1:8765`，所有写请求必须携带该Origin；
+- 首次安全读取生成随机CSRF token，保存为HttpOnly、SameSite=Strict Cookie；每个安全响应都通过同源响应头回显当前双提交值；
 - API拒绝缺少或不匹配的CSRF token；
 - 使用Jinja自动转义，禁止把Kubernetes日志当HTML渲染；
+- 动态页面内容只通过DOM `textContent`或文本节点写入，并配置仅允许self的CSP、`nosniff`、`no-referrer`、禁止frame和受限Permissions Policy；
 - 页面不展示Secret值；
 - 路径、Pod名、容器名等全部进行DNS名称校验；
 - 不提供用户可控的任意命令、任意文件路径或任意URL请求入口。
@@ -1279,6 +1279,8 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 
 ### M1-04 Schema与LabRegistry
 
+状态：**已完成**。
+
 产出：
 
 - Pydantic v1alpha1模型；
@@ -1289,7 +1291,11 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 
 完成标准：合法Fixture加载，所有危险Fixture被精确拒绝且错误包含文件和字段路径。
 
+实际实现以Pydantic模型为唯一真源，提交确定性JSON Schema；Registry支持默认`labs/`、`KUBELAB_LABS_DIR`覆盖、损坏实验隔离、全局ID冲突拒绝和稳定排序。Manifest在本地逐文档执行Kind白名单、Namespace、PodSpec、Service、资源上限、ownerReference、外部URL和路径逃逸扫描。本阶段不调用Kubernetes API，也不执行验证器或任何实验命令。
+
 ### M1-05 数据库与状态机
+
+状态：**已完成**。
 
 产出：
 
@@ -1300,6 +1306,8 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 - 跨进程操作锁。
 
 完成标准：非法转换、并发Session和锁冲突测试通过；SQLite外键、WAL和busy timeout生效。
+
+实际实现包含六张业务表、Alembic初始迁移、纯领域状态机、条件唯一活动Session索引、SQLAlchemy Unit of Work和四类Repository。数据库初始化在跨进程`operations.lock`内执行，仅在已有数据库存在待执行迁移时checkpoint并原子生成备份。JSON字段统一递归脱敏，ORM对象不暴露给CLI或未来Web。
 
 ### M1-06 KubernetesGateway
 
@@ -1313,6 +1321,8 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 
 完成标准：测试Namespace内操作成功，任何越界Namespace操作都被拒绝。
 
+实际实现包含基于官方Kubernetes Client的显式kubeconfig/Context适配层、SessionScope写入边界、Namespace/ResourceQuota/LimitRange保护资源、全部Manifest先dry-run再按依赖顺序server-side apply、六项Namespace归属校验和最长120秒安全删除。资源、Pod、Events和Logs转换为脱敏冻结DTO；Secret只暴露名称、类型和key，日志限制为最多500行和256KiB。探测Pod固定curl镜像、资源限额和安全上下文，只允许访问当前实验Namespace的Service DNS。LabRegistry在Apply前重新读取Manifest、核对SHA256并再次安全扫描，阻止TOCTOU文件替换。
+
 ### M1-07 LabManager
 
 产出：
@@ -1323,6 +1333,8 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 - 活动Session冲突处理。
 
 完成标准：部分Apply失败后能够安全清理；重复reset恢复同一故障状态。
+
+实际实现提供`LabManager`应用服务及可替换的`ValidationService`、`ClusterGateway`和Gateway Factory协议。`start/status/reset/cleanup`统一使用跨进程操作锁，在集群写入前重新验证完整Context身份，并把数据库操作拆为短事务。启动或重置中的部分Apply和初始契约失败会尝试删除整个Namespace；回滚成功后启动Session受控完成，reset保留可重试的`error` Session；清理失败始终保留活动`error` Session。status能够协调外部删除、Namespace身份不匹配和Context漂移，不接管或越界删除资源。
 
 ### M1-08 ValidationEngine
 
@@ -1336,6 +1348,12 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 
 完成标准：failed与error严格区分，Probe成功、超时和清理失败均有测试。
 
+实际实现提供冻结的`ValidationRunResult`和`PublicCheckResult`，公开结果不携带expected/actual。8种检查统一顺序执行，单项deadline取检查超时与全局deadline的较早值，轮询间隔为500ms、1秒、2秒后保持2秒；`stableSeconds`要求条件连续成立，中途失败会重置窗口。聚合严格采用`error > failed > passed`。
+
+初始契约分别持久化`initial`与`success_contract`运行：全部初始检查必须通过，成功条件预检不得出现error且至少一项必须failed。手动成功验证由`LabManager.verify()`接入，READY首次验证转IN_PROGRESS，仅通过时转PASSED；failed或error保留IN_PROGRESS，PASSED可重复只读验证，ERROR和COMPLETED拒绝验证。
+
+Gateway验证接口只返回脱敏观察DTO：EndpointSlice地址去重且忽略`ready=false`，Secret在Gateway内部严格base64解码并使用常量时间比较，数据库只保存key存在性和matched布尔值。HTTP目标由结构化Service/Ingress引用解析；Ingress固定访问minikube官方`ingress-nginx-controller.ingress-nginx.svc.cluster.local`目录并设置Host头，实验不能提供外部URL或Controller地址。Probe固定使用`curlimages/curl:8.12.1`，在`finally`中清理，删除失败只返回非致命warning并由Namespace清理兜底。
+
 ### M1-09 三个实验
 
 产出：
@@ -1346,6 +1364,14 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 - 每个实验的初始Fixture、标准修复Fixture和README。
 
 完成标准：三个实验完整契约测试在真实minikube通过。
+
+实际实验包均包含`lab.yaml`、安全Manifest、独立README和不被运行时自动加载的`solutions/fix.yaml`：
+
+- `lab-005-image-pull`使用`registry.invalid/kubelab/does-not-exist:v1`稳定制造镜像拉取失败，初始契约精确接受`ErrImagePull/ImagePullBackOff`；标准修复为`nginx:1.27-alpine`，成功契约同时检查镜像和Pod稳定Ready；
+- `lab-006-crash-loop`使用`busybox:1.36.1`主动以退出码1结束，初始契约检查`CrashLoopBackOff`和最小重启次数；标准修复仅更改启动命令，成功契约要求Deployment可用以及新Pod连续Ready且重启数为0；
+- `lab-007-service-selector`保持Deployment正常并让Service Selector故意不匹配，初始契约要求Deployment可用且Endpoint为0；标准修复只更新Selector，成功契约要求Ready Endpoint和集群内HTTP 200。
+
+Fake契约测试对每个实验执行初始契约、成功预检、标准修复验证和reset sequence验证，并检查验证记录持久化。真实minikube契约测试默认关闭，启用后会把实验复制到随机`kubelab-test-*` Namespace，执行`start → fix → verify → reset → cleanup`并验证Namespace无残留；运行前检查固定版本镜像是否已进入minikube缓存，缺失时报告环境跳过，不把镜像环境问题误判为实验失败。
 
 ### M1-10 CLI整合与验收
 
@@ -1358,24 +1384,39 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 
 完成标准：新建环境从doctor、trust、start、kubectl修复、verify到cleanup完整走通；所有自动化测试实际执行通过。
 
+实际实现新增共享`ApplicationRuntime`组合根，Typer只调用`LabManager`和稳定DTO，不直接访问ORM或Kubernetes Client。公开命令包括`list/show/start/status/resources/events/logs/verify/hint/reset/cleanup`和`retrospective edit`；活动实验命令默认选择唯一活动Session。目录与任务说明不返回check expected/actual或提示正文，`hint`按级别逐次解锁，Logs继续执行行数和字节上限，复盘使用CLI逐字段提示而不启动外部编辑器。`reset`和`cleanup`显示Namespace并交互确认，不提供`--force`。
+
+CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/retryable`，错误写入stderr且不显示堆栈。退出码正式实现为：成功或verify通过为0，verify未通过为1，参数/配置/实验定义为2，运行环境或Context信任为3，活动Session冲突/非法状态/操作锁冲突为4，Kubernetes/数据库/内部错误为5。实验命令的生产组合根明确拒绝在WSL2外运行。
+
 ---
 
 ## 20. 后续里程碑接口边界
 
 ### M2 Web MVP
 
-- 复用Application Service和DTO；
-- 实现第15节REST API和页面；
-- 不通过CLI子进程调用业务能力；
-- 增加CSRF、Origin、资源轮询、日志和复盘测试；
+- M2-01已复用Application Service和公开DTO，实现第15.1节REST API；
+- FastAPI lifespan持有数据库与共享服务，Web不通过CLI子进程调用业务能力；
+- M2-01已增加Fake Application Service API、CSRF、Origin、日志、复盘和脱敏测试，不访问真实minikube；
+- M2-02已实现第15.4节五个HTML页面、2秒资源轮询、可见性暂停、手动Events/Logs、操作等待态、Namespace确认和复盘工作流；
+- Jinja模板、静态资源和全部12个实验目录随wheel发布，页面和API保持同源且不引入Node构建链；
 - 不新增浏览器终端。
 
 ### M3 十二实验
 
-- 在既有Schema和验证器上增加另外九个实验；
-- 如果确需新验证类型，先扩展判别联合和测试，再增加实验；
-- 每个实验必须通过完整契约测试；
-- Ingress和PVC实验先由Doctor验证addon/StorageClass前置条件。
+- 已在既有Schema和八种验证器上增加LAB-001至004及LAB-008至012，无需新增第二套验证逻辑；
+- 十二个实验均包含`lab.yaml`、安全初始Manifest、独立README和不被运行时自动应用的`solutions/fix.yaml`；
+- Fake Gateway对全部实验证明初始契约成立、成功条件预检失败、标准修复通过及reset恢复，验证记录继续写入同一持久化模型；
+- LAB-011声明`ingress` addon要求，LAB-012的运行说明要求Doctor确认默认StorageClass和provisioner健康；前置条件不满足时不得进行真实实验；
+- 真实minikube契约测试已覆盖全部12个实验，标准修复通过临时ServiceAccount令牌和Namespace限定RBAC执行；测试同时断言不能读取Secret或集群级Namespace，并在每个实验后确认Namespace已清理。
+
+### M3-01 本地受限排障工作区
+
+- `kubelab workspace enter`只对唯一活动Session开放，并在每次进入前重验本机minikube Context指纹、Session状态和Namespace所有权；
+- Gateway只创建固定名称的ServiceAccount、Role和RoleBinding，通过TokenRequest签发一小时以内的短期令牌；Role不包含Secret、RBAC、Namespace或任何集群级资源；
+- 临时kubeconfig只复制当前集群Server和CA，使用短期令牌并固定活动Namespace，不复制管理员用户、客户端证书或私钥；以独占创建和0600权限写入，退出后撤销RBAC并删除临时目录；
+- CLI只启动固定`/bin/bash --noprofile --norc -i`，不接受任意shell、命令、路径或URL，不使用`shell=True`；
+- Web工作台只提供复制Namespace和基于该受控值生成的常用调查命令，继续不提供浏览器终端或第二套业务逻辑；
+- curl探针的单次网络请求上限为10秒、Pod上限为15秒；已观察到明确业务失败时，截止点的瞬时探针基础设施错误不覆盖该业务结果。
 
 ### M4 开源包装
 
@@ -1413,7 +1454,7 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 - 修复后成功验证来自资源状态与业务探测，而非单一Pod Phase；
 - start/reset/cleanup失败均有明确状态、错误和恢复路径；
 - 日志、API和数据库不保存Secret或kubeconfig凭证；
-- 三个M1实验在真实minikube完成端到端契约测试；
+- 十二个实验在真实minikube完成端到端契约测试，且使用受限workspace执行标准修复；
 - Web API、CLI、Schema、数据库和状态机与本文档一致；
 - Docker、kubectl、minikube和Helm版本只有在实际发现并验证后才写入兼容列表。
 
@@ -1437,3 +1478,95 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 - `kube-system/storage-provisioner`当前为`ImagePullBackOff`，不阻塞本次只读版本验证，但进入PVC实验前必须修复。
 
 上述版本组合已完成Doctor和只读集群访问验证，但尚未完成三个实验的端到端契约测试，不构成完整实验兼容性声明。Windows Codex终端中的PATH结果不作为运行环境依据。
+
+2026-08-26，M1-04 Schema与LabRegistry在同一源码提交上完成双环境质量门：
+
+- Windows Python 3.11下收集148项测试，146项通过，2项因当前Windows账户无创建符号链接权限而跳过，覆盖率90.31%；
+- WSL2 Ubuntu Python 3.11.16下148项测试全部通过，包含内部符号链接和符号链接逃逸用例，覆盖率90.64%；
+- 两端`ruff check`、`ruff format --check`和strict mypy全部通过；
+- 测试只创建临时本地文件，没有调用kubectl、访问Kubernetes API或修改真实minikube集群。
+
+2026-08-26，M1-05持久化与状态机完成双环境质量门：
+
+- Windows Python 3.11下收集238项测试，236项通过，2项沿用M1-04的符号链接权限跳过，覆盖率92.25%；
+- WSL2 Ubuntu Python 3.11.16下238项测试全部通过，覆盖率92.58%；
+- 双环境均验证Alembic迁移、迁移前备份、WAL、外键、5000ms busy timeout、活动Session数据库约束、事务回滚、JSON脱敏和跨进程文件锁；
+- 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`通过；
+- 测试数据库和锁全部位于临时目录，没有创建或修改真实用户数据库，也没有访问minikube。
+
+2026-08-26，M1-06 KubernetesGateway完成双环境质量门和显式真实集成验收：
+
+- Windows Python 3.11下收集283项测试，280项通过，2项因符号链接权限跳过，1项真实集成测试默认跳过，覆盖率92.36%；
+- WSL2 Ubuntu Python 3.11.16下收集283项测试，282项通过，1项真实集成测试默认跳过，覆盖率92.63%；
+- 两端`ruff check`、`ruff format --check`和strict mypy全部通过；
+- Fake客户端覆盖Context指纹漂移、外部或伪造Namespace、dry-run/apply顺序、API错误映射、Terminating超时、Secret脱敏、日志限制、多容器选择和Probe安全边界；
+- 在信任状态为`trusted`的本地minikube v1.35.1中显式运行1项集成测试，创建随机`kubelab-test-*` Namespace、核对归属并安全删除；测试后集群仅保留default和Kubernetes系统Namespace，无测试资源残留。
+
+2026-08-26，M1-07 LabManager完成双环境质量门：
+
+- Windows Python 3.11下收集304项测试，301项通过，2项因符号链接权限跳过，1项真实集成测试默认跳过，覆盖率92.45%；
+- WSL2 Ubuntu Python 3.11.16下收集304项测试，303项通过，1项真实集成测试默认跳过，覆盖率92.70%；
+- LabManager专项测试覆盖正常启动、活动Session冲突、create/apply/初始契约失败、回滚清理失败、外部删除协调、Namespace身份不匹配、Context漂移、reset中断重试、幂等cleanup及操作锁冲突；
+- 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`通过；本阶段新增测试全部使用Fake集群，没有创建、修改或删除真实minikube资源。
+
+2026-08-26，M1-08 ValidationEngine完成双环境质量门和受限真实集成检查：
+
+- Windows Python 3.11下收集368项测试，364项通过，2项因符号链接权限跳过，2项真实集成测试默认跳过，覆盖率92.45%；
+- WSL2 Ubuntu Python 3.11.16下收集368项测试，366项通过，2项真实集成测试默认跳过，覆盖率92.66%；
+- 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`全部通过；Fake测试逐项覆盖8种验证器的passed、failed、Kubernetes error和deadline，并覆盖轮询退避、全局deadline、稳定窗口、聚合、持久化脱敏、HTTP Probe和LabManager verify状态转换；
+- 在信任状态为`trusted`的本地minikube v1.35.1中显式启动Service HTTP Probe集成用例；固定测试镜像`nginx:1.27-alpine`出现`ErrImagePull`，测试按环境错误安全跳过，没有误记为验证失败；
+- 集成测试的`finally`安全删除随机`kubelab-test-*` Namespace，事后只读检查确认不存在测试Namespace或`kubelab.io/probe=true` Pod。本次不声明真实HTTP 200验收已经通过，待镜像拉取环境恢复后重跑。
+
+2026-08-26，M1-09首批三个故障实验完成实现和双环境质量门：
+
+- Windows Python 3.11下收集382项测试，375项通过，3项正式实验集成测试和2项网关集成测试默认跳过，2项因符号链接权限跳过，覆盖率92.66%；
+- WSL2 Ubuntu Python 3.11.16下收集382项测试，377项通过，3项正式实验集成测试和2项网关集成测试默认跳过，覆盖率92.88%；
+- 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`全部通过；默认Registry无错误加载三个实验，所有初始Manifest和标准修复Fixture均通过安全扫描；
+- Fake契约测试逐个证明`initialChecks通过 → successChecks预检失败 → 标准修复后通过 → reset sequence恢复初始故障`，并核对ImagePull waiting reason、CrashLoop重启边界、Service Endpoint、HTTP结果和验证记录持久化；
+- 在已信任minikube中显式执行真实契约测试预检，确认`nginx:1.27-alpine`、`busybox:1.36.1`和`curlimages/curl:8.12.1`均未缓存，因此3项测试在创建资源前按环境原因跳过；事后确认不存在`kubelab-test-*` Namespace或平台Probe Pod；
+- 本阶段完成代码和安全契约实现，但不声明三个实验的真实端到端集群验收已经通过。镜像缓存或拉取环境恢复后，必须重新运行`KUBELAB_RUN_LAB_INTEGRATION=1`质量门。
+
+2026-08-26，M1-10 CLI整合完成双环境自动化质量门和WSL只读烟测：
+
+- Windows Python 3.11下收集398项测试，391项通过，3项正式实验集成测试、2项网关集成测试和2项符号链接测试跳过，覆盖率91.36%；
+- WSL2 Ubuntu Python 3.11.16下收集398项测试，393项通过，3项正式实验集成测试和2项网关集成测试跳过，覆盖率91.55%；
+- 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`全部通过；新增CLI测试覆盖目录、任务说明、启动、状态、资源、Events、Logs、验证、提示、确认式重置/清理、复盘、JSON和退出码；
+- WSL生产组合根实际加载三个正式实验，`kubelab list --json`无Registry错误，`kubelab show lab-005-image-pull --json`成功且不泄露check expected/actual或提示正文；
+- 本阶段没有启动或修改真实实验Namespace。由于M1-09已确认固定镜像当前无法拉取，仍不声明`start → kubectl修复 → verify → cleanup`真实集群闭环验收通过；镜像环境恢复后应执行该手工验收及显式集成测试。
+
+2026-08-26，M2-01 FastAPI应用基线与REST API完成双环境自动化质量门：
+
+- Windows Python 3.11下收集417项测试，410项通过，3项正式实验集成测试、2项网关集成测试和2项符号链接测试跳过，覆盖率91.99%；
+- WSL2 Ubuntu Python 3.11.16下收集417项测试，412项通过，3项正式实验集成测试和2项网关集成测试跳过，覆盖率92.17%；
+- 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`全部通过；
+- 18项Fake Application Service Web测试覆盖全部M2-01端点、lifespan关闭、固定loopback绑定、Origin、CSRF、Namespace确认、统一错误结构、request ID、输入校验、Secret/凭证/expected/actual/内部Session字段脱敏和CLI serve组合；
+- FastAPI路由只依赖`WebApplicationService`协议，生产适配器委托既有`LabManager`；没有启动CLI子进程，也没有让路由直接接触ORM Session或Kubernetes Client；
+- 双环境测试均未启用真实集成测试环境变量，没有访问或修改真实minikube资源；M2-01不实现HTML页面。
+
+2026-08-26，M2-02本地故障排查Web UI完成双环境自动化质量门和Fake浏览器验收：
+
+- Windows Python 3.11下收集428项测试，421项通过，3项正式实验集成测试、2项网关集成测试和2项符号链接测试跳过，覆盖率92.06%；
+- WSL2 Ubuntu Python 3.11.16使用独立`/tmp`虚拟环境收集428项测试，423项通过，3项正式实验集成测试和2项网关集成测试跳过，覆盖率92.24%；
+- 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`全部通过；Windows额外通过原生JavaScript语法检查；
+- 新增11项UI专项测试，覆盖五个页面壳、导航、Jinja转义、CSP与安全响应头、CSRF持续回显、文本DOM渲染约束、Session ID不匹配、轮询/可见性/手动刷新/重复提交/Namespace确认前端契约及wheel静态资源完整性；
+- 使用Fake Application Service完成真实浏览器验收，覆盖总览、实验详情、活动Session跳转、2秒资源刷新、Events、Logs、验证失败、逐级提示、复盘保存、重置、清理返回总览、Session地址不匹配和390px移动布局；浏览器控制台没有脚本或CSP错误；
+- 两端均显式关闭真实集成测试变量，浏览器验收只连接Fake服务，没有读取用户数据库、访问Kubernetes API或创建、修改、删除真实minikube资源。
+
+2026-08-26，M3十二实验完成实现和双环境自动化质量门：
+
+- Windows Python 3.11下收集449项测试，442项通过，3项首批实验集成测试、2项网关集成测试和2项符号链接测试跳过，覆盖率92.08%；
+- WSL2 Ubuntu Python 3.11.16使用独立`/tmp`虚拟环境收集449项测试，444项通过，3项首批实验集成测试和2项网关集成测试跳过，覆盖率92.26%；
+- 两端`ruff check`、`ruff format --check`、strict mypy和`git diff --check`全部通过；Registry无错误加载12个实验，全部初始Manifest和标准修复Fixture通过安全扫描；
+- 32项实验专项测试覆盖目录完整性、修复差异、固定版本镜像、Ingress/PVC前置声明，以及每个实验的`initialChecks通过 → successChecks预检失败 → 标准修复后通过 → reset sequence恢复初始故障`和验证记录持久化；
+- 两端均显式关闭真实集成测试变量，没有访问Kubernetes API或创建、修改、删除真实minikube资源；新增九个实验尚未执行真实端到端契约测试，不作集群兼容性声明。
+
+2026-08-27，M3-01受限WSL工作区、wheel实验打包与12实验真实验收完成：
+
+- Windows Python 3.11下收集470项测试，454项通过，12项实验集成测试、2项网关集成测试和2项符号链接测试跳过，覆盖率91.85%；
+- WSL2 Ubuntu Python 3.11.16使用独立`.venv-wsl`收集470项测试，456项通过，12项实验集成测试和2项网关集成测试跳过，覆盖率92.02%；
+- 两端`ruff check`、`ruff format --check`、源码范围strict mypy和`git diff --check`全部通过；Windows额外通过原生JavaScript语法检查；
+- 实际构建`kubelab-0.1.0a0-py3-none-any.whl`并枚举内容，确认包含12个实验的`lab.yaml`、全部Jinja模板和静态资源；安装后的Registry优先读取包内实验，源码开发时保留仓库目录回退；
+- 新增`kubelab workspace enter`、短期TokenRequest、Namespace限定RBAC和临时0600 kubeconfig；自动化测试覆盖状态/所有权/Context守卫、固定bash、凭证不序列化、不允许Secret/RBAC/集群级访问以及异常退出清理；
+- 在已信任的本机minikube Kubernetes 1.35.1中缓存`nginx:1.26-alpine`、`nginx:1.27-alpine`、`busybox:1.36.1`和`curlimages/curl:8.12.1`，启用并确认Ingress Controller、storage-provisioner和默认`standard` StorageClass Ready；
+- 显式真实集成测试对LAB-001至LAB-012逐个完成`start → 受限workspace标准修复 → verify → reset → cleanup`，12项全部通过；测试同时证明workspace可修复工作负载但不能读取Secret或集群级Namespace；
+- 真实验收后只读核验不存在`kubelab.io/managed-by=kubelab`的Namespace、ServiceAccount、Role、RoleBinding、PVC或PV残留；未操作远程或生产集群。

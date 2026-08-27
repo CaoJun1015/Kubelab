@@ -1,4 +1,7 @@
 import json
+import subprocess
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,6 +16,7 @@ from kubelab.context_trust import (
     TrustState,
 )
 from kubelab.doctor import CheckStatus, DiagnosticCheck, DoctorReport, HealthStatus
+from kubelab.workspace import WorkspaceEnvironment
 
 runner = CliRunner()
 
@@ -27,6 +31,62 @@ def test_help_shows_product_and_usage() -> None:
     assert "doctor" in result.stdout
     assert "config" in result.stdout
     assert "context" in result.stdout
+    assert "serve" in result.stdout
+    assert "workspace" in result.stdout
+
+
+def test_workspace_enter_uses_fixed_bash_and_ephemeral_environment(
+    tmp_path: Path, monkeypatch
+) -> None:
+    calls: list[tuple[list[str], bool, dict[str, str]]] = []
+
+    class Runtime:
+        manager = object()
+        kubeconfig_path = tmp_path / "source"
+
+        def close(self) -> None:
+            return None
+
+    @contextmanager
+    def fake_environment(manager, source) -> Iterator[WorkspaceEnvironment]:
+        del manager, source
+        yield WorkspaceEnvironment(
+            session_id="123e4567-e89b-42d3-a456-426614174000",
+            namespace="kubelab-complete-lab",
+            kubeconfig_path=tmp_path / "restricted-config",
+        )
+
+    def fake_run(argv, *, check, env):
+        calls.append((argv, check, env))
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr(cli, "build_application_runtime", Runtime)
+    monkeypatch.setattr(cli, "workspace_environment", fake_environment)
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+
+    result = runner.invoke(app, ["workspace", "enter"])
+
+    assert result.exit_code == 0
+    assert calls[0][0] == ["/bin/bash", "--noprofile", "--norc", "-i"]
+    assert calls[0][1] is False
+    assert calls[0][2]["KUBECONFIG"] == str(tmp_path / "restricted-config")
+    assert calls[0][2]["KUBELAB_NAMESPACE"] == "kubelab-complete-lab"
+
+
+def test_serve_uses_only_the_fixed_loopback_endpoint(monkeypatch) -> None:
+    calls: list[tuple[object, ...]] = []
+    application = object()
+    monkeypatch.setattr(cli, "create_app", lambda: application)
+    monkeypatch.setattr(
+        cli.uvicorn,
+        "run",
+        lambda app, *, host, port: calls.append((app, host, port)),
+    )
+
+    result = runner.invoke(app, ["serve"])
+
+    assert result.exit_code == 0
+    assert calls == [(application, "127.0.0.1", 8765)]
 
 
 def test_version_reports_package_version() -> None:

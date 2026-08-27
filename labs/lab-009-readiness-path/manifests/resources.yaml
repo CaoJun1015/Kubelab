@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: web, namespace: kubelab-readiness-path}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: readiness-path-lab}
+  template:
+    metadata:
+      labels: {app: readiness-path-lab}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile: {type: RuntimeDefault}
+      volumes:
+        - {name: nginx-cache, emptyDir: {}}
+        - {name: nginx-run, emptyDir: {}}
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          ports: [{name: http, containerPort: 80}]
+          readinessProbe:
+            httpGet: {path: /not-ready, port: http}
+            initialDelaySeconds: 1
+            periodSeconds: 2
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+          volumeMounts:
+            - {name: nginx-cache, mountPath: /var/cache/nginx}
+            - {name: nginx-run, mountPath: /run}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: web, namespace: kubelab-readiness-path}
+spec:
+  selector: {app: readiness-path-lab}
+  ports: [{name: http, port: 80, targetPort: http}]

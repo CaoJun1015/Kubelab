@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-heading">
+  <div><p class="eyebrow">LEARNING PROGRESS</p><h1>学习进度</h1><p>用完成记录识别强项，也找到下一次练习方向。</p></div>
+</header>
+<div id="page-error" class="alert error hidden" role="alert"></div>
+
+<section class="metric-grid" aria-label="总体进度">
+  <article class="metric-card"><span>实验总数</span><strong id="progress-total">—</strong></article>
+  <article class="metric-card"><span>已完成</span><strong id="progress-completed">—</strong></article>
+  <article class="metric-card"><span>进行中</span><strong id="progress-active">—</strong></article>
+  <article class="metric-card accent"><span>完成率</span><strong id="progress-rate">—</strong></article>
+</section>
+
+<div class="dashboard-grid">
+  <section class="panel" aria-labelledby="category-progress-title">
+    <div class="panel-heading"><div><p class="eyebrow">BY CATEGORY</p><h2 id="category-progress-title">分类统计</h2></div></div>
+    <div id="category-progress" class="progress-list"></div>
+  </section>
+  <section class="panel" aria-labelledby="completed-labs-title">
+    <div class="panel-heading"><div><p class="eyebrow">COMPLETED</p><h2 id="completed-labs-title">已完成实验</h2></div></div>
+    <div id="completed-labs" class="stack-list"></div>
+  </section>
+</div>
+{% endblock %}

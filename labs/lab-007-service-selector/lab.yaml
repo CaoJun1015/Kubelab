@@ -1,0 +1,68 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-007-service-selector
+  name: LAB-007 Service Selector错误
+  description: Deployment正常运行，但Service Selector无法匹配Pod标签，导致Endpoint为空。
+  difficulty: beginner
+  durationMinutes: 25
+  category: networking
+  tags: [service, selector, endpoints]
+requirements:
+  kubernetes: ">=1.28"
+  minimumCpu: 1
+  minimumMemoryMiB: 1024
+  addons: []
+environment:
+  namespace: kubelab-service-selector
+  manifests:
+    - manifests/resources.yaml
+  provisionTimeoutSeconds: 180
+task:
+  description: 在不修改Pod标签的前提下定位Service无Endpoint的原因，并恢复集群内HTTP访问。
+  completionDescription: Service至少拥有一个Ready Endpoint，集群内HTTP探测返回200。
+  successMessage: Service Selector已经修复，流量可以到达后端Pod。
+initialChecks:
+  - id: deployment-available
+    type: deployment_available
+    name: web
+    minimumReplicas: 1
+    timeoutSeconds: 120
+    unmetMessage: 初始Deployment尚未达到可用状态。
+  - id: endpoints-empty
+    type: service_endpoint_count
+    name: web
+    exactly: 0
+    timeoutSeconds: 15
+    unmetMessage: Service未呈现预期的Endpoint为空故障。
+successChecks:
+  - id: endpoints-restored
+    type: service_endpoint_count
+    name: web
+    minimum: 1
+    timeoutSeconds: 10
+    unmetMessage: Service仍然没有Ready Endpoint。
+  - id: http-restored
+    type: http_response
+    target:
+      mode: service
+      name: web
+      port: 80
+      path: /
+    expectedStatus: 200
+    timeoutSeconds: 60
+    unmetMessage: 集群内HTTP探测仍未返回200。
+hints:
+  - level: 1
+    content: 确认Deployment可用后，查看Service对应的EndpointSlice。
+  - level: 2
+    content: 比较Service Selector与Pod Labels的每一个键值。
+  - level: 3
+    content: 把Service的app Selector改为service-selector-lab。
+cleanup:
+  deleteNamespace: true
+interview:
+  questions:
+    - Service如何通过Selector和EndpointSlice发现后端？
+    - Pod Ready状态如何影响Service Endpoint？
+    - 为什么Deployment可用不能证明Service一定可访问？

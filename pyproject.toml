@@ -8,11 +8,17 @@ version = "0.1.0a0"
 description = "Local Kubernetes operations practice platform"
 requires-python = ">=3.11,<3.12"
 dependencies = [
+    "alembic>=1.14,<2",
+    "fastapi>=0.115,<1",
+    "jinja2>=3.1,<4",
     "kubernetes>=31,<40",
     "pydantic>=2.10,<3",
+    "portalocker>=3,<4",
     "pyyaml>=6,<7",
+    "sqlalchemy>=2.0,<3",
     "tomli-w>=1.2,<2",
     "typer>=0.12,<1",
+    "uvicorn>=0.34,<1",
 ]
 
 [project.scripts]
@@ -20,6 +26,7 @@ kubelab = "kubelab.cli:app"
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28,<1",
     "mypy>=1.15,<2",
     "pytest>=8,<10",
     "pytest-cov>=6,<8",
@@ -33,6 +40,9 @@ package = true
 [tool.hatch.build.targets.wheel]
 packages = ["src/kubelab"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"labs" = "kubelab/labs"
+
 [tool.pytest.ini_options]
 addopts = [
     "--strict-config",
@@ -44,10 +54,14 @@ addopts = [
     "--cov-fail-under=90",
 ]
 testpaths = ["tests"]
+markers = [
+    "integration: opt-in tests that use the explicitly trusted local minikube cluster",
+]
 
 [tool.coverage.run]
 branch = true
 source = ["kubelab"]
+omit = ["src/kubelab/migrations/*"]
 
 [tool.coverage.report]
 show_missing = true
