@@ -1420,10 +1420,13 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 
 ### M4 开源包装
 
-- 使用`uv tool install`作为首选安装方式；
-- 增加License、贡献指南、Issue/PR模板和实验开发指南；
-- README只声明实际测试过的Windows/WSL2、Ubuntu、Python、Docker、minikube和Kubernetes版本；
-- Windows原生进程、非Ubuntu WSL、独立Linux主机、kind和独立可执行文件在通过真实测试后再声明支持。
+- [x] 使用`uv tool install`从GitHub Release的本地wheel或sdist安装，不上传PyPI；
+- [x] Hatchling对sdist使用明确白名单并跳过排除目录，禁止收录虚拟环境、缓存、数据库和日志；
+- [x] `scripts/verify_distribution.py`统一检查wheel与sdist中的12个实验、8个Web资源、迁移、类型标记、文档、元数据及敏感内容；
+- [x] 增加MIT License、贡献与安全策略、CHANGELOG、Issue/PR模板、实验开发指南、架构图和脱敏示例复盘；
+- [x] GitHub Actions在Windows与Ubuntu 22.04执行无集群质量门、构建和统一产物检查；普通Linux CI只证明代码质量，不扩展正式运行支持范围；
+- [x] README只声明实际测试过的Windows/WSL2、Ubuntu、Python、Docker、minikube和Kubernetes版本；
+- [x] Windows原生进程、非Ubuntu WSL、独立Linux主机、kind和独立可执行文件在通过真实测试后再声明支持。
 
 ---
 
@@ -1570,3 +1573,15 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - 在已信任的本机minikube Kubernetes 1.35.1中缓存`nginx:1.26-alpine`、`nginx:1.27-alpine`、`busybox:1.36.1`和`curlimages/curl:8.12.1`，启用并确认Ingress Controller、storage-provisioner和默认`standard` StorageClass Ready；
 - 显式真实集成测试对LAB-001至LAB-012逐个完成`start → 受限workspace标准修复 → verify → reset → cleanup`，12项全部通过；测试同时证明workspace可修复工作负载但不能读取Secret或集群级Namespace；
 - 真实验收后只读核验不存在`kubelab.io/managed-by=kubelab`的Namespace、ServiceAccount、Role、RoleBinding、PVC或PV残留；未操作远程或生产集群。
+
+2026-08-27，M4首个GitHub-only稳定版发布就绪验收完成：
+
+- 版本从`0.1.0a0`提升为`0.1.0`；项目元数据包含README、MIT License、作者`CaoJun`、Python 3.11、Linux分类和GitHub主页、源码、Issue及文档地址，不公开作者邮箱且不增加运行时依赖；
+- Hatchling sdist改为明确白名单和排除规则，修复Windows构建遍历`.venv-wsl`失败；统一检查器验证最终wheel和sdist均包含12个实验、8个Web资源、迁移、`py.typed`、必要文档与5张脱敏截图，且不含虚拟环境、缓存、数据库、日志、凭证或开发机路径；
+- 在源码仓库外使用两个独立临时HOME、XDG配置/状态目录、uv tool目录和缓存，分别从`kubelab-0.1.0-py3-none-any.whl`与`kubelab-0.1.0.tar.gz`安装；两者的`--version`、Doctor、12个包内实验、独立Context信任和`127.0.0.1:8765` Web烟测全部通过；
+- 预发布LAB-001验收发现`kubectl scale`需要`deployments/scale`子资源；Role只补充该Namespace级资源的`get/update/patch`，自动化测试继续断言不含Secret或RBAC权限。修正后在`0.1.0a0`和最终`0.1.0`安装产物中各完成一次真实`start → workspace扩容 → verify → 脱敏复盘 → cleanup`闭环；
+- 两次真实闭环均证明workspace不能读取Secret或集群级Namespace，Deployment最终为`3/3` Ready，声明式验证全部passed；退出后固定ServiceAccount/Role/RoleBinding和临时0600 kubeconfig已撤销；
+- 最终Windows Python 3.11收集470项测试，454项通过、12项实验集成测试、2项网关集成测试和2项符号链接测试跳过，覆盖率91.85%；WSL2 Ubuntu Python 3.11.16收集470项测试，456项通过、14项真实集成测试默认跳过，覆盖率92.02%；
+- 两端Ruff、格式检查、源码strict mypy、JavaScript语法、`git diff --check`、wheel/sdist构建和统一产物检查全部通过；普通测试显式保持真实集成变量关闭；
+- 最终清理后不存在KubeLab管理的Namespace、workspace RBAC、PVC/PV、临时kubeconfig、Web监听或隔离验收目录残留；未访问远程或生产集群；
+- GitHub PR #3的Actions双矩阵已通过：Ubuntu 22.04用时38秒，Windows用时1分27秒；annotated tag和GitHub Release继续等待用户明确确认。

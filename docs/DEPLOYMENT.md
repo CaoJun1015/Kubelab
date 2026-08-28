@@ -239,20 +239,21 @@ uv python install 3.11
 
 ## 9. 下载并安装KubeLab
 
-建议把源码放在WSL Linux文件系统以获得更好的文件监听和测试性能：
+KubeLab只通过GitHub Release发布，不上传PyPI。下载wheel和校验和：
 
 ```bash
-mkdir -p "$HOME/projects"
-cd "$HOME/projects"
+mkdir -p "$HOME/downloads/kubelab"
+cd "$HOME/downloads/kubelab"
 
-git clone https://github.com/CaoJun1015/Kubelab.git
-cd Kubelab
+curl -LO https://github.com/CaoJun1015/Kubelab/releases/download/v0.1.0/kubelab-0.1.0-py3-none-any.whl
+curl -LO https://github.com/CaoJun1015/Kubelab/releases/download/v0.1.0/SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS
 ```
 
 安装CLI：
 
 ```bash
-uv tool install --python 3.11 .
+uv tool install --python 3.11 ./kubelab-0.1.0-py3-none-any.whl
 uv tool update-shell
 hash -r
 
@@ -496,10 +497,10 @@ KUBELAB_RUN_LAB_INTEGRATION=1 \
 
 ## 15. 升级KubeLab
 
+从GitHub Release下载目标版本wheel并校验`SHA256SUMS`后执行：
+
 ```bash
-cd "$HOME/projects/Kubelab"
-git pull --ff-only
-uv tool install --force --python 3.11 .
+uv tool install --force --python 3.11 ./kubelab-0.1.0-py3-none-any.whl
 
 kubelab --version
 kubelab doctor
@@ -510,7 +511,10 @@ kubelab doctor
 需要运行测试或修改源码时：
 
 ```bash
-cd "$HOME/projects/Kubelab"
+mkdir -p "$HOME/projects"
+cd "$HOME/projects"
+git clone https://github.com/CaoJun1015/Kubelab.git
+cd Kubelab
 uv python install 3.11
 uv sync --frozen
 

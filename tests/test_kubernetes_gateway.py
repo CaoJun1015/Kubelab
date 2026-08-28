@@ -281,6 +281,8 @@ def test_workspace_access_is_namespaced_secret_free_and_revoked() -> None:
     ]
     role = api.workspace_documents[1]
     resources = {resource for rule in role["rules"] for resource in rule["resources"]}
+    scale_rule = next(rule for rule in role["rules"] if rule["resources"] == ["deployments/scale"])
+    assert scale_rule["verbs"] == ["get", "update", "patch"]
     assert "secrets" not in resources
     assert "roles" not in resources
     assert "rolebindings" not in resources

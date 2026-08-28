@@ -1,0 +1,51 @@
+name: Bug 报告
+description: 报告可复现的 KubeLab 缺陷（安全问题请使用 Private Security Advisory）
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: 请先移除凭证、Secret、kubeconfig、数据库内容和本机路径。不要在公开 Issue 中报告安全漏洞。
+  - type: input
+    id: version
+    attributes:
+      label: KubeLab 版本
+      placeholder: kubelab --version 的输出
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: 环境
+      options:
+        - Windows 11 + WSL2 Ubuntu 22.04
+        - Windows 11 + WSL2 Ubuntu 24.04
+        - 其他（当前不受支持）
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 提供最小且已脱敏的复现步骤。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: 安全确认
+      options:
+        - label: 我已确认内容不含凭证、Secret、Token、私钥、完整 kubeconfig 或本机用户路径。
+          required: true
