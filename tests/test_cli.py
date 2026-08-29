@@ -94,7 +94,7 @@ def test_version_reports_package_version() -> None:
     result = runner.invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.stdout.strip() == "KubeLab 0.2.0a0"
+    assert result.stdout.strip() == "KubeLab 0.3.0a0"
 
 
 def test_doctor_json_uses_stable_public_shape(monkeypatch) -> None:
