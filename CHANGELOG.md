@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- 开始开发KubeLab 0.2.0a0的M5引导式排障学习闭环。
+
 ## [0.1.0] - 2026-08-27
 
 ### Added
