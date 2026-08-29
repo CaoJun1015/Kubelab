@@ -175,6 +175,26 @@ def test_requirement_checks_block_cpu_version_and_missing_addon(tmp_path: Path) 
         database.dispose()
 
 
+def test_default_storage_class_requirement_blocks_with_fixed_remediation(tmp_path: Path) -> None:
+    report = healthy_report()
+    report.checks[-3] = diagnostic("default_storage_class", CheckStatus.WARN)
+    readiness, database, _ = service(tmp_path, report)
+    try:
+        result = readiness.check(requirements(addons=("default-storageclass",)))
+        storage = next(
+            check for check in result.checks if check.id == "lab_addon_default-storageclass"
+        )
+
+        assert result.status is ReadinessStatus.BLOCKED
+        assert storage.status is ReadinessCheckStatus.FAIL
+        assert storage.commands == (
+            "minikube addons enable default-storageclass",
+            "minikube addons enable storage-provisioner",
+        )
+    finally:
+        database.dispose()
+
+
 def test_diagnostic_exception_is_not_exposed(tmp_path: Path) -> None:
     trust = FakeContextTrust()
     trust.error = RuntimeError("Bearer top-secret\nTraceback: unsafe")

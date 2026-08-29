@@ -259,7 +259,11 @@ class EnvironmentReadinessService:
                 ),
             )
         )
-        addon_ids = {"ingress": "ingress_addon", "metrics-server": "metrics_server_addon"}
+        addon_ids = {
+            "default-storageclass": "default_storage_class",
+            "ingress": "ingress_addon",
+            "metrics-server": "metrics_server_addon",
+        }
         for addon in requirements.addons:
             source_check = source.get(addon_ids.get(addon, ""))
             available = source_check is not None and source_check.status is CheckStatus.PASS

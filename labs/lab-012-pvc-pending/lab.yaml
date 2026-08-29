@@ -12,7 +12,7 @@ requirements:
   kubernetes: ">=1.28"
   minimumCpu: 1
   minimumMemoryMiB: 1024
-  addons: []
+  addons: [default-storageclass]
 environment:
   namespace: kubelab-pvc-pending
   manifests: [manifests/resources.yaml]
