@@ -43,11 +43,13 @@ from kubelab.lab_registry import LabRegistry, LoadedLab
 from kubelab.operation_lock import OperationLock, OperationLockError
 from kubelab.repositories import ActiveSessionConflict
 from kubelab.session_state import (
+    CheckResultInput,
     LabSessionSnapshot,
     RetrospectiveInput,
     SessionStatus,
     ValidationStatus,
     VerificationPurpose,
+    VerificationRunInput,
 )
 from kubelab.validation_engine import ValidationRunResult
 
@@ -453,6 +455,83 @@ def test_retrospective_can_be_saved_after_cleanup(database: Database, tmp_path: 
     assert saved.session_id == created.id
     assert loaded.retrospective is not None
     assert loaded.retrospective.root_cause == "Wrong image"
+
+
+def test_progress_is_derived_from_sessions_and_success_events(
+    database: Database, tmp_path: Path
+) -> None:
+    manager, _, _, _ = build_manager(database, tmp_path)
+    first = manager.start("complete-lab")
+    manager.verify(first.id)
+    manager.cleanup(first.id)
+    second = manager.start("complete-lab")
+    manager.verify(second.id)
+    manager.cleanup(second.id)
+
+    report = manager.progress()
+    item = next(value for value in report.labs if value.lab_id == "complete-lab")
+
+    assert item.attempt_count == 2
+    assert item.completion_count == 2
+    assert item.repeat_completion_count == 1
+    assert item.first_completed_at is not None
+    assert item.last_completed_at is not None
+    assert report.categories[0].completed_lab_count == 1
+
+
+def test_retrospective_metadata_and_export_are_public_bounded_and_html_safe(
+    database: Database, tmp_path: Path
+) -> None:
+    manager, _, _, _ = build_manager(database, tmp_path)
+    created = manager.start("complete-lab")
+    manager.next_hint(created.id)
+    with database.unit_of_work() as uow:
+        uow.verifications.add(
+            VerificationRunInput(
+                id="123e4567-e89b-42d3-a456-426614174222",
+                session_id=created.id,
+                purpose=VerificationPurpose.MANUAL,
+                status=ValidationStatus.ERROR,
+                reset_sequence=0,
+                duration_ms=9,
+                results=(
+                    CheckResultInput(
+                        check_id="pod-ready",
+                        check_type="pod_status",
+                        status=ValidationStatus.ERROR,
+                        expected={"secret": "must-not-export"},
+                        actual={"token": "must-not-export"},
+                        message="Bearer private-value Traceback hidden",
+                        retryable=True,
+                        duration_ms=9,
+                    ),
+                ),
+            )
+        )
+        uow.commit()
+    manager.save_retrospective(
+        RetrospectiveInput(
+            symptom="<script>alert(1)</script> token=private-value",
+            investigation="# injected heading",
+            root_cause="Wrong image",
+        ),
+        created.id,
+    )
+
+    state = manager.retrospective(created.id)
+    exported = manager.export_retrospective(created.id)
+
+    assert state.metadata is not None
+    assert state.metadata.hint_request_count == 1
+    assert state.metadata.manual_verification_count == 1
+    assert state.metadata.last_verification is not None
+    assert state.metadata.last_verification.status == "unavailable"
+    assert "<script>" not in exported
+    assert "&lt;script&gt;" in exported
+    assert "private-value" not in exported
+    assert "expected" not in exported.casefold()
+    assert "actual" not in exported.casefold()
+    assert len(exported) <= 50_000
 
 
 def test_start_creates_ready_session_in_dependency_order(

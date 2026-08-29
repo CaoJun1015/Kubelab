@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 from collections.abc import Callable
 from datetime import datetime
 from enum import StrEnum
@@ -12,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from kubelab.config import TrustedContext
 from kubelab.context_trust import ContextTrustService, trusted_context_fingerprint
-from kubelab.guided_learning import EnvironmentReadinessReport
+from kubelab.guided_learning import EnvironmentReadinessReport, public_validation_outcome
 from kubelab.kubernetes_gateway import (
     EventSummary,
     LogResult,
@@ -25,6 +26,7 @@ from kubelab.kubernetes_gateway import (
 from kubelab.lab_registry import LabRegistry, LoadedLab, RegistryError
 from kubelab.lab_schema import LabRequirements
 from kubelab.operation_lock import OperationLock
+from kubelab.redaction import redact_json
 from kubelab.repositories import (
     ActiveSessionConflict,
     SessionNotFoundError,
@@ -185,9 +187,67 @@ class HintResult(ManagerModel):
     unlocked_count: int
 
 
+class PublicVerificationCheckSummary(ManagerModel):
+    check_id: str
+    check_type: str
+    status: str
+    message: str
+    retryable: bool
+    duration_ms: int
+
+
+class PublicVerificationSummary(ManagerModel):
+    status: str
+    checked_at: datetime
+    duration_ms: int
+    results: tuple[PublicVerificationCheckSummary, ...]
+
+
+class RetrospectiveMetadata(ManagerModel):
+    lab_id: str
+    lab_name: str
+    category: str
+    difficulty: str
+    session_id: str
+    namespace: str
+    started_at: datetime | None
+    first_passed_at: datetime | None
+    completed_at: datetime | None
+    hint_request_count: int
+    unlocked_hint_count: int
+    manual_verification_count: int
+    reset_count: int
+    completion_duration_seconds: int | None
+    last_verification: PublicVerificationSummary | None
+
+
 class RetrospectiveEditState(ManagerModel):
     session: LabSessionSnapshot
     retrospective: RetrospectiveSnapshot | None
+    metadata: RetrospectiveMetadata | None = None
+
+
+class LabLearningProgress(ManagerModel):
+    lab_id: str
+    name: str
+    category: str
+    attempt_count: int
+    completion_count: int
+    repeat_completion_count: int
+    first_completed_at: datetime | None
+    last_completed_at: datetime | None
+
+
+class CategoryLearningProgress(ManagerModel):
+    category: str
+    lab_count: int
+    completed_lab_count: int
+    attempt_count: int
+
+
+class LearningProgressReport(ManagerModel):
+    labs: tuple[LabLearningProgress, ...]
+    categories: tuple[CategoryLearningProgress, ...]
 
 
 class ValidationService(Protocol):
@@ -532,7 +592,163 @@ class LabManager:
         session = self.session_snapshot(session_id, latest_if_inactive=True)
         with self._unit_of_work() as uow:
             retrospective = uow.retrospectives.get(session.id)
-        return RetrospectiveEditState(session=session, retrospective=retrospective)
+        return RetrospectiveEditState(
+            session=session,
+            retrospective=retrospective,
+            metadata=self._retrospective_metadata(session),
+        )
+
+    def progress(self) -> LearningProgressReport:
+        """Derive learning outcomes only from lifecycle records."""
+        registry = self._registry.scan()
+        with self._unit_of_work() as uow:
+            sessions = uow.sessions.list_all()
+            event_map = {session.id: uow.sessions.list_events(session.id) for session in sessions}
+        lab_items: list[LabLearningProgress] = []
+        category_totals: dict[str, list[int]] = {}
+        for loaded in registry.labs:
+            metadata = loaded.definition.metadata
+            attempts = tuple(session for session in sessions if session.lab_id == metadata.id)
+            completion_times = sorted(
+                passed_at
+                for session in attempts
+                if (
+                    passed_at := next(
+                        (
+                            event.created_at
+                            for event in event_map[session.id]
+                            if event.event_type == "success_contract_passed"
+                        ),
+                        None,
+                    )
+                )
+                is not None
+            )
+            completion_count = len(completion_times)
+            lab_items.append(
+                LabLearningProgress(
+                    lab_id=metadata.id,
+                    name=metadata.name,
+                    category=metadata.category,
+                    attempt_count=len(attempts),
+                    completion_count=completion_count,
+                    repeat_completion_count=max(completion_count - 1, 0),
+                    first_completed_at=completion_times[0] if completion_times else None,
+                    last_completed_at=completion_times[-1] if completion_times else None,
+                )
+            )
+            totals = category_totals.setdefault(metadata.category, [0, 0, 0])
+            totals[0] += 1
+            totals[1] += int(completion_count > 0)
+            totals[2] += len(attempts)
+        categories = tuple(
+            CategoryLearningProgress(
+                category=category,
+                lab_count=totals[0],
+                completed_lab_count=totals[1],
+                attempt_count=totals[2],
+            )
+            for category, totals in sorted(category_totals.items())
+        )
+        return LearningProgressReport(labs=tuple(lab_items), categories=categories)
+
+    def export_retrospective(self, session_id: str | None = None) -> str:
+        """Render a bounded, re-redacted Markdown learning record."""
+        state = self.retrospective(session_id)
+        value = state.retrospective or RetrospectiveSnapshot(
+            session_id=state.session.id,
+            updated_at=state.session.created_at,
+        )
+        metadata = state.metadata
+        assert metadata is not None
+        lines = [
+            "# KubeLab 脱敏复盘",
+            "",
+            "## 实验元数据",
+            "",
+            f"- 实验：{_markdown_text(metadata.lab_name)} (`{metadata.lab_id}`)",
+            f"- 分类 / 难度：{metadata.category} / {metadata.difficulty}",
+            f"- Session：`{metadata.session_id}`",
+            f"- Namespace：`{metadata.namespace}`",
+            f"- 提示请求 / 解锁：{metadata.hint_request_count} / {metadata.unlocked_hint_count}",
+            f"- 手动验证 / 重置：{metadata.manual_verification_count} / {metadata.reset_count}",
+            "",
+        ]
+        sections = (
+            ("现象", value.symptom),
+            ("影响", value.impact),
+            ("调查过程", value.investigation),
+            ("根因", value.root_cause),
+            ("修复", value.resolution),
+            ("预防措施", value.prevention),
+            ("面试总结", value.interview_summary),
+        )
+        for title, content in sections:
+            lines.extend((f"## {title}", "", _markdown_text(content) or "（未填写）", ""))
+        if metadata.last_verification is not None:
+            lines.extend(("## 最后一次公开验证", ""))
+            for check in metadata.last_verification.results:
+                lines.append(
+                    f"- `{check.check_id}`：{check.status} — {_markdown_text(check.message)}"
+                )
+            lines.append("")
+        return "\n".join(lines)[:50_000]
+
+    def _retrospective_metadata(self, session: LabSessionSnapshot) -> RetrospectiveMetadata:
+        lab = self._require_lab(session.lab_id)
+        with self._unit_of_work() as uow:
+            events = uow.sessions.list_events(session.id)
+            hints = uow.hints.list_for_session(session.id)
+            verifications = uow.verifications.list_for_session(session.id)
+            latest = uow.verifications.latest_for_session(session.id)
+        passed_at = next(
+            (event.created_at for event in events if event.event_type == "success_contract_passed"),
+            None,
+        )
+        started_at = session.started_at
+        duration = (
+            max(int((passed_at - started_at).total_seconds()), 0)
+            if passed_at is not None and started_at is not None
+            else None
+        )
+        last_verification = None
+        if latest is not None:
+            last_verification = PublicVerificationSummary(
+                status=public_validation_outcome(latest.status).value,
+                checked_at=latest.checked_at,
+                duration_ms=latest.duration_ms,
+                results=tuple(
+                    PublicVerificationCheckSummary(
+                        check_id=item.check_id,
+                        check_type=item.check_type,
+                        status=public_validation_outcome(item.status).value,
+                        message=str(redact_json(item.message))[:500],
+                        retryable=item.retryable,
+                        duration_ms=item.duration_ms,
+                    )
+                    for item in latest.results
+                ),
+            )
+        metadata = lab.definition.metadata
+        return RetrospectiveMetadata(
+            lab_id=metadata.id,
+            lab_name=metadata.name,
+            category=metadata.category,
+            difficulty=metadata.difficulty,
+            session_id=session.id,
+            namespace=session.namespace,
+            started_at=started_at,
+            first_passed_at=passed_at,
+            completed_at=session.completed_at,
+            hint_request_count=sum(item.request_count for item in hints),
+            unlocked_hint_count=len(hints),
+            manual_verification_count=sum(
+                item.purpose is VerificationPurpose.MANUAL for item in verifications
+            ),
+            reset_count=session.reset_count,
+            completion_duration_seconds=duration,
+            last_verification=last_verification,
+        )
 
     def save_retrospective(
         self, value: RetrospectiveInput, session_id: str | None = None
@@ -1119,6 +1335,14 @@ def _hint_kind(level: int) -> HintKind:
     }[level]
 
 
+def _markdown_text(value: str) -> str:
+    redacted = str(redact_json(value))[:4000]
+    escaped = html.escape(redacted, quote=False).replace("\\", "\\\\")
+    for character in ("`", "*", "_", "[", "]", "#"):
+        escaped = escaped.replace(character, f"\\{character}")
+    return escaped.replace("\r", "").strip()
+
+
 def _registry_error_context(error: RegistryError) -> dict[str, Any]:
     return {
         "code": error.code.value,
@@ -1140,10 +1364,13 @@ __all__ = [
     "LabDetailResult",
     "LabManager",
     "LabManagerError",
+    "LabLearningProgress",
     "LearningTimelineEntry",
+    "LearningProgressReport",
     "LabProgress",
     "ManagerErrorCode",
     "RetrospectiveEditState",
+    "RetrospectiveMetadata",
     "SessionEvents",
     "SessionResources",
     "SessionStage",

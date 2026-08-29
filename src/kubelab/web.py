@@ -41,7 +41,9 @@ from kubelab.lab_manager import (
     LabManager,
     LabManagerError,
     LabProgress,
+    LearningProgressReport,
     RetrospectiveEditState,
+    RetrospectiveMetadata,
     SessionEvents,
     SessionResources,
     SessionStatusResult,
@@ -156,6 +158,7 @@ class EventsResponse(WebModel):
 class RetrospectiveResponse(WebModel):
     session: PublicSession
     retrospective: RetrospectiveSnapshot | None
+    metadata: RetrospectiveMetadata | None
 
 
 class PublicVerificationCheck(WebModel):
@@ -210,6 +213,8 @@ class WebApplicationService(Protocol):
 
     def timeline(self) -> SessionTimeline: ...
 
+    def progress(self) -> LearningProgressReport: ...
+
     def start(self, lab_id: str) -> LabSessionSnapshot: ...
 
     def resources(self) -> SessionResources: ...
@@ -238,6 +243,8 @@ class WebApplicationService(Protocol):
     def save_retrospective(
         self, value: RetrospectiveInput, session_id: str
     ) -> RetrospectiveSnapshot: ...
+
+    def export_retrospective(self) -> str: ...
 
 
 class KubeLabApplicationService:
@@ -283,6 +290,9 @@ class KubeLabApplicationService:
     def timeline(self) -> SessionTimeline:
         return self._manager.timeline()
 
+    def progress(self) -> LearningProgressReport:
+        return self._manager.progress()
+
     def start(self, lab_id: str) -> LabSessionSnapshot:
         return self._manager.start(lab_id)
 
@@ -326,6 +336,9 @@ class KubeLabApplicationService:
         self, value: RetrospectiveInput, session_id: str
     ) -> RetrospectiveSnapshot:
         return self._manager.save_retrospective(value, session_id)
+
+    def export_retrospective(self) -> str:
+        return self._manager.export_retrospective()
 
 
 def build_web_application_service() -> WebApplicationService:  # pragma: no cover
@@ -547,6 +560,10 @@ def create_app(
         result = _service(request).list_labs(category=category, progress=progress)
         return LabsResponse(labs=result.labs, invalid_lab_count=len(result.errors))
 
+    @app.get("/api/v1/progress", response_model=LearningProgressReport)
+    def progress(request: Request) -> LearningProgressReport:
+        return _service(request).progress()
+
     @app.get("/api/v1/labs/{lab_id}", response_model=LabDetailResult)
     def lab_detail(request: Request, lab_id: str) -> LabDetailResult:
         return _service(request).show_lab(lab_id)
@@ -637,6 +654,15 @@ def create_app(
         return RetrospectiveResponse(
             session=_public_session(state.session),
             retrospective=_public_retrospective(state.retrospective),
+            metadata=state.metadata,
+        )
+
+    @app.get("/api/v1/sessions/latest/retrospective/export")
+    def export_retrospective(request: Request) -> Response:
+        return Response(
+            content=_service(request).export_retrospective(),
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="kubelab-retrospective.md"'},
         )
 
     @app.put(

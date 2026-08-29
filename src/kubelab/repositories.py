@@ -35,6 +35,8 @@ from kubelab.session_state import (
     SessionStateMachine,
     SessionStatus,
     ValidationStatus,
+    VerificationCheckSnapshot,
+    VerificationDetailSnapshot,
     VerificationPurpose,
     VerificationRunInput,
     VerificationRunSnapshot,
@@ -265,6 +267,41 @@ class VerificationRepository:
                 duration_ms=record.duration_ms,
             )
             for record in self._session.scalars(statement)
+        )
+
+    def latest_for_session(self, session_id: str) -> VerificationDetailSnapshot | None:
+        statement = (
+            select(VerificationRunRecord)
+            .where(VerificationRunRecord.session_id == session_id)
+            .order_by(VerificationRunRecord.checked_at.desc(), VerificationRunRecord.id.desc())
+        )
+        record = self._session.scalar(statement)
+        if record is None:
+            return None
+        result_statement = (
+            select(CheckResultRecord)
+            .where(CheckResultRecord.run_id == record.id)
+            .order_by(CheckResultRecord.id)
+        )
+        results = tuple(
+            VerificationCheckSnapshot(
+                check_id=item.check_id,
+                check_type=item.check_type,
+                status=ValidationStatus(item.status),
+                message=item.message,
+                retryable=item.retryable,
+                duration_ms=item.duration_ms,
+            )
+            for item in self._session.scalars(result_statement)
+        )
+        return VerificationDetailSnapshot(
+            id=record.id,
+            session_id=record.session_id,
+            purpose=VerificationPurpose(record.purpose),
+            status=ValidationStatus(record.status),
+            checked_at=_aware_required(record.checked_at),
+            duration_ms=record.duration_ms,
+            results=results,
         )
 
 

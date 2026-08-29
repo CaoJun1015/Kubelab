@@ -27,8 +27,10 @@ from kubelab.lab_manager import (
     LabCatalogItem,
     LabCatalogResult,
     LabDetailResult,
+    LabLearningProgress,
     LabManagerError,
     LabProgress,
+    LearningProgressReport,
     RetrospectiveEditState,
     SessionEvents,
     SessionResources,
@@ -180,6 +182,24 @@ class FakeApplicationService:
         self.calls.append(("timeline",))
         return SessionTimeline(session_id=SESSION_ID, entries=())
 
+    def progress(self) -> LearningProgressReport:
+        self.calls.append(("progress",))
+        return LearningProgressReport(
+            labs=(
+                LabLearningProgress(
+                    lab_id="lab-005-image-pull",
+                    name="Repair ImagePullBackOff",
+                    category="workloads",
+                    attempt_count=2,
+                    completion_count=1,
+                    repeat_completion_count=0,
+                    first_completed_at=NOW,
+                    last_completed_at=NOW,
+                ),
+            ),
+            categories=(),
+        )
+
     def start(self, lab_id: str) -> LabSessionSnapshot:
         self.calls.append(("start", lab_id))
         return session(SessionStatus.READY)
@@ -283,6 +303,10 @@ class FakeApplicationService:
         self.calls.append(("retrospective",))
         return RetrospectiveEditState(session=session(), retrospective=None)
 
+    def export_retrospective(self) -> str:
+        self.calls.append(("export_retrospective",))
+        return "# KubeLab 脱敏复盘\n"
+
     def save_retrospective(
         self, value: RetrospectiveInput, session_id: str
     ) -> RetrospectiveSnapshot:
@@ -342,6 +366,8 @@ def test_read_endpoints_delegate_to_fake_application_service(client: TestClient)
         "/api/v1/sessions/active/logs?pod=web-abc&container=web&previous=true&tail=20"
     )
     retrospective = client.get("/api/v1/sessions/latest/retrospective")
+    exported = client.get("/api/v1/sessions/latest/retrospective/export")
+    progress = client.get("/api/v1/progress")
     onboarding = client.get("/api/v1/onboarding")
 
     assert environment.json()["bind_host"] == "127.0.0.1"
@@ -360,6 +386,11 @@ def test_read_endpoints_delegate_to_fake_application_service(client: TestClient)
     assert "event-secret" not in events.text
     assert logs.json()["content"] == "bounded output password=[REDACTED]"
     assert retrospective.json()["retrospective"] is None
+    assert retrospective.json()["metadata"] is None
+    assert progress.json()["labs"][0]["attempt_count"] == 2
+    assert exported.headers["content-type"].startswith("text/markdown")
+    assert "attachment" in exported.headers["content-disposition"]
+    assert "脱敏复盘" in exported.text
     assert onboarding.json() == {"first_use": True, "completed_at": None, "report": None}
 
 
@@ -578,6 +609,10 @@ class DelegatingManager:
         self.calls.append(("timeline",))
         return "timeline"
 
+    def progress(self) -> Any:
+        self.calls.append(("progress",))
+        return "progress"
+
     def start(self, lab_id: str) -> Any:
         self.calls.append(("start", lab_id))
         return "started"
@@ -618,6 +653,10 @@ class DelegatingManager:
         self.calls.append(("save", value, session_id))
         return "saved"
 
+    def export_retrospective(self) -> Any:
+        self.calls.append(("export",))
+        return "export"
+
 
 def test_production_web_adapter_delegates_only_to_application_manager(monkeypatch) -> None:
     manager = DelegatingManager()
@@ -632,6 +671,7 @@ def test_production_web_adapter_delegates_only_to_application_manager(monkeypatc
     assert service.active_session() == "snapshot"
     assert service.reconcile_active_session() == "status"
     assert service.timeline() == "timeline"
+    assert service.progress() == "progress"
     assert service.start("lab-id") == "started"
     assert service.resources() == "resources"
     assert service.events() == "events"
@@ -642,5 +682,6 @@ def test_production_web_adapter_delegates_only_to_application_manager(monkeypatc
     assert service.cleanup(SESSION_ID) == "cleanup"
     assert service.retrospective() == "retrospective"
     assert service.save_retrospective(value, SESSION_ID) == "saved"
+    assert service.export_retrospective() == "export"
     service.close()
     assert manager.calls[-1] == ("close",)

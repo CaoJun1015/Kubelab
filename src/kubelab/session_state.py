@@ -220,6 +220,19 @@ class VerificationRunSnapshot(PersistenceDto):
     duration_ms: int
 
 
+class VerificationCheckSnapshot(PersistenceDto):
+    check_id: str
+    check_type: str
+    status: ValidationStatus
+    message: str
+    retryable: bool
+    duration_ms: int
+
+
+class VerificationDetailSnapshot(VerificationRunSnapshot):
+    results: tuple[VerificationCheckSnapshot, ...]
+
+
 def _require_uuid4(value: str) -> str:
     try:
         parsed = UUID(value)
@@ -246,6 +259,8 @@ __all__ = [
     "SessionStatus",
     "ValidationStatus",
     "VerificationPurpose",
+    "VerificationCheckSnapshot",
+    "VerificationDetailSnapshot",
     "VerificationRunSnapshot",
     "VerificationRunInput",
 ]
