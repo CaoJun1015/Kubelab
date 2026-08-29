@@ -1428,6 +1428,18 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - [x] README只声明实际测试过的Windows/WSL2、Ubuntu、Python、Docker、minikube和Kubernetes版本；
 - [x] Windows原生进程、非Ubuntu WSL、独立Linux主机、kind和独立可执行文件在通过真实测试后再声明支持。
 
+### M5 引导式排障学习闭环
+
+- Application Service继续作为CLI与Web的唯一业务入口；Web路由不得访问ORM Session、Kubernetes Client或CLI子进程。
+- 首次引导把EnvironmentDoctor、实验requirements和Context信任组合为统一readiness。页面GET只读取缓存；只有用户显式检查或start请求可以执行固定只读诊断，修复命令始终只复制不执行。
+- `start`在创建Session和访问集群前执行新鲜的实验级readiness门禁。必需项失败或实验要求的版本、资源、Addon不满足时返回稳定的`ENVIRONMENT_NOT_READY`错误。
+- 活动Session恢复是SQLite纯读取，不隐式访问集群或改变状态；集群协调通过受Origin和CSRF保护的显式POST执行。资源、Events和Logs读取不再触发`ready → in_progress`。
+- 当前学习阶段从既有SessionStatus派生，不持久化第二套状态。时间线合并Session事件、提示使用、手动验证和脱敏资源快照。
+- 提示级别固定映射为观察方向、建议命令和故障方向；验证公开状态固定为`passed/failed/unavailable`，内部`expected/actual`只留在持久化边界。
+- 学习成果从Session、事件、提示和验证记录派生，包括首次完成、重复完成、提示/验证次数和完成耗时；不新增进度业务表。
+- 复盘导出为脱敏Markdown，只包含用户复盘、公开实验元数据和公开验证摘要；Secret、凭证、完整Manifest、内部验证值、异常正文和堆栈不得进入公共DTO或页面。
+- M5新增Alembic迁移必须支持v0.1.0数据库原地升级，并继续执行迁移前checkpoint与备份。
+
 ---
 
 ## 21. PRD待确认项结论
