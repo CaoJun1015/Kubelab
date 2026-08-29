@@ -69,9 +69,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "ix_session_evidence_session_captured", table_name="session_evidence_snapshot"
-    )
+    op.drop_index("ix_session_evidence_session_captured", table_name="session_evidence_snapshot")
     op.drop_table("session_evidence_snapshot")
     op.drop_table("guided_learning_state")
     op.drop_column("hint_usage", "request_count")
