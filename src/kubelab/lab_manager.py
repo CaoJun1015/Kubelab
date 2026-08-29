@@ -167,6 +167,12 @@ class SessionEvents(ManagerModel):
     events: tuple[EventSummary, ...]
 
 
+class HintKind(StrEnum):
+    OBSERVATION = "observation"
+    COMMAND = "command"
+    FAULT_DIRECTION = "fault_direction"
+
+
 class HintResult(ManagerModel):
     session_id: str
     lab_id: str
@@ -174,6 +180,9 @@ class HintResult(ManagerModel):
     total_levels: int
     content: str
     newly_unlocked: bool
+    kind: HintKind
+    request_count: int
+    unlocked_count: int
 
 
 class RetrospectiveEditState(ManagerModel):
@@ -501,7 +510,9 @@ class LabManager:
             with self._unit_of_work() as uow:
                 used = uow.hints.used_levels(session.id)
                 level = min(len(used) + 1, len(lab.definition.hints))
-                newly_unlocked = uow.hints.record_once(session.id, level)
+                newly_unlocked, request_count, unlocked_count = uow.hints.record_request(
+                    session.id, level
+                )
                 uow.commit()
             hint = next(item for item in lab.definition.hints if item.level == level)
             return HintResult(
@@ -511,6 +522,9 @@ class LabManager:
                 total_levels=len(lab.definition.hints),
                 content=hint.content,
                 newly_unlocked=newly_unlocked,
+                kind=_hint_kind(level),
+                request_count=request_count,
+                unlocked_count=unlocked_count,
             )
 
     def retrospective(self, session_id: str | None = None) -> RetrospectiveEditState:
@@ -1097,6 +1111,14 @@ def _evidence_title(trigger: str) -> str:
     }.get(trigger, "资源状态摘要")
 
 
+def _hint_kind(level: int) -> HintKind:
+    return {
+        1: HintKind.OBSERVATION,
+        2: HintKind.COMMAND,
+        3: HintKind.FAULT_DIRECTION,
+    }[level]
+
+
 def _registry_error_context(error: RegistryError) -> dict[str, Any]:
     return {
         "code": error.code.value,
@@ -1111,6 +1133,7 @@ __all__ = [
     "ClusterGateway",
     "GatewayFactory",
     "HintResult",
+    "HintKind",
     "InitialContractResult",
     "LabCatalogItem",
     "LabCatalogResult",

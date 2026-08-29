@@ -324,6 +324,8 @@ def test_default_registry_loads_exactly_twelve_labs() -> None:
     assert tuple(lab.definition.metadata.id for lab in labs) == EXPECTED_IDS
     assert all(len(lab.definition.hints) == 3 for lab in labs)
     assert all(len(lab.definition.interview.questions) == 3 for lab in labs)
+    assert all(lab.definition.hints[1].content.startswith("kubectl ") for lab in labs)
+    assert all("<" not in lab.definition.hints[1].content for lab in labs)
 
 
 @pytest.mark.parametrize("lab", _snapshot(), ids=lambda lab: lab.definition.metadata.id)

@@ -15,8 +15,10 @@ from kubelab.guided_learning import (
     EnvironmentReadinessService,
     ReadinessCheckStatus,
     ReadinessStatus,
+    public_validation_outcome,
 )
 from kubelab.lab_schema import LabRequirements
+from kubelab.session_state import ValidationStatus
 
 NOW = datetime(2026, 8, 29, 8, 0, tzinfo=UTC)
 
@@ -185,3 +187,9 @@ def test_diagnostic_exception_is_not_exposed(tmp_path: Path) -> None:
         assert "Traceback" not in serialized
     finally:
         database.dispose()
+
+
+def test_public_validation_outcome_has_exact_three_states() -> None:
+    assert public_validation_outcome(ValidationStatus.PASSED).value == "passed"
+    assert public_validation_outcome(ValidationStatus.FAILED).value == "failed"
+    assert public_validation_outcome(ValidationStatus.ERROR).value == "unavailable"

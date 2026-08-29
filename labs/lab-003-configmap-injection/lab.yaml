@@ -60,7 +60,7 @@ successChecks:
     unmetMessage: 重新加载配置后的Pod尚未稳定Ready。
 hints:
   - {level: 1, content: 查看ConfigMap数据和Pod中的envFrom引用。}
-  - {level: 2, content: 更新ConfigMap不会自动重启通过环境变量取值的Pod。}
+  - {level: 2, content: "kubectl patch configmap app-config --type merge -p '{\"data\":{\"APP_MODE\":\"production\"}}'"}
   - {level: 3, content: 把APP_MODE改为production并重启Deployment。}
 cleanup: {deleteNamespace: true}
 interview:

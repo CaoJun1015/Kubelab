@@ -30,6 +30,7 @@ from kubelab.guided_learning import (
     EnvironmentNotReadyError,
     EnvironmentReadinessReport,
     OnboardingState,
+    public_validation_outcome,
 )
 from kubelab.kubernetes_gateway import EventSummary, LogResult, PodSummary, ResourceSummary
 from kubelab.lab_manager import (
@@ -56,7 +57,7 @@ from kubelab.session_state import (
     RetrospectiveSnapshot,
     SessionStatus,
 )
-from kubelab.validation_engine import PublicCheckResult, ValidationRunResult
+from kubelab.validation_engine import ValidationRunResult
 
 WEB_HOST = "127.0.0.1"
 WEB_PORT = 8765
@@ -157,13 +158,22 @@ class RetrospectiveResponse(WebModel):
     retrospective: RetrospectiveSnapshot | None
 
 
+class PublicVerificationCheck(WebModel):
+    check_id: str
+    check_type: str
+    status: str
+    message: str
+    retryable: bool
+    duration_ms: int
+
+
 class VerificationResponse(WebModel):
     id: str
     session_id: str
     status: str
     checked_at: datetime
     duration_ms: int
-    results: tuple[PublicCheckResult, ...]
+    results: tuple[PublicVerificationCheck, ...]
 
 
 class ConfirmationRequest(WebModel):
@@ -676,11 +686,18 @@ def _verification_response(result: ValidationRunResult) -> VerificationResponse:
     return VerificationResponse(
         id=result.id,
         session_id=result.session_id,
-        status=result.status.value,
+        status=public_validation_outcome(result.status).value,
         checked_at=result.checked_at,
         duration_ms=result.duration_ms,
         results=tuple(
-            check.model_copy(update={"message": _redacted_text(check.message)})
+            PublicVerificationCheck(
+                check_id=check.check_id,
+                check_type=check.check_type,
+                status=public_validation_outcome(check.status).value,
+                message=_redacted_text(check.message),
+                retryable=check.retryable,
+                duration_ms=check.duration_ms,
+            )
             for check in result.results
         ),
     )

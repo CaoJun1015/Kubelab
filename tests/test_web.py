@@ -22,6 +22,7 @@ from kubelab.guided_learning import (
 from kubelab.kubernetes_gateway import EventSummary, LogResult, PodSummary, ResourceSummary
 from kubelab.lab_manager import (
     ClusterState,
+    HintKind,
     HintResult,
     LabCatalogItem,
     LabCatalogResult,
@@ -100,6 +101,7 @@ class FakeApplicationService:
         self.calls: list[tuple[object, ...]] = []
         self.closed = False
         self.error: Exception | None = None
+        self.validation_status = ValidationStatus.FAILED
 
     def _raise_if_requested(self) -> None:
         if self.error is not None:
@@ -239,7 +241,7 @@ class FakeApplicationService:
             id=RUN_ID,
             session_id=SESSION_ID,
             purpose=VerificationPurpose.MANUAL,
-            status=ValidationStatus.FAILED,
+            status=self.validation_status,
             reset_sequence=1,
             checked_at=NOW,
             duration_ms=12,
@@ -247,7 +249,7 @@ class FakeApplicationService:
                 PublicCheckResult(
                     check_id="pod-ready",
                     check_type="pod_status",
-                    status=ValidationStatus.FAILED,
+                    status=self.validation_status,
                     message="The Pod is not Ready yet.",
                     retryable=False,
                     duration_ms=12,
@@ -264,6 +266,9 @@ class FakeApplicationService:
             total_levels=3,
             content="Inspect Pod events.",
             newly_unlocked=True,
+            kind=HintKind.OBSERVATION,
+            request_count=1,
+            unlocked_count=1,
         )
 
     def reset(self, session_id: str) -> LabSessionSnapshot:
@@ -407,12 +412,27 @@ def test_write_endpoints_require_csrf_and_delegate_with_safe_public_results(
     assert "expected" not in verified.text.lower()
     assert "actual" not in verified.text.lower()
     assert hinted.json()["level"] == 1
+    assert hinted.json()["kind"] == "observation"
+    assert hinted.json()["request_count"] == 1
     assert reset.json()["namespace"] == NAMESPACE
     assert cleanup.json()["status"] == "completed"
     assert saved.json()["root_cause"] == "Invalid image"
     assert "retrospective-secret" not in saved.text
     assert ("reset", SESSION_ID) in fake.calls
     assert ("cleanup", SESSION_ID) in fake.calls
+
+
+def test_validation_error_is_publicly_unavailable_without_internal_values(
+    client: TestClient, fake: FakeApplicationService
+) -> None:
+    fake.validation_status = ValidationStatus.ERROR
+    response = client.post("/api/v1/sessions/active/verify", headers=csrf(client))
+
+    assert response.json()["status"] == "unavailable"
+    assert response.json()["results"][0]["status"] == "unavailable"
+    assert "error" not in response.text.casefold()
+    assert "expected" not in response.text.casefold()
+    assert "actual" not in response.text.casefold()
 
 
 def test_cross_origin_missing_origin_and_bad_csrf_are_rejected(client: TestClient) -> None:

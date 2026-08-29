@@ -66,7 +66,7 @@ hints:
   - level: 1
     content: 同时查看容器当前状态、重启次数和previous日志。
   - level: 2
-    content: 检查Deployment中worker容器的command是否会主动退出。
+    content: kubectl logs deployment/worker --previous --tail=100
   - level: 3
     content: 把worker命令改为不会退出的持续运行循环。
 cleanup:

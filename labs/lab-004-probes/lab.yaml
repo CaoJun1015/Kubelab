@@ -53,7 +53,7 @@ successChecks:
     unmetMessage: 修复后的新Pod仍未稳定或发生了重启。
 hints:
   - {level: 1, content: 查看Pod Events中的Liveness probe failed。}
-  - {level: 2, content: 对比探针httpGet.path与容器实际可用路径。}
+  - {level: 2, content: "kubectl get deployment web -o jsonpath='{.spec.template.spec.containers[0].livenessProbe.httpGet.path}'"}
   - {level: 3, content: 把Liveness路径从/does-not-exist改为/。}
 cleanup: {deleteNamespace: true}
 interview:

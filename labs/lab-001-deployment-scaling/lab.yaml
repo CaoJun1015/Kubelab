@@ -47,7 +47,7 @@ successChecks:
     unmetMessage: 扩容后的Pod尚未全部稳定Ready。
 hints:
   - {level: 1, content: 对比Deployment的期望副本数与可用副本数。}
-  - {level: 2, content: 使用kubectl scale或编辑spec.replicas。}
+  - {level: 2, content: "kubectl scale deployment/web --replicas=3"}
   - {level: 3, content: 把web Deployment的spec.replicas设置为3。}
 cleanup: {deleteNamespace: true}
 interview:

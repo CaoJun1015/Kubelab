@@ -53,7 +53,7 @@ successChecks:
     unmetMessage: 更新后的两个副本尚未全部可用。
 hints:
   - {level: 1, content: 查看Deployment镜像和rollout status。}
-  - {level: 2, content: 通过set image触发滚动更新并观察ReplicaSet。}
+  - {level: 2, content: "kubectl set image deployment/web web=nginx:1.27-alpine"}
   - {level: 3, content: 把web容器镜像设置为nginx:1.27-alpine。}
 cleanup: {deleteNamespace: true}
 interview:

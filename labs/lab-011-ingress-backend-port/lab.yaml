@@ -44,7 +44,7 @@ successChecks:
     unmetMessage: Ingress入口HTTP访问仍未恢复。
 hints:
   - {level: 1, content: 分别检查Ingress backend和Service ports。}
-  - {level: 2, content: Ingress backend端口必须引用Service暴露的端口。}
+  - {level: 2, content: "kubectl get ingress web -o jsonpath='{.spec.rules[0].http.paths[0].backend.service.port.number}'"}
   - {level: 3, content: 把Ingress backend service port number从81改为80。}
 cleanup: {deleteNamespace: true}
 interview:

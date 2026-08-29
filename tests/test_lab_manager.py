@@ -31,6 +31,7 @@ from kubelab.kubernetes_gateway import (
 )
 from kubelab.lab_manager import (
     ClusterState,
+    HintKind,
     InitialContractResult,
     LabManager,
     LabManagerError,
@@ -413,7 +414,31 @@ def test_hints_unlock_in_order_and_last_hint_is_idempotent(
 
     assert (first.level, first.newly_unlocked) == (1, True)
     assert (repeated.level, repeated.newly_unlocked) == (1, False)
+    assert first.kind is HintKind.OBSERVATION
+    assert repeated.request_count == 2
+    assert repeated.unlocked_count == 1
     assert persisted(database, created.id).status is SessionStatus.IN_PROGRESS
+
+
+def test_three_hint_layers_unlock_in_order_and_repeat_last_level(
+    database: Database, tmp_path: Path
+) -> None:
+    registry = LabRegistry(Path(__file__).parents[1] / "labs")
+    manager, _, _, _ = build_manager(database, tmp_path, registry=registry)
+    created = manager.start("lab-001-deployment-scaling")
+
+    results = [manager.next_hint(created.id) for _ in range(4)]
+
+    assert [result.kind for result in results] == [
+        HintKind.OBSERVATION,
+        HintKind.COMMAND,
+        HintKind.FAULT_DIRECTION,
+        HintKind.FAULT_DIRECTION,
+    ]
+    assert [result.request_count for result in results] == [1, 2, 3, 4]
+    assert [result.unlocked_count for result in results] == [1, 2, 3, 3]
+    assert results[-1].newly_unlocked is False
+    assert results[1].content.startswith("kubectl ")
 
 
 def test_retrospective_can_be_saved_after_cleanup(database: Database, tmp_path: Path) -> None:

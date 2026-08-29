@@ -59,7 +59,7 @@ successChecks:
     unmetMessage: worker尚未在配置补齐后稳定Ready。
 hints:
   - {level: 1, content: 查看Pod Events中的configmap not found消息。}
-  - {level: 2, content: 检查Deployment envFrom引用的对象名称。}
+  - {level: 2, content: "kubectl get deployment web -o jsonpath='{.spec.template.spec.containers[0].envFrom}'"}
   - {level: 3, content: 创建名为app-settings且包含APP_MODE键的ConfigMap。}
 cleanup: {deleteNamespace: true}
 interview:

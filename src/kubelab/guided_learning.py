@@ -15,6 +15,7 @@ from kubelab.doctor import CheckStatus, DiagnosticCheck, DoctorReport, DoctorSer
 from kubelab.lab_schema import LabRequirements
 from kubelab.redaction import redact_json
 from kubelab.repositories import SqlAlchemyUnitOfWork
+from kubelab.session_state import ValidationStatus
 
 
 class ReadinessStatus(StrEnum):
@@ -28,6 +29,12 @@ class ReadinessCheckStatus(StrEnum):
     WARN = "warn"
     FAIL = "fail"
     SKIPPED = "skipped"
+
+
+class PublicValidationOutcome(StrEnum):
+    PASSED = "passed"
+    FAILED = "failed"
+    UNAVAILABLE = "unavailable"
 
 
 class GuidedLearningModel(BaseModel):
@@ -310,6 +317,14 @@ def _safe_text(value: str) -> str:
     return str(redact_json(value.replace("\r", " ").replace("\n", " ")))[:500]
 
 
+def public_validation_outcome(status: ValidationStatus) -> PublicValidationOutcome:
+    if status is ValidationStatus.PASSED:
+        return PublicValidationOutcome.PASSED
+    if status is ValidationStatus.FAILED:
+        return PublicValidationOutcome.FAILED
+    return PublicValidationOutcome.UNAVAILABLE
+
+
 def build_environment_readiness_service(
     *,
     doctor: DoctorService,
@@ -328,8 +343,10 @@ __all__ = [
     "EnvironmentReadinessReport",
     "EnvironmentReadinessService",
     "OnboardingState",
+    "PublicValidationOutcome",
     "ReadinessCheck",
     "ReadinessCheckStatus",
     "ReadinessStatus",
     "build_environment_readiness_service",
+    "public_validation_outcome",
 ]

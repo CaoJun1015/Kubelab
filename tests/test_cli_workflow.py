@@ -16,6 +16,8 @@ from kubelab.kubernetes_gateway import (
     ResourceSummary,
 )
 from kubelab.lab_manager import (
+    ClusterState,
+    HintKind,
     HintResult,
     LabCatalogItem,
     LabCatalogResult,
@@ -25,6 +27,7 @@ from kubelab.lab_manager import (
     RetrospectiveEditState,
     SessionEvents,
     SessionResources,
+    SessionStage,
     SessionStatusResult,
 )
 from kubelab.runtime import RuntimeEnvironmentError
@@ -73,6 +76,7 @@ def catalog_item() -> LabCatalogItem:
 class FakeManager:
     def __init__(self) -> None:
         self.calls: list[tuple[object, ...]] = []
+        self.validation_status = ValidationStatus.FAILED
 
     def list_labs(self, *, category=None, progress=None):
         self.calls.append(("list", category, progress))
@@ -105,6 +109,8 @@ class FakeManager:
             session=session(SessionStatus.IN_PROGRESS),
             namespace_exists=True,
             namespace_owned=True,
+            cluster_state=ClusterState.PRESENT,
+            stage=SessionStage.INVESTIGATING,
         )
 
     def resources(self):
@@ -163,7 +169,7 @@ class FakeManager:
             id="123e4567-e89b-42d3-a456-426614174222",
             session_id=session().id,
             purpose=VerificationPurpose.MANUAL,
-            status=ValidationStatus.FAILED,
+            status=self.validation_status,
             reset_sequence=0,
             checked_at=datetime(2026, 8, 26, tzinfo=UTC),
             duration_ms=20,
@@ -171,7 +177,7 @@ class FakeManager:
                 PublicCheckResult(
                     check_id="pod-ready",
                     check_type="pod_status",
-                    status=ValidationStatus.FAILED,
+                    status=self.validation_status,
                     message="The Pod is not Ready yet.",
                     retryable=False,
                     duration_ms=20,
@@ -188,6 +194,9 @@ class FakeManager:
             total_levels=3,
             content="Inspect Pod events.",
             newly_unlocked=True,
+            kind=HintKind.OBSERVATION,
+            request_count=1,
+            unlocked_count=1,
         )
 
     def session_snapshot(self):
@@ -286,6 +295,18 @@ def test_failed_verify_exits_one_and_hint_reveals_one_level(monkeypatch) -> None
     assert "[FAILED] pod-ready" in verified.stdout
     assert hint.exit_code == 0
     assert json.loads(hint.stdout)["level"] == 1
+
+
+def test_unavailable_verify_uses_public_status_and_internal_exit_code(monkeypatch) -> None:
+    manager = install_runtime(monkeypatch)
+    manager.validation_status = ValidationStatus.ERROR
+
+    result = runner.invoke(cli.app, ["verify", "--json"])
+
+    assert result.exit_code == 5
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "unavailable"
+    assert payload["results"][0]["status"] == "unavailable"
 
 
 def test_reset_requires_confirmation_and_can_be_cancelled(monkeypatch) -> None:

@@ -61,6 +61,7 @@
       failed: "未通过",
       blocked: "未就绪",
       degraded: "部分就绪",
+      unavailable: "暂时无法检查",
     };
     return labels[value] || value || "未知";
   };
@@ -71,6 +72,7 @@
       return "info";
     }
     if (["error", "failed", "blocked"].includes(value)) return "danger";
+    if (value === "unavailable") return "warning";
     if (value === "degraded") return "warning";
     if (value === "not_started") return "neutral";
     return "warning";
@@ -593,8 +595,22 @@
     const target = document.querySelector("#hint-result");
     clear(target);
     target.className = "hint-card";
-    target.append(element("h4", { text: `提示 ${payload.level}/${payload.total_levels}` }));
+    const kinds = {
+      observation: "观察方向",
+      command: "建议命令",
+      fault_direction: "故障方向",
+    };
+    target.append(
+      element("h4", {
+        text: `${kinds[payload.kind] || "提示"} ${payload.level}/${payload.total_levels}`,
+      }),
+    );
     target.append(element("p", { text: payload.content }));
+    target.append(
+      element("small", {
+        text: `请求 ${payload.request_count} 次 · 已解锁 ${payload.unlocked_count} 层`,
+      }),
+    );
   };
 
   const fillRetrospective = (payload) => {

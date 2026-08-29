@@ -56,7 +56,7 @@ hints:
   - level: 1
     content: 确认Deployment可用后，查看Service对应的EndpointSlice。
   - level: 2
-    content: 比较Service Selector与Pod Labels的每一个键值。
+    content: kubectl get service web -o jsonpath='{.spec.selector}'
   - level: 3
     content: 把Service的app Selector改为service-selector-lab。
 cleanup:

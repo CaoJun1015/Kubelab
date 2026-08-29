@@ -54,7 +54,7 @@ successChecks:
     unmetMessage: 新Pod尚未稳定运行或仍发生重启。
 hints:
   - {level: 1, content: 查看容器Last State的Reason和Exit Code。}
-  - {level: 2, content: 对比容器内存使用模式与resources.limits.memory。}
+  - {level: 2, content: "kubectl get pod -l app=oom-lab -o jsonpath='{.items[0].status.containerStatuses[0].lastState.terminated.reason}'"}
   - {level: 3, content: 停止无界内存分配并把内存上限调整为128Mi。}
 cleanup: {deleteNamespace: true}
 interview:

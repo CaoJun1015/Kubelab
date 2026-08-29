@@ -47,7 +47,7 @@ successChecks:
     unmetMessage: 使用PVC的Pod尚未稳定Ready。
 hints:
   - {level: 1, content: 查看PVC Events和集群中的StorageClass。}
-  - {level: 2, content: 对比PVC storageClassName与默认StorageClass名称。}
+  - {level: 2, content: "kubectl get pvc data -o wide"}
   - {level: 3, content: 删除故障PVC并用storageClassName standard重新创建。}
 cleanup: {deleteNamespace: true}
 interview:

@@ -66,7 +66,7 @@ hints:
   - level: 1
     content: 查看Pod事件和容器的waiting reason。
   - level: 2
-    content: 比较Deployment中声明的镜像与可信镜像名称和标签。
+    content: kubectl get deployment web -o jsonpath='{.spec.template.spec.containers[0].image}'
   - level: 3
     content: 修改Deployment的web容器镜像为nginx:1.27-alpine。
 cleanup:

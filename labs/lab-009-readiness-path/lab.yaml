@@ -61,7 +61,7 @@ successChecks:
     unmetMessage: Service集群内HTTP访问仍未恢复。
 hints:
   - {level: 1, content: 对比Pod Phase、Ready条件和EndpointSlice。}
-  - {level: 2, content: 检查Readiness httpGet路径的响应状态。}
+  - {level: 2, content: "kubectl get deployment web -o jsonpath='{.spec.template.spec.containers[0].readinessProbe.httpGet.path}'"}
   - {level: 3, content: 把Readiness路径从/not-ready改为/。}
 cleanup: {deleteNamespace: true}
 interview:

@@ -21,6 +21,7 @@ from kubelab.context_trust import (
 )
 from kubelab.database import DatabaseError
 from kubelab.doctor import HealthStatus, build_doctor_service
+from kubelab.guided_learning import public_validation_outcome
 from kubelab.lab_manager import (
     LabManager,
     LabManagerError,
@@ -268,11 +269,16 @@ def verify_command(
     with _application(json_output) as manager:
         result = manager.verify()
     if json_output:
-        typer.echo(result.model_dump_json(indent=2))
+        payload = result.model_dump(mode="json")
+        payload["status"] = public_validation_outcome(result.status).value
+        for item, check in zip(payload["results"], result.results, strict=True):
+            item["status"] = public_validation_outcome(check.status).value
+        typer.echo(json.dumps(payload, indent=2))
     else:
-        typer.echo(f"Verification: {result.status.value}")
+        typer.echo(f"Verification: {public_validation_outcome(result.status).value}")
         for check in result.results:
-            typer.echo(f"[{check.status.value.upper()}] {check.check_id}: {check.message}")
+            outcome = public_validation_outcome(check.status).value.upper()
+            typer.echo(f"[{outcome}] {check.check_id}: {check.message}")
     if result.status is ValidationStatus.FAILED:
         raise typer.Exit(code=1)
     if result.status is ValidationStatus.ERROR:
