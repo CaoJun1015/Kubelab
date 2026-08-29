@@ -59,6 +59,8 @@
       cleaning: "清理中",
       error: "异常",
       failed: "未通过",
+      blocked: "未就绪",
+      degraded: "部分就绪",
     };
     return labels[value] || value || "未知";
   };
@@ -68,7 +70,8 @@
     if (["active", "in_progress", "provisioning", "resetting", "cleaning"].includes(value)) {
       return "info";
     }
-    if (["error", "failed"].includes(value)) return "danger";
+    if (["error", "failed", "blocked"].includes(value)) return "danger";
+    if (value === "degraded") return "warning";
     if (value === "not_started") return "neutral";
     return "warning";
   };
@@ -246,6 +249,47 @@
       activeTarget.className = "empty-state";
       activeTarget.append(element("p", { text: "无法读取活动 Session。" }));
     }
+  };
+
+  const renderReadiness = (statePayload) => {
+    const report = statePayload?.report || statePayload;
+    const status = document.querySelector("#readiness-status");
+    const summary = document.querySelector("#readiness-summary");
+    const checks = document.querySelector("#readiness-checks");
+    clear(checks);
+    if (!report) {
+      status.textContent = "尚未检查";
+      status.className = "status-badge neutral";
+      summary.textContent = "尚无缓存结果。点击“重新检查”运行只读诊断。";
+      return;
+    }
+    status.textContent = statusLabel(report.status);
+    status.className = `status-badge ${statusTone(report.status)}`;
+    summary.textContent = `上次检查：${new Date(report.generated_at).toLocaleString("zh-CN")}`;
+    report.checks.forEach((item) => {
+      const card = element("article", { className: "check-card" });
+      card.append(badge(item.status === "pass" ? "passed" : item.status));
+      card.append(element("strong", { text: item.id }));
+      card.append(element("p", { text: item.message }));
+      if (item.remediation) card.append(element("p", { text: item.remediation }));
+      item.commands.forEach((command) => card.append(element("code", { text: command })));
+      checks.append(card);
+    });
+  };
+
+  const loadOnboarding = async () => {
+    renderReadiness(await api("/api/v1/onboarding"));
+    const button = document.querySelector("#check-environment");
+    button.addEventListener("click", () =>
+      withBusy(button, "检查中…", async () => {
+        clearPageError();
+        try {
+          renderReadiness(await api("/api/v1/onboarding/check", { method: "POST" }));
+        } catch (error) {
+          showPageError(error);
+        }
+      }),
+    );
   };
 
   const loadLabs = async () => {
@@ -730,6 +774,7 @@
       await refreshCsrf();
       const loaders = {
         dashboard: loadDashboard,
+        onboarding: loadOnboarding,
         labs: loadLabs,
         "lab-detail": loadLabDetail,
         session: loadSession,

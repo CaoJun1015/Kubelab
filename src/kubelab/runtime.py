@@ -10,6 +10,8 @@ from types import TracebackType
 from kubelab.config import TrustedContext, load_config, resolve_kubeconfig_path
 from kubelab.context_trust import build_context_trust_service
 from kubelab.database import Database
+from kubelab.doctor import build_doctor_service
+from kubelab.guided_learning import EnvironmentReadinessService
 from kubelab.kubernetes_gateway import KubernetesGateway
 from kubelab.lab_manager import ClusterGateway, LabManager
 from kubelab.lab_registry import LabRegistry
@@ -20,10 +22,17 @@ from kubelab.validation_engine import ValidationEngine
 class ApplicationRuntime:
     """Own process-local resources used by one CLI invocation."""
 
-    def __init__(self, database: Database, manager: LabManager, kubeconfig_path: Path) -> None:
+    def __init__(
+        self,
+        database: Database,
+        manager: LabManager,
+        kubeconfig_path: Path,
+        readiness: EnvironmentReadinessService | None = None,
+    ) -> None:
         self.database = database
         self.manager = manager
         self.kubeconfig_path = kubeconfig_path
+        self.readiness = readiness
 
     def close(self) -> None:
         self.database.dispose()
@@ -58,6 +67,12 @@ def build_application_runtime() -> ApplicationRuntime:  # pragma: no cover - com
         database.initialize()
         registry = LabRegistry()
         validation = ValidationEngine(database.unit_of_work)
+        context_trust = build_context_trust_service()
+        readiness = EnvironmentReadinessService(
+            doctor=build_doctor_service(),
+            context_trust=context_trust,
+            unit_of_work=database.unit_of_work,
+        )
 
         def gateway_factory(trusted: TrustedContext, context_fingerprint: str) -> ClusterGateway:
             return KubernetesGateway.from_kubeconfig(
@@ -70,11 +85,12 @@ def build_application_runtime() -> ApplicationRuntime:  # pragma: no cover - com
             registry=registry,
             unit_of_work=database.unit_of_work,
             operation_lock=OperationLock(database.lock_path),
-            context_trust=build_context_trust_service(),
+            context_trust=context_trust,
             gateway_factory=gateway_factory,
             validation=validation,
+            readiness=readiness,
         )
-        return ApplicationRuntime(database, manager, kubeconfig_path)
+        return ApplicationRuntime(database, manager, kubeconfig_path, readiness)
     except Exception:
         database.dispose()
         raise

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 
 from kubelab.config import TrustedContext
 from kubelab.context_trust import ContextTrustService, trusted_context_fingerprint
+from kubelab.guided_learning import EnvironmentReadinessReport
 from kubelab.kubernetes_gateway import (
     EventSummary,
     LogResult,
@@ -21,6 +22,7 @@ from kubelab.kubernetes_gateway import (
     WorkspaceAccess,
 )
 from kubelab.lab_registry import LabRegistry, LoadedLab, RegistryError
+from kubelab.lab_schema import LabRequirements
 from kubelab.operation_lock import OperationLock
 from kubelab.repositories import (
     ActiveSessionConflict,
@@ -163,6 +165,10 @@ class ValidationService(Protocol):
     ) -> ValidationRunResult: ...
 
 
+class ReadinessGuard(Protocol):
+    def assert_ready(self, requirements: LabRequirements) -> EnvironmentReadinessReport: ...
+
+
 class ClusterGateway(ValidationGateway, Protocol):
     def create_environment(self, scope: SessionScope) -> None: ...
 
@@ -218,6 +224,7 @@ class LabManager:
         context_trust: ContextTrustService,
         gateway_factory: GatewayFactory,
         validation: ValidationService,
+        readiness: ReadinessGuard | None = None,
     ) -> None:
         self._registry = registry
         self._unit_of_work = unit_of_work
@@ -225,6 +232,7 @@ class LabManager:
         self._context_trust = context_trust
         self._gateway_factory = gateway_factory
         self._validation = validation
+        self._readiness = readiness
 
     def list_labs(
         self, *, category: str | None = None, progress: LabProgress | None = None
@@ -430,6 +438,8 @@ class LabManager:
         """Provision one lab and prove its initial fault contract before returning ready."""
         with self._operation_lock:
             lab = self._require_lab(lab_id)
+            if self._readiness is not None:
+                self._readiness.assert_ready(lab.definition.requirements)
             trusted = self._context_trust.assert_trusted_context()
             fingerprint = trusted_context_fingerprint(trusted)
             with self._unit_of_work() as uow:

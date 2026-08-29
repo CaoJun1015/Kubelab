@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero compact-hero">
+  <div>
+    <p class="eyebrow">FIRST RUN</p>
+    <h1>准备本地实验环境</h1>
+    <p>检查 WSL2、Docker、minikube、kubectl 和当前 Context。KubeLab 只展示固定修复建议，不会自动执行命令。</p>
+  </div>
+  <button id="check-environment" class="button primary" type="button">重新检查</button>
+</section>
+
+<div id="page-error" class="alert error hidden" role="alert"></div>
+
+<section class="panel" aria-labelledby="readiness-title">
+  <div class="panel-heading">
+    <div><p class="eyebrow">READINESS</p><h2 id="readiness-title">环境检查</h2></div>
+    <span id="readiness-status" class="status-badge neutral">尚未检查</span>
+  </div>
+  <p id="readiness-summary" class="quiet-text">页面加载只读取上次缓存；点击“重新检查”才执行只读诊断。</p>
+  <div id="readiness-checks" class="stack-list" aria-live="polite"></div>
+</section>
+{% endblock %}

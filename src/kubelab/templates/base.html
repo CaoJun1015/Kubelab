@@ -20,6 +20,7 @@
       </a>
       <nav aria-label="主导航">
         <a href="/"{% if page == "dashboard" %} aria-current="page"{% endif %}>总览</a>
+        <a href="/onboarding"{% if page == "onboarding" %} aria-current="page"{% endif %}>环境</a>
         <a href="/labs"{% if page in ("labs", "lab-detail") %} aria-current="page"{% endif %}>实验</a>
         <a href="/progress"{% if page == "progress" %} aria-current="page"{% endif %}>进度</a>
       </nav>

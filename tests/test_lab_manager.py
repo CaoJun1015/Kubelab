@@ -11,6 +11,13 @@ import pytest
 from kubelab.config import TrustedContext
 from kubelab.context_trust import ContextNotTrustedError
 from kubelab.database import Database
+from kubelab.guided_learning import (
+    EnvironmentNotReadyError,
+    EnvironmentReadinessReport,
+    ReadinessCheck,
+    ReadinessCheckStatus,
+    ReadinessStatus,
+)
 from kubelab.kubernetes_gateway import (
     EventSummary,
     GatewayErrorCode,
@@ -103,6 +110,23 @@ class FakeValidation:
             checked_at=datetime(2026, 8, 26, tzinfo=UTC),
             duration_ms=10,
             results=(),
+        )
+
+
+class FakeReadiness:
+    def __init__(self) -> None:
+        self.error: Exception | None = None
+        self.calls = 0
+
+    def assert_ready(self, requirements: Any) -> EnvironmentReadinessReport:
+        del requirements
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return EnvironmentReadinessReport(
+            status=ReadinessStatus.READY,
+            checks=(),
+            generated_at=datetime(2026, 8, 26, tzinfo=UTC),
         )
 
 
@@ -246,6 +270,7 @@ def build_manager(
     trust: FakeTrust | None = None,
     validation: FakeValidation | None = None,
     registry: LabRegistry | None = None,
+    readiness: FakeReadiness | None = None,
 ) -> tuple[LabManager, FakeGateway, FakeTrust, FakeValidation]:
     selected_gateway = gateway or FakeGateway()
     selected_trust = trust or FakeTrust()
@@ -260,6 +285,7 @@ def build_manager(
         context_trust=selected_trust,  # type: ignore[arg-type]
         gateway_factory=FakeGatewayFactory(selected_gateway),
         validation=selected_validation,
+        readiness=readiness,
     )
     return manager, selected_gateway, selected_trust, selected_validation
 
@@ -272,6 +298,36 @@ def persisted(database: Database, session_id: str) -> LabSessionSnapshot:
 def events(database: Database, session_id: str) -> tuple[str, ...]:
     with database.unit_of_work() as uow:
         return tuple(item.event_type for item in uow.sessions.list_events(session_id))
+
+
+def test_start_readiness_gate_precedes_trust_database_and_cluster_writes(
+    database: Database, tmp_path: Path
+) -> None:
+    readiness = FakeReadiness()
+    readiness.error = EnvironmentNotReadyError(
+        EnvironmentReadinessReport(
+            status=ReadinessStatus.BLOCKED,
+            checks=(
+                ReadinessCheck(
+                    id="docker_daemon",
+                    status=ReadinessCheckStatus.FAIL,
+                    message="Docker daemon is unavailable.",
+                ),
+            ),
+            generated_at=datetime(2026, 8, 26, tzinfo=UTC),
+        )
+    )
+    manager, gateway, trust, validation = build_manager(database, tmp_path, readiness=readiness)
+
+    with pytest.raises(EnvironmentNotReadyError):
+        manager.start("complete-lab")
+
+    assert readiness.calls == 1
+    assert trust.calls == 0
+    assert gateway.calls == []
+    assert validation.calls == 0
+    with database.unit_of_work() as uow:
+        assert uow.sessions.get_active() is None
 
 
 def test_catalog_show_and_progress_hide_answers(database: Database, tmp_path: Path) -> None:

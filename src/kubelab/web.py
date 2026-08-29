@@ -26,6 +26,11 @@ from kubelab import __version__
 from kubelab.config import ConfigError
 from kubelab.context_trust import ContextError
 from kubelab.database import DatabaseError
+from kubelab.guided_learning import (
+    EnvironmentNotReadyError,
+    EnvironmentReadinessReport,
+    OnboardingState,
+)
 from kubelab.kubernetes_gateway import EventSummary, LogResult, PodSummary, ResourceSummary
 from kubelab.lab_manager import (
     HintResult,
@@ -76,6 +81,7 @@ _CONTENT_SECURITY_POLICY = "; ".join(
 _PUBLIC_CONTEXT_KEYS = frozenset(
     {
         "already_absent",
+        "blocking_check_count",
         "code",
         "field",
         "field_path",
@@ -174,6 +180,10 @@ class WebApplicationService(Protocol):
 
     def environment(self) -> EnvironmentResponse: ...
 
+    def onboarding(self) -> OnboardingState: ...
+
+    def check_environment(self) -> EnvironmentReadinessReport: ...
+
     def list_labs(
         self, *, category: str | None = None, progress: LabProgress | None = None
     ) -> LabCatalogResult: ...
@@ -227,6 +237,16 @@ class KubeLabApplicationService:
             process_platform=platform.system(),
             wsl_distribution=os.environ.get("WSL_DISTRO_NAME"),
         )
+
+    def onboarding(self) -> OnboardingState:
+        if self._runtime.readiness is None:
+            raise RuntimeEnvironmentError("Environment readiness service is unavailable.")
+        return self._runtime.readiness.cached()
+
+    def check_environment(self) -> EnvironmentReadinessReport:
+        if self._runtime.readiness is None:
+            raise RuntimeEnvironmentError("Environment readiness service is unavailable.")
+        return self._runtime.readiness.check()
 
     def list_labs(
         self, *, category: str | None = None, progress: LabProgress | None = None
@@ -446,6 +466,10 @@ def create_app(
     def labs_page(request: Request) -> Response:
         return render_page(request, "labs.html", title="实验目录", page="labs")
 
+    @app.get("/onboarding", response_class=HTMLResponse, include_in_schema=False)
+    def onboarding_page(request: Request) -> Response:
+        return render_page(request, "onboarding.html", title="环境引导", page="onboarding")
+
     @app.get("/labs/{lab_id}", response_class=HTMLResponse, include_in_schema=False)
     def lab_page(request: Request, lab_id: str) -> Response:
         return render_page(
@@ -481,6 +505,14 @@ def create_app(
     @app.get("/api/v1/environment", response_model=EnvironmentResponse)
     def environment(request: Request) -> EnvironmentResponse:
         return _service(request).environment()
+
+    @app.get("/api/v1/onboarding", response_model=OnboardingState)
+    def onboarding(request: Request) -> OnboardingState:
+        return _service(request).onboarding()
+
+    @app.post("/api/v1/onboarding/check", response_model=EnvironmentReadinessReport)
+    def check_environment(request: Request) -> EnvironmentReadinessReport:
+        return _service(request).check_environment()
 
     @app.get("/api/v1/labs", response_model=LabsResponse)
     def labs(
@@ -710,7 +742,10 @@ def _public_error(
     context = _safe_context(raw_context)
     if isinstance(error, ActiveSessionConflict) and error.active is not None:
         context = {"session_id": error.active.id, "status": error.active.status.value}
-    if isinstance(error, (LabManagerError, ContextError, ConfigError, DatabaseError)):
+    if isinstance(
+        error,
+        (LabManagerError, EnvironmentNotReadyError, ContextError, ConfigError, DatabaseError),
+    ):
         message = _redacted_text(str(getattr(error, "message", str(error))))
     elif isinstance(error, (ActiveSessionConflict, OperationLockError, RuntimeEnvironmentError)):
         message = _redacted_text(str(error))
@@ -760,6 +795,7 @@ def _status_for_error(code: str) -> int:
         "KUBERNETES_API_ERROR",
         "KUBERNETES_TIMEOUT",
         "RUNTIME_PLATFORM_UNSUPPORTED",
+        "ENVIRONMENT_NOT_READY",
     }:
         return 503
     return 500

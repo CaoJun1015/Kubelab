@@ -12,6 +12,13 @@ from fastapi.testclient import TestClient
 from kubelab.config import ConfigError
 from kubelab.context_trust import ContextNotTrustedError
 from kubelab.database import DatabaseError
+from kubelab.guided_learning import (
+    EnvironmentReadinessReport,
+    OnboardingState,
+    ReadinessCheck,
+    ReadinessCheckStatus,
+    ReadinessStatus,
+)
 from kubelab.kubernetes_gateway import EventSummary, LogResult, PodSummary, ResourceSummary
 from kubelab.lab_manager import (
     HintResult,
@@ -101,6 +108,26 @@ class FakeApplicationService:
     def environment(self) -> EnvironmentResponse:
         self._raise_if_requested()
         return EnvironmentResponse(process_platform="Linux", wsl_distribution="Ubuntu")
+
+    def onboarding(self) -> OnboardingState:
+        self.calls.append(("onboarding",))
+        return OnboardingState(first_use=True, completed_at=None, report=None)
+
+    def check_environment(self) -> EnvironmentReadinessReport:
+        self.calls.append(("check_environment",))
+        return EnvironmentReadinessReport(
+            status=ReadinessStatus.BLOCKED,
+            checks=(
+                ReadinessCheck(
+                    id="docker_daemon",
+                    status=ReadinessCheckStatus.FAIL,
+                    message="Docker daemon is unavailable.",
+                    remediation="启动Docker Engine并重新检查。",
+                    commands=("docker info",),
+                ),
+            ),
+            generated_at=NOW,
+        )
 
     def list_labs(self, *, category=None, progress=None) -> LabCatalogResult:
         self.calls.append(("list", category, progress))
@@ -286,6 +313,7 @@ def test_read_endpoints_delegate_to_fake_application_service(client: TestClient)
         "/api/v1/sessions/active/logs?pod=web-abc&container=web&previous=true&tail=20"
     )
     retrospective = client.get("/api/v1/sessions/latest/retrospective")
+    onboarding = client.get("/api/v1/onboarding")
 
     assert environment.json()["bind_host"] == "127.0.0.1"
     assert labs.json()["labs"][0]["id"] == "lab-005-image-pull"
@@ -300,6 +328,24 @@ def test_read_endpoints_delegate_to_fake_application_service(client: TestClient)
     assert "event-secret" not in events.text
     assert logs.json()["content"] == "bounded output password=[REDACTED]"
     assert retrospective.json()["retrospective"] is None
+    assert onboarding.json() == {"first_use": True, "completed_at": None, "report": None}
+
+
+def test_onboarding_page_is_static_and_explicit_check_requires_csrf(
+    client: TestClient, fake: FakeApplicationService
+) -> None:
+    page = client.get("/onboarding")
+    assert page.status_code == 200
+    assert "准备本地实验环境" in page.text
+    assert ("check_environment",) not in fake.calls
+
+    rejected = client.post("/api/v1/onboarding/check")
+    checked = client.post("/api/v1/onboarding/check", headers=csrf(client))
+    assert rejected.status_code == 403
+    assert checked.status_code == 200
+    assert checked.json()["status"] == "blocked"
+    assert checked.json()["checks"][0]["commands"] == ["docker info"]
+    assert fake.calls.count(("check_environment",)) == 1
 
 
 def test_write_endpoints_require_csrf_and_delegate_with_safe_public_results(
