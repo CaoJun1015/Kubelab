@@ -15,10 +15,12 @@ from sqlalchemy import delete, inspect, select, text
 from kubelab.database import Database, DatabaseError, sqlite_pragmas
 from kubelab.db_models import (
     CheckResultRecord,
+    GuidedLearningStateRecord,
     HintUsageRecord,
     LabSessionRecord,
     RetrospectiveRecord,
     SessionEventRecord,
+    SessionEvidenceSnapshotRecord,
     VerificationRunRecord,
 )
 from kubelab.repositories import ActiveSessionConflict, SessionNotFoundError
@@ -61,10 +63,12 @@ def test_initialize_creates_all_tables_and_required_pragmas(tmp_path: Path) -> N
         assert set(inspect(database.engine).get_table_names()) == {
             "alembic_version",
             "check_result",
+            "guided_learning_state",
             "hint_usage",
             "lab_session",
             "retrospective",
             "session_event",
+            "session_evidence_snapshot",
             "verification_run",
         }
         with database.engine.connect() as connection:
@@ -76,7 +80,7 @@ def test_initialize_creates_all_tables_and_required_pragmas(tmp_path: Path) -> N
             revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-        assert revision == "0001_initial_persistence"
+        assert revision == "0002_guided_learning"
     finally:
         database.dispose()
 
@@ -102,6 +106,44 @@ def test_pending_migration_creates_checkpointed_backup(tmp_path: Path) -> None:
     assert database.backup_path.is_file()
     with sqlite3.connect(database.backup_path) as connection:
         assert connection.execute("SELECT value FROM legacy_marker").fetchone() == ("preserved",)
+    database.dispose()
+
+
+def test_v010_database_upgrades_without_losing_session_history(tmp_path: Path) -> None:
+    """A real 0001 database must retain history and mark an existing user as onboarded."""
+    path = tmp_path / "state" / "kubelab.db"
+    path.parent.mkdir(parents=True)
+    database = Database(path, lock_path=path.parent / "operations.lock", lock_timeout_seconds=0)
+    command.upgrade(database._alembic_config(), "0001_initial_persistence")
+    created_at = "2026-08-27 00:00:00.000000"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "INSERT INTO lab_session "
+            "(id, lab_id, namespace, status, context_name, context_fingerprint, created_at, "
+            "reset_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                new_session().id,
+                "database-lab",
+                "kubelab-database-lab",
+                "completed",
+                "minikube",
+                "a" * 64,
+                created_at,
+                0,
+            ),
+        )
+
+    database.initialize()
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT lab_id FROM lab_session").fetchone() == ("database-lab",)
+        state = connection.execute(
+            "SELECT onboarding_completed_at, last_environment_report "
+            "FROM guided_learning_state WHERE id = 1"
+        ).fetchone()
+        assert state is not None and state[0] is not None and state[1] is None
+        assert connection.execute("SELECT request_count FROM hint_usage").fetchall() == []
+    assert database.backup_path.is_file()
     database.dispose()
 
 
@@ -382,6 +424,45 @@ def test_verification_hint_and_retrospective_persistence_is_redacted(tmp_path: P
         database.dispose()
 
 
+def test_guided_learning_state_hint_counts_and_evidence_are_persisted_safely(
+    tmp_path: Path,
+) -> None:
+    """M5 state should count requests while redacting cached reports and evidence."""
+    database = make_database(tmp_path)
+    try:
+        session_id = new_session().id
+        with database.unit_of_work() as uow:
+            uow.sessions.create(new_session())
+            first = uow.hints.record_request(session_id, 1)
+            repeated = uow.hints.record_request(session_id, 1)
+            state = uow.guided_learning.save_environment_report(
+                status="ready",
+                report={"status": "ready", "token": "environment-secret"},
+                checked_at=datetime(2026, 8, 29, 1, 0, tzinfo=UTC),
+            )
+            evidence = uow.guided_learning.add_evidence(
+                session_id,
+                trigger="verification_completed",
+                capture_status="captured",
+                summary={"pods": {"ready": 1}, "secret": "hidden"},
+                captured_at=datetime(2026, 8, 29, 1, 1, tzinfo=UTC),
+            )
+            uow.commit()
+
+        assert first == (True, 1, 1)
+        assert repeated == (False, 2, 1)
+        assert state.onboarding_completed_at == datetime(2026, 8, 29, 1, 0, tzinfo=UTC)
+        assert state.last_environment_report == {"status": "ready", "token": "[REDACTED]"}
+        assert evidence.summary == {"pods": {"ready": 1}, "secret": "[REDACTED]"}
+        with database.session_factory() as session:
+            hint = session.scalar(select(HintUsageRecord))
+            assert hint is not None and hint.request_count == 2
+            assert session.scalar(select(GuidedLearningStateRecord)) is not None
+            assert session.scalar(select(SessionEvidenceSnapshotRecord)) is not None
+    finally:
+        database.dispose()
+
+
 def test_foreign_keys_cascade_owned_records(tmp_path: Path) -> None:
     database = make_database(tmp_path)
     try:
@@ -396,6 +477,7 @@ def test_foreign_keys_cascade_owned_records(tmp_path: Path) -> None:
         with database.session_factory() as session:
             assert session.scalar(select(SessionEventRecord)) is None
             assert session.scalar(select(HintUsageRecord)) is None
+            assert session.scalar(select(SessionEvidenceSnapshotRecord)) is None
             assert session.scalar(select(RetrospectiveRecord)) is None
     finally:
         database.dispose()

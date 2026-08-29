@@ -189,6 +189,22 @@ class RetrospectiveSnapshot(RetrospectiveInput):
     updated_at: datetime
 
 
+class GuidedLearningStateSnapshot(PersistenceDto):
+    onboarding_completed_at: datetime | None
+    last_checked_at: datetime | None
+    last_environment_status: str | None
+    last_environment_report: dict[str, Any] | None
+
+
+class SessionEvidenceSnapshot(PersistenceDto):
+    id: int
+    session_id: str
+    trigger: str
+    capture_status: str
+    summary: dict[str, Any]
+    captured_at: datetime
+
+
 def _require_uuid4(value: str) -> str:
     try:
         parsed = UUID(value)
@@ -202,12 +218,14 @@ def _require_uuid4(value: str) -> str:
 __all__ = [
     "ACTIVE_SESSION_STATUSES",
     "CheckResultInput",
+    "GuidedLearningStateSnapshot",
     "InvalidSessionTransition",
     "LabSessionSnapshot",
     "NewLabSession",
     "RetrospectiveInput",
     "RetrospectiveSnapshot",
     "SessionEventSnapshot",
+    "SessionEvidenceSnapshot",
     "SessionStateMachine",
     "SessionStatus",
     "ValidationStatus",

@@ -12,21 +12,25 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kubelab.db_models import (
     CheckResultRecord,
+    GuidedLearningStateRecord,
     HintUsageRecord,
     LabSessionRecord,
     RetrospectiveRecord,
     SessionEventRecord,
+    SessionEvidenceSnapshotRecord,
     VerificationRunRecord,
     utc_now,
 )
 from kubelab.redaction import redact_json
 from kubelab.session_state import (
     ACTIVE_SESSION_STATUSES,
+    GuidedLearningStateSnapshot,
     LabSessionSnapshot,
     NewLabSession,
     RetrospectiveInput,
     RetrospectiveSnapshot,
     SessionEventSnapshot,
+    SessionEvidenceSnapshot,
     SessionStateMachine,
     SessionStatus,
     VerificationRunInput,
@@ -269,6 +273,95 @@ class HintRepository:
         )
         return tuple(self._session.scalars(statement))
 
+    def record_request(
+        self, session_id: str, level: int, *, used_at: datetime | None = None
+    ) -> tuple[bool, int, int]:
+        statement = select(HintUsageRecord).where(
+            HintUsageRecord.session_id == session_id,
+            HintUsageRecord.level == level,
+        )
+        record = self._session.scalar(statement)
+        newly_unlocked = record is None
+        if record is None:
+            record = HintUsageRecord(
+                session_id=session_id,
+                level=level,
+                used_at=used_at or utc_now(),
+                request_count=1,
+            )
+            self._session.add(record)
+        else:
+            record.request_count += 1
+        self._session.flush()
+        return newly_unlocked, self.request_count(session_id), len(self.used_levels(session_id))
+
+    def request_count(self, session_id: str) -> int:
+        statement = select(HintUsageRecord).where(HintUsageRecord.session_id == session_id)
+        return sum(record.request_count for record in self._session.scalars(statement))
+
+
+class GuidedLearningRepository:
+    """Persist sanitized onboarding state and bounded Session evidence."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def get_state(self) -> GuidedLearningStateSnapshot:
+        record = self._session.get(GuidedLearningStateRecord, 1)
+        if record is None:
+            record = GuidedLearningStateRecord(id=1)
+            self._session.add(record)
+            self._session.flush()
+        return _guided_learning_snapshot(record)
+
+    def save_environment_report(
+        self,
+        *,
+        status: str,
+        report: dict[str, Any],
+        checked_at: datetime | None = None,
+    ) -> GuidedLearningStateSnapshot:
+        record = self._session.get(GuidedLearningStateRecord, 1)
+        if record is None:
+            record = GuidedLearningStateRecord(id=1)
+            self._session.add(record)
+        timestamp = checked_at or utc_now()
+        record.last_checked_at = timestamp
+        record.last_environment_status = status
+        record.last_environment_report = _safe_dict(report)
+        if status in {"ready", "degraded"} and record.onboarding_completed_at is None:
+            record.onboarding_completed_at = timestamp
+        self._session.flush()
+        return _guided_learning_snapshot(record)
+
+    def add_evidence(
+        self,
+        session_id: str,
+        *,
+        trigger: str,
+        capture_status: str,
+        summary: dict[str, Any],
+        captured_at: datetime | None = None,
+    ) -> SessionEvidenceSnapshot:
+        record = SessionEvidenceSnapshotRecord(
+            session_id=session_id,
+            trigger=trigger,
+            capture_status=capture_status,
+            summary=_safe_dict(summary) or {},
+            captured_at=captured_at or utc_now(),
+        )
+        self._session.add(record)
+        self._session.flush()
+        return _evidence_snapshot(record)
+
+    def list_evidence(self, session_id: str) -> tuple[SessionEvidenceSnapshot, ...]:
+        statement = (
+            select(SessionEvidenceSnapshotRecord)
+            .where(SessionEvidenceSnapshotRecord.session_id == session_id)
+            .order_by(SessionEvidenceSnapshotRecord.captured_at, SessionEvidenceSnapshotRecord.id)
+        )
+        return tuple(_evidence_snapshot(record) for record in self._session.scalars(statement))
+
 
 class RetrospectiveRepository:
     """Upsert and retrieve the single retrospective owned by a session."""
@@ -308,6 +401,7 @@ class SqlAlchemyUnitOfWork:
         self.sessions: SessionRepository
         self.verifications: VerificationRepository
         self.hints: HintRepository
+        self.guided_learning: GuidedLearningRepository
         self.retrospectives: RetrospectiveRepository
 
     def __enter__(self) -> SqlAlchemyUnitOfWork:
@@ -315,6 +409,7 @@ class SqlAlchemyUnitOfWork:
         self.sessions = SessionRepository(self._session)
         self.verifications = VerificationRepository(self._session)
         self.hints = HintRepository(self._session)
+        self.guided_learning = GuidedLearningRepository(self._session)
         self.retrospectives = RetrospectiveRepository(self._session)
         return self
 
@@ -386,6 +481,26 @@ def _event_snapshot(record: SessionEventRecord) -> SessionEventSnapshot:
     )
 
 
+def _guided_learning_snapshot(record: GuidedLearningStateRecord) -> GuidedLearningStateSnapshot:
+    return GuidedLearningStateSnapshot(
+        onboarding_completed_at=_aware(record.onboarding_completed_at),
+        last_checked_at=_aware(record.last_checked_at),
+        last_environment_status=record.last_environment_status,
+        last_environment_report=record.last_environment_report,
+    )
+
+
+def _evidence_snapshot(record: SessionEvidenceSnapshotRecord) -> SessionEvidenceSnapshot:
+    return SessionEvidenceSnapshot(
+        id=record.id,
+        session_id=record.session_id,
+        trigger=record.trigger,
+        capture_status=record.capture_status,
+        summary=record.summary,
+        captured_at=_aware_required(record.captured_at),
+    )
+
+
 def _retrospective_snapshot(record: RetrospectiveRecord) -> RetrospectiveSnapshot:
     return RetrospectiveSnapshot(
         session_id=record.session_id,
@@ -409,6 +524,7 @@ def _aware_required(value: datetime) -> datetime:
 
 __all__ = [
     "ActiveSessionConflict",
+    "GuidedLearningRepository",
     "HintRepository",
     "RetrospectiveRepository",
     "SessionNotFoundError",

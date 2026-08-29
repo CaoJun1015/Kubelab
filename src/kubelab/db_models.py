@@ -135,6 +135,45 @@ class HintUsageRecord(Base):
     )
     level: Mapped[int] = mapped_column(Integer, nullable=False)
     used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    request_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+
+class GuidedLearningStateRecord(Base):
+    __tablename__ = "guided_learning_state"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_guided_learning_state_singleton"),
+        CheckConstraint(
+            "last_environment_status IS NULL OR "
+            "last_environment_status IN ('ready','degraded','blocked')",
+            name="ck_guided_learning_environment_status",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    onboarding_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_environment_status: Mapped[str | None] = mapped_column(String(16))
+    last_environment_report: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+
+class SessionEvidenceSnapshotRecord(Base):
+    __tablename__ = "session_evidence_snapshot"
+    __table_args__ = (
+        CheckConstraint(
+            "capture_status IN ('captured','unavailable')",
+            name="ck_session_evidence_capture_status",
+        ),
+        Index("ix_session_evidence_session_captured", "session_id", "captured_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("lab_session.id", ondelete="CASCADE"), nullable=False
+    )
+    trigger: Mapped[str] = mapped_column(String(64), nullable=False)
+    capture_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    summary: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class RetrospectiveRecord(Base):
@@ -156,10 +195,12 @@ class RetrospectiveRecord(Base):
 __all__ = [
     "Base",
     "CheckResultRecord",
+    "GuidedLearningStateRecord",
     "HintUsageRecord",
     "LabSessionRecord",
     "RetrospectiveRecord",
     "SessionEventRecord",
+    "SessionEvidenceSnapshotRecord",
     "VerificationRunRecord",
     "utc_now",
 ]
