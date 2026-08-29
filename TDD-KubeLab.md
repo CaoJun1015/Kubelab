@@ -1610,8 +1610,8 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 
 2026-08-29，M5引导式排障学习闭环完成双环境自动化质量门：
 
-- Windows Python 3.11收集489项测试，473项通过，12项实验集成、2项网关集成和2项符号链接测试按预期跳过，覆盖率92.35%；
-- WSL2 Ubuntu Python 3.11.16收集489项测试，475项通过，12项实验集成和2项网关集成测试按预期跳过，覆盖率92.50%；
+- Windows Python 3.11收集489项测试，473项通过，12项实验集成、2项网关集成和2项符号链接测试按预期跳过，覆盖率92.36%；
+- WSL2 Ubuntu Python 3.11.16收集489项测试，475项通过，12项实验集成和2项网关集成测试按预期跳过，覆盖率92.51%；
 - 两端Ruff、Ruff format、strict mypy、JavaScript语法、`git diff --check`、wheel/sdist构建及统一产物检查全部通过；产物包含12个实验、9个Web资源、`0001`与`0002`迁移；
 - `KUBELAB_RUN_INTEGRATION`与`KUBELAB_RUN_LAB_INTEGRATION`在全部验收中保持为`0`，未执行真实start、reset、cleanup，未访问或修改minikube资源；
 - 分支保持为`codex/m5-guided-learning`，未修改`v0.1.0`标签或Release，未合并main，未推送远端。
