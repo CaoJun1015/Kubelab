@@ -28,6 +28,8 @@ KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 
 - wheel内置全部12个实验目录、Jinja模板和静态资源，安装后不依赖源码仓库中的`labs/`；
 - 可重复生成的`schemas/lab-v1alpha1.schema.json`及错误脱敏；
 - SQLAlchemy 2与Alembic持久化：保存Session、状态事件、验证记录、提示和复盘；
+- M5首次引导：Web缓存展示WSL2、Docker、minikube、kubectl和Context信任结果，只有显式“重新检查”或启动实验才执行固定只读诊断；修复命令只允许复制；
+- 实验级readiness门禁：`LabManager.start()`在创建Session和集群写入前检查Kubernetes版本、CPU、内存和Addon，未满足时返回`ENVIRONMENT_NOT_READY`；
 - `SessionStateMachine`：拒绝非法生命周期转换，并由SQLite条件唯一索引保证最多一个活动实验；
 - `SqlAlchemyUnitOfWork`和Repository：为后续CLI与Web提供统一事务边界；
 - `OperationLock`：跨进程序列化未来的集群和数据库写操作；
@@ -47,9 +49,12 @@ KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 
 - `kubelab retrospective edit`：在CLI中逐字段记录复盘，不启动外部编辑器；
 - `kubelab workspace enter`：为唯一活动Session创建短期ServiceAccount令牌和Namespace限定RBAC，只启动固定的交互式bash；退出时撤销工作区RBAC并删除临时0600 kubeconfig；
 - `kubelab serve`：在WSL2中仅监听`127.0.0.1:8765`，提供复用同一Application Service的FastAPI REST API；
-- Web API使用Pydantic v2公开DTO、统一`code/message/context/retryable`错误、精确Origin与双提交CSRF校验；不启用CORS，不公开Secret值、验证expected/actual、完整Manifest、凭证或异常堆栈；
+- Web API使用Pydantic v2公开DTO、统一`code/message/context/retryable`错误、精确Origin与双提交CSRF校验；资源接口完全排除Secret和Kubernetes原始对象，不公开验证expected/actual、完整Manifest、凭证或异常堆栈；
 - Jinja2与原生JavaScript本地界面：提供总览、实验目录、实验详情、排障工作台和学习进度；资源每2秒轮询，页面不可见时暂停，Events和Logs仅手动刷新；
 - 排障工作台可安全复制活动Namespace和常用只读调查命令；页面不提供终端，实际调查和修复必须进入WSL受限工作区；
+- 浏览器或服务重启后从SQLite恢复活动Session；集群协调必须由用户显式触发，GET不会推进Session状态。工作台展示派生阶段、学习时间线和best-effort脱敏资源快照；
+- 三层提示固定为观察方向、建议命令和故障方向，验证公开为`passed/failed/unavailable`；学习成果、首次完成、重复练习和完成耗时均从既有记录派生；
+- 复盘自动附加脱敏实验元数据和公开验证结果，并可下载有长度上限、已中和HTML的Markdown文件；
 - Web页面使用严格CSP、安全响应头、Jinja自动转义和DOM文本渲染；reset与cleanup必须输入活动Namespace精确确认值；
 - 状态协调：外部删除环境时受控完成Session，Namespace身份不匹配时转为`error`且拒绝删除，reset保留Session ID并支持中断重试；
 - JSON输出、稳定退出码、凭证脱敏和原子配置写入。
@@ -184,7 +189,7 @@ exit
 kubelab serve
 ```
 
-在Windows浏览器打开`http://127.0.0.1:8765/`即可使用本地控制台；健康检查为`GET /health`，REST API位于`/api/v1/`。Session工作台提供“复制Namespace”和常用调查命令，但不提供浏览器终端。服务不启用CORS，并拒绝跨站Origin。写请求使用HttpOnly、SameSite=Strict Cookie与同值`X-CSRF-Token`双提交校验；reset与cleanup还必须提交当前活动Session的精确Namespace确认值。
+在Windows浏览器打开`http://127.0.0.1:8765/`即可使用本地控制台。首次使用先打开“环境”页面并点击“重新检查”；页面只展示固定建议，不会执行修复命令。健康检查为`GET /health`，REST API位于`/api/v1/`。Session工作台提供“复制Namespace”和常用调查命令，但不提供浏览器终端。服务不启用CORS，并拒绝跨站Origin。所有写请求（包括环境重新检查和显式Session协调）使用HttpOnly、SameSite=Strict Cookie与同值`X-CSRF-Token`双提交校验；reset与cleanup还必须提交当前活动Session的精确Namespace确认值。
 
 ### Doctor状态和退出码
 

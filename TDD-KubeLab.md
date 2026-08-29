@@ -1440,6 +1440,16 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - 复盘导出为脱敏Markdown，只包含用户复盘、公开实验元数据和公开验证摘要；Secret、凭证、完整Manifest、内部验证值、异常正文和堆栈不得进入公共DTO或页面。
 - M5新增Alembic迁移必须支持v0.1.0数据库原地升级，并继续执行迁移前checkpoint与备份。
 
+实际实现状态（0.2.0a0）：
+
+- [x] `0002_guided_learning`新增首次引导单例、Session evidence和提示请求计数，真实0001升级测试证明旧Session与事件完整保留并生成备份；
+- [x] `EnvironmentReadinessService`组合Doctor、Context信任和实验requirements，`LabManager.start()`在任何Session或集群写入前执行新鲜门禁；
+- [x] 活动Session恢复改为SQLite纯读取，显式reconcile负责集群协调；资源、Events和Logs GET不改变状态；
+- [x] 时间线合并Session事件、提示、验证和best-effort evidence，阶段从既有SessionStatus派生；
+- [x] 提示按观察方向、建议命令和故障方向分层，12个实验的第二层均为固定Workspace命令；公开验证统一为passed/failed/unavailable；
+- [x] 进度从既有业务记录派生，复盘动态附加公开元数据并支持有界、脱敏、HTML中和的Markdown导出；
+- [x] Web公开资源使用独立白名单DTO，排除Secret及Kubernetes原始字段；新增写API继续执行Origin和CSRF校验。
+
 ---
 
 ## 21. PRD待确认项结论

@@ -20,6 +20,7 @@ EXPECTED_WEB_ASSETS = {
     "templates/dashboard.html",
     "templates/lab_detail.html",
     "templates/labs.html",
+    "templates/onboarding.html",
     "templates/progress.html",
     "templates/session.html",
 }
@@ -27,6 +28,7 @@ EXPECTED_PACKAGE_FILES = {
     "migrations/env.py",
     "migrations/script.py.mako",
     "migrations/versions/0001_initial_persistence.py",
+    "migrations/versions/0002_guided_learning.py",
     "py.typed",
 }
 EXPECTED_PROJECT_DOCS = {

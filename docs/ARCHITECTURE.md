@@ -11,6 +11,7 @@ flowchart TB
     Web --> App
 
     App --> Registry[LabRegistry\n12 个包内实验]
+    App --> Ready[EnvironmentReadinessService\nDoctor + Context + requirements]
     App --> Engine[ValidationEngine\n8 类声明式检查]
     App --> UoW[Unit of Work / Repositories]
     App --> Gateway[KubernetesGateway]
@@ -57,4 +58,8 @@ Role 不授权 Secret、RBAC 对象、Namespace 或其他集群级资源。临�
 
 ## 数据与输出
 
-SQLite 只保存 Session、状态事件、脱敏验证结果、提示进度和复盘。公共 CLI/API/Web 不返回 Secret 值、验证 expected/actual、完整 Manifest、凭证或异常堆栈。日志有行数和字节上限，错误使用稳定的 `code/message/context/retryable` 结构。
+SQLite只保存Session、状态事件、脱敏验证结果、提示进度、复盘、白名单化readiness缓存和脱敏evidence。`0002_guided_learning`迁移保留v0.1.0数据；已有Session数据库回填为非首次用户，新数据库保持未完成引导。
+
+活动Session恢复与集群协调明确分离：`GET /api/v1/sessions/active`只读SQLite并返回`cluster_state=not_checked`；`POST /api/v1/sessions/active/reconcile`才访问集群。学习阶段从`SessionStatus`派生，时间线合并事件、提示、验证与evidence，不持久化第二套状态。快照采集失败只记录`unavailable`，不改变start/reset/verify/cleanup结果。
+
+公共CLI/API/Web不返回Secret值、验证expected/actual、完整Manifest、凭证或异常堆栈。Web资源DTO只允许资源类型、名称、状态和Pod汇总；日志有行数和字节上限，错误使用稳定的`code/message/context/retryable`结构。

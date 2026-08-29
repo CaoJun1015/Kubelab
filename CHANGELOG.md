@@ -4,9 +4,22 @@
 
 ## [Unreleased]
 
+### Added
+
+- 首次使用环境引导、实验级readiness门禁和固定可复制修复建议。
+- 可恢复Session、派生学习阶段、排障时间线及脱敏资源快照。
+- 三层提示、公开验证三态、派生进度统计和脱敏Markdown复盘导出。
+- Alembic `0002_guided_learning`迁移，兼容v0.1.0数据库原地升级。
+
 ### Changed
 
 - 开始开发KubeLab 0.2.0a0的M5引导式排障学习闭环。
+- 活动Session GET改为纯SQLite读取；资源、Events和Logs读取不再推进学习状态，集群协调改为显式写API。
+
+### Security
+
+- Web资源与evidence使用独立白名单DTO，完全排除Secret、labels、annotations、conditions、镜像信息和Kubernetes原始对象。
+- 验证、Doctor、复盘导出和未知异常统一脱敏，不公开内部值、Manifest或堆栈。
 
 ## [0.1.0] - 2026-08-27
 

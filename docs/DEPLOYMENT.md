@@ -36,6 +36,8 @@ Windows只负责运行Windows Terminal、编辑代码和访问未来的Web页面
 
 其他较新版本可能可用，但应以`kubelab doctor`和项目测试结果为准。
 
+KubeLab 0.2开发版还会在启动每个实验前重新检查该实验声明的Kubernetes版本、CPU、内存和Addon要求。环境页面的缓存结果用于说明问题，不能绕过Application Service中的强制门禁。
+
 ## 2. 安装WSL2 Ubuntu
 
 以管理员身份打开PowerShell：
@@ -387,6 +389,10 @@ kubelab serve
 ```text
 http://127.0.0.1:8765/
 ```
+
+首次打开后进入“环境”页面，点击“重新检查”。页面GET只读取SQLite中的上次结果；按钮会运行KubeLab内置的固定只读诊断。页面展示的修复命令必须复制到WSL终端后由用户确认执行，Web不会自动运行任何系统命令。环境为`blocked`时实验启动按钮被禁用，服务端`LabManager.start()`也会在创建Session前再次阻断。
+
+浏览器或服务重启后，活动Session从本地数据库恢复且不会自动访问集群。需要核对Namespace时点击“协调集群状态”；该动作是受Origin和CSRF保护的显式POST。中断在provisioning、resetting或cleaning的Session不会自动重放集群操作。
 
 页面入口包括总览`/`、实验目录`/labs`和学习进度`/progress`。排障工作台会每2秒读取一次活动实验资源；切换到其他浏览器标签页时自动暂停，Events和Logs只在用户点击时读取。工作台可以复制活动Namespace，并根据这个受控值生成常用调查命令；所有文本都通过DOM文本节点渲染。
 
