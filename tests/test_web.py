@@ -104,6 +104,7 @@ class FakeApplicationService:
         self.closed = False
         self.error: Exception | None = None
         self.validation_status = ValidationStatus.FAILED
+        self.validation_message = "The Pod is not Ready yet."
 
     def _raise_if_requested(self) -> None:
         if self.error is not None:
@@ -210,6 +211,14 @@ class FakeApplicationService:
             session=session(),
             resources=(
                 ResourceSummary(
+                    api_version="apps/v1",
+                    kind="Deployment",
+                    namespace=NAMESPACE,
+                    name="web",
+                    labels={"token": "must-not-be-public"},
+                    status="Unavailable",
+                ),
+                ResourceSummary(
                     api_version="v1",
                     kind="Secret",
                     namespace=NAMESPACE,
@@ -270,7 +279,7 @@ class FakeApplicationService:
                     check_id="pod-ready",
                     check_type="pod_status",
                     status=self.validation_status,
-                    message="The Pod is not Ready yet.",
+                    message=self.validation_message,
                     retryable=False,
                     duration_ms=12,
                 ),
@@ -379,7 +388,18 @@ def test_read_endpoints_delegate_to_fake_application_service(client: TestClient)
     assert active.json()["namespace_exists"] is None
     assert timeline.json() == {"session_id": SESSION_ID, "entries": []}
     resource_text = resources.text.lower()
-    assert resources.json()["resources"][0]["secret_keys"] == ["password"]
+    assert resources.json()["resources"] == [
+        {"kind": "Deployment", "name": "web", "status": "Unavailable"}
+    ]
+    assert resources.json()["pods"][0] == {
+        "name": "web-abc",
+        "phase": "Running",
+        "ready": True,
+        "restart_count": 0,
+        "reason": None,
+    }
+    assert "secret_keys" not in resource_text
+    assert "labels" not in resource_text
     assert "must-not-be-public" not in resource_text
     assert "context_fingerprint" not in resource_text
     assert events.json()["events"][0]["reason"] == "Failed"
@@ -464,6 +484,20 @@ def test_validation_error_is_publicly_unavailable_without_internal_values(
     assert "error" not in response.text.casefold()
     assert "expected" not in response.text.casefold()
     assert "actual" not in response.text.casefold()
+
+
+def test_public_validation_suppresses_stack_manifest_and_secret_content(
+    client: TestClient, fake: FakeApplicationService
+) -> None:
+    fake.validation_status = ValidationStatus.ERROR
+    fake.validation_message = (
+        "Traceback token=private apiVersion: v1 kind: Secret data: must-not-leak"
+    )
+    response = client.post("/api/v1/sessions/active/verify", headers=csrf(client))
+
+    assert response.json()["results"][0]["message"] == "Details unavailable."
+    for forbidden in ("traceback", "private", "apiversion", "secret", "must-not-leak"):
+        assert forbidden not in response.text.casefold()
 
 
 def test_cross_origin_missing_origin_and_bad_csrf_are_rejected(client: TestClient) -> None:

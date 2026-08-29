@@ -2,10 +2,11 @@
 {% block content %}
 <nav class="breadcrumbs" aria-label="面包屑"><a href="/labs">实验目录</a><span aria-hidden="true">/</span><span>排障工作台</span></nav>
 <div id="page-error" class="alert error hidden" role="alert"></div>
+<div id="recovery-banner" class="alert hidden" role="status"></div>
 
 <header class="session-header">
   <div><p id="session-lab-id" class="eyebrow">ACTIVE SESSION</p><h1 id="session-title">正在读取 Session…</h1><p id="session-task"></p></div>
-  <div class="session-identity"><span id="session-status" class="status-badge neutral">读取中</span><code id="session-namespace">—</code><button id="copy-namespace" class="button secondary small" type="button">复制 Namespace</button></div>
+  <div class="session-identity"><span id="session-status" class="status-badge neutral">读取中</span><span id="session-stage" class="status-badge neutral">阶段未知</span><code id="session-namespace">—</code><button id="copy-namespace" class="button secondary small" type="button">复制 Namespace</button><button id="reconcile-session" class="button secondary small" type="button">协调集群状态</button></div>
 </header>
 
 <nav class="workspace-nav" aria-label="工作台区域">
@@ -22,7 +23,12 @@
   <div class="panel-heading"><div><p class="eyebrow">LIVE · 2S</p><h2 id="resources-title">资源与 Pods</h2></div><span id="poll-status" class="quiet-text">等待轮询</span></div>
   <div class="table-wrap"><table><caption class="visually-hidden">Namespace 资源</caption><thead><tr><th>Kind</th><th>名称</th><th>状态</th></tr></thead><tbody id="resources-body"></tbody></table></div>
   <h3>Pods</h3>
-  <div class="table-wrap"><table><caption class="visually-hidden">Pods 状态</caption><thead><tr><th>名称</th><th>Phase</th><th>Ready</th><th>重启</th><th>Containers</th></tr></thead><tbody id="pods-body"></tbody></table></div>
+  <div class="table-wrap"><table><caption class="visually-hidden">Pods 状态</caption><thead><tr><th>名称</th><th>Phase</th><th>Ready</th><th>重启</th><th>原因</th></tr></thead><tbody id="pods-body"></tbody></table></div>
+</section>
+
+<section id="timeline" class="panel workspace-section" aria-labelledby="timeline-title">
+  <div class="panel-heading"><div><p class="eyebrow">LEARNING TRAIL</p><h2 id="timeline-title">排障时间线</h2></div></div>
+  <div id="session-timeline" class="stack-list" aria-live="polite"></div>
 </section>
 
 <div class="workspace-columns">
@@ -49,7 +55,8 @@
 </section>
 
 <section id="retrospective" class="panel workspace-section" aria-labelledby="retrospective-title">
-  <div class="panel-heading"><div><p class="eyebrow">RETROSPECTIVE</p><h2 id="retrospective-title">故障复盘</h2></div></div>
+  <div class="panel-heading"><div><p class="eyebrow">RETROSPECTIVE</p><h2 id="retrospective-title">故障复盘</h2></div><a class="button secondary small" href="/api/v1/sessions/latest/retrospective/export">下载 Markdown</a></div>
+  <div id="retrospective-metadata" class="detail-list"></div>
   <form id="retrospective-form" class="retrospective-form">
     <label>现象<textarea name="symptom" rows="3"></textarea></label><label>影响<textarea name="impact" rows="3"></textarea></label>
     <label>排查过程<textarea name="investigation" rows="4"></textarea></label><label>根因<textarea name="root_cause" rows="4"></textarea></label>

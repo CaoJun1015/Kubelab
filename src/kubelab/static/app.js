@@ -62,6 +62,12 @@
       blocked: "未就绪",
       degraded: "部分就绪",
       unavailable: "暂时无法检查",
+      not_checked: "尚未协调",
+      present: "存在且受管",
+      absent: "已不存在",
+      investigating: "调查中",
+      preparing: "准备中",
+      attention_required: "需要处理",
     };
     return labels[value] || value || "未知";
   };
@@ -187,8 +193,9 @@
   };
 
   const loadDashboard = async () => {
-    const [environmentResult, labsResult, activeResult] = await Promise.allSettled([
+    const [environmentResult, readinessResult, labsResult, activeResult] = await Promise.allSettled([
       api("/api/v1/environment"),
+      api("/api/v1/onboarding"),
       api("/api/v1/labs"),
       api("/api/v1/sessions/active"),
     ]);
@@ -206,6 +213,18 @@
       status.className = "status-badge success";
     } else {
       showPageError(environmentResult.reason);
+    }
+
+    if (readinessResult.status === "fulfilled" && readinessResult.value.report) {
+      const readiness = readinessResult.value.report;
+      const status = document.querySelector("#environment-status");
+      status.textContent = statusLabel(readiness.status);
+      status.className = `status-badge ${statusTone(readiness.status)}`;
+      appendTextPair(
+        document.querySelector("#environment-details"),
+        "环境门禁",
+        readiness.status === "blocked" ? "实验启动已阻止" : "允许按实验要求检查",
+      );
     }
 
     if (labsResult.status === "fulfilled") {
@@ -325,7 +344,10 @@
 
   const loadLabDetail = async () => {
     const labId = root.dataset.labId;
-    const detail = await api(`/api/v1/labs/${encodeURIComponent(labId)}`);
+    const [detail, onboarding] = await Promise.all([
+      api(`/api/v1/labs/${encodeURIComponent(labId)}`),
+      api("/api/v1/onboarding"),
+    ]);
     text("#lab-category", detail.lab.category.toUpperCase());
     text("#lab-name", detail.lab.name);
     text("#lab-description", detail.lab.description);
@@ -349,12 +371,20 @@
     detail.interview_questions.forEach((value) => questions.append(element("li", { text: value })));
 
     const startButton = document.querySelector("#start-lab");
+    const readiness = onboarding.report;
+    if (readiness?.status === "blocked") {
+      startButton.disabled = true;
+      text("#start-readiness", "环境检查未就绪。请前往“环境”页面查看固定修复建议。 ");
+    } else if (!readiness) {
+      text("#start-readiness", "启动时将执行一次新鲜的实验级环境检查。 ");
+    }
     let activeSession = null;
     try {
       const active = await api("/api/v1/sessions/active");
       activeSession = active.session;
       if (activeSession.lab_id === labId) {
         startButton.textContent = "进入活动实验";
+        startButton.disabled = false;
       } else {
         startButton.textContent = "请先完成当前实验";
         startButton.disabled = true;
@@ -502,7 +532,7 @@
           (item) => item.phase || "—",
           (item) => (item.ready ? "是" : "否"),
           (item) => String(item.restart_count),
-          (item) => item.containers.map((container) => container.name).join(", ") || "—",
+          (item) => item.reason || "—",
         ],
         "当前 Namespace 中没有 Pod。",
       );
@@ -606,6 +636,12 @@
       }),
     );
     target.append(element("p", { text: payload.content }));
+    if (payload.kind === "command") {
+      const copy = element("button", { className: "button secondary small", text: "复制命令" });
+      copy.type = "button";
+      copy.addEventListener("click", () => copyText(payload.content, "建议命令"));
+      target.append(copy);
+    }
     target.append(
       element("small", {
         text: `请求 ${payload.request_count} 次 · 已解锁 ${payload.unlocked_count} 层`,
@@ -618,6 +654,30 @@
     const value = payload.retrospective || {};
     [...form.elements].forEach((field) => {
       if (field.name && Object.hasOwn(value, field.name)) field.value = value[field.name] || "";
+    });
+    const metadata = document.querySelector("#retrospective-metadata");
+    clear(metadata);
+    if (payload.metadata) {
+      appendTextPair(metadata, "提示请求 / 解锁", `${payload.metadata.hint_request_count} / ${payload.metadata.unlocked_hint_count}`);
+      appendTextPair(metadata, "手动验证 / 重置", `${payload.metadata.manual_verification_count} / ${payload.metadata.reset_count}`);
+      appendTextPair(metadata, "首次通过", payload.metadata.first_passed_at ? new Date(payload.metadata.first_passed_at).toLocaleString("zh-CN") : "尚未通过");
+    }
+  };
+
+  const renderTimeline = (payload) => {
+    const target = document.querySelector("#session-timeline");
+    clear(target);
+    payload.entries.forEach((entry) => {
+      const item = element("article", { className: "stack-item" });
+      const header = element("header");
+      header.append(element("strong", { text: entry.title }));
+      if (entry.status) header.append(badge(entry.status));
+      item.append(header);
+      item.append(element("small", { text: new Date(entry.occurred_at).toLocaleString("zh-CN") }));
+      if (entry.kind === "evidence") {
+        item.append(element("code", { text: JSON.stringify(entry.details) }));
+      }
+      target.append(item);
     });
   };
 
@@ -640,6 +700,17 @@
   };
 
   const initializeSessionActions = () => {
+    document.querySelector("#reconcile-session").addEventListener("click", async (event) => {
+      try {
+        const payload = await withBusy(event.currentTarget, "协调中…", () =>
+          api("/api/v1/sessions/active/reconcile", { method: "POST" }),
+        );
+        if (payload) {
+          updateSessionIdentity(payload.session);
+          text("#recovery-banner", `集群状态：${statusLabel(payload.cluster_state)}`);
+        }
+      } catch (error) { showPageError(error); }
+    });
     document.querySelector("#copy-namespace").addEventListener("click", async () => {
       try {
         await copyText(state.activeSession.namespace, "Namespace");
@@ -719,14 +790,20 @@
       );
     }
     updateSessionIdentity(active.session);
-    const [detail, retrospective] = await Promise.all([
+    const recovery = document.querySelector("#recovery-banner");
+    recovery.textContent = `已从本地数据库恢复 Session；集群状态为 ${statusLabel(active.cluster_state)}。`;
+    recovery.classList.remove("hidden");
+    text("#session-stage", statusLabel(active.stage));
+    const [detail, retrospective, timeline] = await Promise.all([
       api(`/api/v1/labs/${encodeURIComponent(active.session.lab_id)}`),
       api("/api/v1/sessions/latest/retrospective"),
+      api("/api/v1/sessions/active/timeline"),
     ]);
     text("#session-title", detail.lab.name);
     text("#session-task", detail.task);
     renderInvestigationCommands(active.session.namespace);
     fillRetrospective(retrospective);
+    renderTimeline(timeline);
     initializeSessionActions();
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) {
@@ -741,8 +818,8 @@
   };
 
   const loadProgress = async () => {
-    const payload = await api("/api/v1/labs");
-    const labs = payload.labs;
+    const [catalog, outcomes] = await Promise.all([api("/api/v1/labs"), api("/api/v1/progress")]);
+    const labs = catalog.labs;
     const completed = labs.filter((lab) => lab.progress === "completed");
     const active = labs.filter((lab) => lab.progress === "active");
     text("#progress-total", labs.length);
@@ -750,36 +827,31 @@
     text("#progress-active", active.length);
     text("#progress-rate", labs.length ? `${Math.round((completed.length / labs.length) * 100)}%` : "0%");
 
-    const grouped = new Map();
-    labs.forEach((lab) => {
-      const value = grouped.get(lab.category) || { total: 0, completed: 0 };
-      value.total += 1;
-      if (lab.progress === "completed") value.completed += 1;
-      grouped.set(lab.category, value);
-    });
     const categories = document.querySelector("#category-progress");
     clear(categories);
-    [...grouped.entries()].sort().forEach(([category, value]) => {
+    outcomes.categories.forEach((value) => {
       const row = element("article", { className: "progress-row" });
       const header = element("header");
-      header.append(element("strong", { text: category }), element("span", { text: `${value.completed}/${value.total}` }));
+      header.append(element("strong", { text: value.category }), element("span", { text: `${value.completed_lab_count}/${value.lab_count}` }));
       const progress = element("progress", { className: "progress-track" });
-      progress.setAttribute("aria-label", `${category} 完成进度`);
-      progress.max = value.total;
-      progress.value = value.completed;
+      progress.setAttribute("aria-label", `${value.category} 完成进度`);
+      progress.max = value.lab_count;
+      progress.value = value.completed_lab_count;
       row.append(header, progress);
       categories.append(row);
     });
 
     const completedTarget = document.querySelector("#completed-labs");
     clear(completedTarget);
-    if (!completed.length) {
+    const completedOutcomes = outcomes.labs.filter((lab) => lab.completion_count > 0);
+    if (!completedOutcomes.length) {
       completedTarget.className = "empty-state";
       completedTarget.append(element("p", { text: "还没有完成记录。完成第一个实验后会显示在这里。" }));
     } else {
-      completed.forEach((lab) => {
-        const link = element("a", { className: "stack-item", href: `/labs/${encodeURIComponent(lab.id)}` });
-        link.append(element("strong", { text: lab.name }), element("p", { text: `${lab.category} · ${lab.difficulty}` }));
+      completedOutcomes.forEach((lab) => {
+        const link = element("a", { className: "stack-item", href: `/labs/${encodeURIComponent(lab.lab_id)}` });
+        const first = new Date(lab.first_completed_at).toLocaleDateString("zh-CN");
+        link.append(element("strong", { text: lab.name }), element("p", { text: `${lab.category} · 首次 ${first} · 重复完成 ${lab.repeat_completion_count} 次` }));
         completedTarget.append(link);
       });
     }

@@ -28,6 +28,7 @@ def ui_client():
     ("path", "page", "heading"),
     [
         ("/", "dashboard", "今天，从一个真实故障开始。"),
+        ("/onboarding", "onboarding", "准备本地实验环境"),
         ("/labs", "labs", "实验目录"),
         ("/labs/lab-005-image-pull", "lab-detail", "你的任务"),
         ("/sessions/123e4567-e89b-42d3-a456-426614174111", "session", "资源与 Pods"),
@@ -45,6 +46,7 @@ def test_page_shells_render_navigation_and_expected_landmarks(
     assert heading in response.text
     assert 'href="/"' in response.text
     assert 'href="/labs"' in response.text
+    assert 'href="/onboarding"' in response.text
     assert 'href="/progress"' in response.text
     assert 'src="http://testserver/static/app.js"' in response.text
 
@@ -103,6 +105,9 @@ def test_frontend_uses_text_only_rendering_and_required_interaction_guards() -> 
     assert 'button.dataset.busy === "true"' in script
     assert "navigator.clipboard.writeText" in script
     assert "kubelab workspace enter" in script
+    assert "/api/v1/sessions/active/reconcile" in script
+    assert "/api/v1/sessions/active/timeline" in script
+    assert "/api/v1/progress" in script
     assert "expected" not in script
     assert "actual" not in script
 
@@ -171,6 +176,7 @@ def test_built_distributions_pass_shared_release_verifier(tmp_path: Path) -> Non
         "kubelab/templates/lab_detail.html",
         "kubelab/templates/session.html",
         "kubelab/templates/progress.html",
+        "kubelab/templates/onboarding.html",
     } <= files
     lab_definitions = {
         name for name in files if name.startswith("kubelab/labs/") and name.endswith("/lab.yaml")

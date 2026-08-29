@@ -314,7 +314,11 @@ def _version_satisfies(actual: str, requirement: str) -> bool:
 
 
 def _safe_text(value: str) -> str:
-    return str(redact_json(value.replace("\r", " ").replace("\n", " ")))[:500]
+    safe = str(redact_json(value.replace("\r", " ").replace("\n", " ")))[:500]
+    lowered = safe.casefold()
+    if "traceback" in lowered or ("apiversion:" in lowered and "kind:" in lowered):
+        return "检查详情不可公开。"
+    return safe
 
 
 def public_validation_outcome(status: ValidationStatus) -> PublicValidationOutcome:

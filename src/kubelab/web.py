@@ -32,7 +32,7 @@ from kubelab.guided_learning import (
     OnboardingState,
     public_validation_outcome,
 )
-from kubelab.kubernetes_gateway import EventSummary, LogResult, PodSummary, ResourceSummary
+from kubelab.kubernetes_gateway import EventSummary, LogResult
 from kubelab.lab_manager import (
     HintResult,
     LabCatalogItem,
@@ -68,6 +68,20 @@ CSRF_COOKIE = "kubelab_csrf"
 CSRF_HEADER = "X-CSRF-Token"
 REQUEST_ID_HEADER = "X-Request-ID"
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+_PUBLIC_RESOURCE_KINDS = frozenset(
+    {
+        "ConfigMap",
+        "CronJob",
+        "DaemonSet",
+        "Deployment",
+        "Job",
+        "PersistentVolumeClaim",
+        "Pod",
+        "ReplicaSet",
+        "Service",
+        "StatefulSet",
+    }
+)
 _PACKAGE_DIR = Path(__file__).resolve().parent
 _CONTENT_SECURITY_POLICY = "; ".join(
     (
@@ -144,10 +158,24 @@ class LabsResponse(WebModel):
     invalid_lab_count: int
 
 
+class PublicResourceSummary(WebModel):
+    kind: str
+    name: str
+    status: str | None
+
+
+class PublicPodSummary(WebModel):
+    name: str
+    phase: str | None
+    ready: bool
+    restart_count: int
+    reason: str | None
+
+
 class ResourcesResponse(WebModel):
     session: PublicSession
-    resources: tuple[ResourceSummary, ...]
-    pods: tuple[PodSummary, ...]
+    resources: tuple[PublicResourceSummary, ...]
+    pods: tuple[PublicPodSummary, ...]
 
 
 class EventsResponse(WebModel):
@@ -590,8 +618,25 @@ def create_app(
         result = _service(request).resources()
         return ResourcesResponse(
             session=_public_session(result.session),
-            resources=result.resources,
-            pods=result.pods,
+            resources=tuple(
+                PublicResourceSummary(
+                    kind=item.kind,
+                    name=item.name,
+                    status=_redacted_optional_text(item.status),
+                )
+                for item in result.resources
+                if item.kind in _PUBLIC_RESOURCE_KINDS
+            ),
+            pods=tuple(
+                PublicPodSummary(
+                    name=item.name,
+                    phase=item.phase,
+                    ready=item.ready,
+                    restart_count=item.restart_count,
+                    reason=_redacted_optional_text(item.reason),
+                )
+                for item in result.pods
+            ),
         )
 
     @app.get("/api/v1/sessions/active/events", response_model=EventsResponse)
@@ -752,7 +797,11 @@ def _redacted_optional_text(value: str | None) -> str | None:
 
 
 def _redacted_text(value: str) -> str:
-    return str(redact_json(value))
+    safe = str(redact_json(value)).replace("\r", " ").replace("\n", " ")[:500]
+    lowered = safe.casefold()
+    if "traceback" in lowered or ("apiversion:" in lowered and "kind:" in lowered):
+        return "Details unavailable."
+    return safe
 
 
 def _require_namespace_confirmation(
