@@ -670,6 +670,10 @@ class LabManager:
             f"- 分类 / 难度：{metadata.category} / {metadata.difficulty}",
             f"- Session：`{metadata.session_id}`",
             f"- Namespace：`{metadata.namespace}`",
+            f"- 开始时间：{_iso_or_dash(metadata.started_at)}",
+            f"- 首次通过：{_iso_or_dash(metadata.first_passed_at)}",
+            f"- 清理时间：{_iso_or_dash(metadata.completed_at)}",
+            f"- 完成耗时：{_duration_text(metadata.completion_duration_seconds)}",
             f"- 提示请求 / 解锁：{metadata.hint_request_count} / {metadata.unlocked_hint_count}",
             f"- 手动验证 / 重置：{metadata.manual_verification_count} / {metadata.reset_count}",
             "",
@@ -687,6 +691,7 @@ class LabManager:
             lines.extend((f"## {title}", "", _markdown_text(content) or "（未填写）", ""))
         if metadata.last_verification is not None:
             lines.extend(("## 最后一次公开验证", ""))
+            lines.append(f"- 总体状态：{metadata.last_verification.status}")
             for check in metadata.last_verification.results:
                 lines.append(
                     f"- `{check.check_id}`：{check.status} — {_markdown_text(check.message)}"
@@ -1341,6 +1346,14 @@ def _markdown_text(value: str) -> str:
     for character in ("`", "*", "_", "[", "]", "#"):
         escaped = escaped.replace(character, f"\\{character}")
     return escaped.replace("\r", "").strip()
+
+
+def _iso_or_dash(value: datetime | None) -> str:
+    return value.isoformat() if value is not None else "—"
+
+
+def _duration_text(seconds: int | None) -> str:
+    return f"{seconds} 秒" if seconds is not None else "—"
 
 
 def _registry_error_context(error: RegistryError) -> dict[str, Any]:

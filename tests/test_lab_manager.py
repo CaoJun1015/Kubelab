@@ -531,6 +531,11 @@ def test_retrospective_metadata_and_export_are_public_bounded_and_html_safe(
     assert "private-value" not in exported
     assert "expected" not in exported.casefold()
     assert "actual" not in exported.casefold()
+    assert "开始时间" in exported
+    assert "首次通过" in exported
+    assert "清理时间" in exported
+    assert "完成耗时" in exported
+    assert "总体状态：unavailable" in exported
     assert len(exported) <= 50_000
 
 
