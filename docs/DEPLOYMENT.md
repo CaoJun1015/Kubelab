@@ -499,7 +499,7 @@ KUBELAB_RUN_LAB_INTEGRATION=1 \
   uv run pytest --no-cov -q tests/test_first_labs_integration.py
 ```
 
-测试定义会对全部18个实验执行`start → 受限workspace修复 → verify → reset → cleanup`，并验证工作区不能读取Secret或集群级Namespace。LAB-001至012已有真实验收记录；LAB-013至018在维护者明确运行并通过前只具备Fake Gateway契约，不声明真实集群验收完成。测试默认关闭；禁止在远程或生产集群设置该变量。
+测试会对全部18个实验执行`start → 受限workspace修复 → verify → reset → cleanup`，并验证工作区不能读取Secret或集群级Namespace。LAB-001至018均已在受信任的本机minikube中完成真实验收。测试默认关闭；禁止在远程或生产集群设置该变量。
 
 ## 15. 升级KubeLab
 

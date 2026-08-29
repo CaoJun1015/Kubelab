@@ -255,7 +255,7 @@ KUBELAB_RUN_INTEGRATION=1 uv run pytest --no-cov -q tests/test_kubernetes_gatewa
 KUBELAB_RUN_LAB_INTEGRATION=1 uv run pytest --no-cov -q tests/test_first_labs_integration.py
 ```
 
-全部18个实验默认使用Fake Gateway证明`initial → success预检失败 → fix → reset`契约，不接触集群。显式真实测试入口已覆盖18个实验，只创建随机`kubelab-test-*` Namespace；LAB-001至012已有真实验收记录，LAB-013至018在明确启用该变量并完成验收前不声明真实集群兼容性。执行前要求固定版本镜像已进入minikube缓存，LAB-011要求Ingress Controller可用，LAB-012和LAB-018要求默认`standard` StorageClass及storage-provisioner可用。不要在远程或生产Context运行。
+全部18个实验默认使用Fake Gateway证明`initial → success预检失败 → fix → reset`契约，不接触集群。显式真实测试已对18个实验完成`start → 受限workspace修复 → verify → reset → cleanup`验收，只创建随机`kubelab-test-*` Namespace，并验证Secret、集群级Namespace和残留资源安全边界。执行前要求固定版本镜像已进入minikube缓存，LAB-011要求Ingress Controller可用，LAB-012和LAB-018要求默认`standard` StorageClass及storage-provisioner可用。不要在远程或生产Context运行。
 
 ## 安全边界
 
@@ -302,7 +302,7 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 - [x] M3-01 受限WSL工作区、wheel实验打包与12实验真实验收。
 - [x] M4 首个GitHub-only稳定版发布就绪。
 - [x] M5 引导式排障学习闭环。
-- [x] LAB-013至018 六个中级排障实验与18实验产物契约。
+- [x] LAB-013至018 六个中级排障实验与18实验真实验收。
 
 详细设计见[PRD](PRD-KubeLab.md)、[TDD](TDD-KubeLab.md)、[架构说明](docs/ARCHITECTURE.md)、[实验开发指南](docs/LAB_DEVELOPMENT.md)、[贡献指南](CONTRIBUTING.md)和[安全策略](SECURITY.md)。
 

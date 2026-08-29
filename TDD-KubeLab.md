@@ -1455,7 +1455,7 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - 在既有`kubelab.io/v1alpha1`和八种验证器上新增LAB-013至018，不增加验证器、持久化状态、Workspace权限或Web业务入口；
 - 新场景覆盖Service TargetPort、ConfigMap键契约、失败Job、StatefulSet Headless Service、DaemonSet节点选择和缺失PVC依赖；
 - LAB-012与LAB-018声明`default-storageclass`实验要求，readiness复用Doctor的`default_storage_class`结果并在集群写入前阻断；
-- Fake Gateway和安全Fixture覆盖全部18个实验；真实集成测试定义同步扩展，但LAB-013至018在显式运行前不声明真实集群验收完成。
+- Fake Gateway和安全Fixture覆盖全部18个实验；真实集成测试已对LAB-001至018完成受限Workspace端到端验收。
 
 ---
 
@@ -1631,3 +1631,11 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - Fake Gateway逐项证明LAB-001至018的初始故障、成功条件预检失败、标准修复通过和reset恢复；全部初始Manifest与标准修复通过安全扫描；
 - `KUBELAB_RUN_INTEGRATION`与`KUBELAB_RUN_LAB_INTEGRATION`保持为`0`，未执行真实start、reset、cleanup；LAB-013至018在维护者显式验收前不声明真实集群兼容性；
 - 分支保持为`codex/m5-guided-learning`，版本保持`0.2.0a0`，未修改`v0.1.0`标签或Release，未合并main，未推送远端。
+
+2026-08-29，M5-01全部18个实验完成受信任本机minikube真实验收：
+
+- 预检确认Context为已信任的本机`minikube`、Kubernetes为v1.35.1、Ingress和默认`standard` StorageClass可用、storage-provisioner为Running，四个固定实验镜像均已缓存；
+- 显式设置`KUBELAB_RUN_LAB_INTEGRATION=1`，18项真实契约全部通过，耗时3734.50秒；每项均完成`start → 受限workspace标准修复 → verify → reset → cleanup`；
+- LAB-013验证Endpoint存在但错误TargetPort导致HTTP失败，修复后返回200；LAB-014验证缺失ConfigMap键；LAB-015验证不可变Job删除重建；LAB-016验证Headless Service；LAB-017验证`nodeSelector: null`清除调度条件；LAB-018验证PVC动态供应；
+- 独立残留审计确认不存在`kubelab-*` Namespace、KubeLab Workspace ServiceAccount/Role/RoleBinding、Probe Pod、PVC、PV或`/tmp/kubelab-workspace-*`目录；
+- 验收只访问本机Docker驱动的minikube，没有访问远程或生产集群；残留审计后已把profile恢复为Stopped，也未修改`v0.1.0`标签或Release。

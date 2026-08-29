@@ -104,7 +104,7 @@ uv run pytest tests/test_lab_schema.py
 - LAB-013至015：Service TargetPort错误、ConfigMap键缺失和Job命令失败；
 - LAB-016至018：StatefulSet无头服务错配、DaemonSet节点选择错误和PVC依赖缺失。
 
-全部18个实验使用Fake Gateway证明初始故障、成功条件预检失败、标准修复通过和reset恢复。默认关闭的真实minikube契约测试入口包含全部18个实验；LAB-001至012已有真实验收记录，LAB-013至018在维护者明确运行并通过前不声明集群端到端验收。
+全部18个实验使用Fake Gateway证明初始故障、成功条件预检失败、标准修复通过和reset恢复。默认关闭的真实minikube契约测试也已对LAB-001至018完成`start → 受限workspace修复 → verify → reset → cleanup`端到端验收。
 
 LAB-011要求Doctor确认`ingress` addon已启用。LAB-012和LAB-018通过实验级readiness要求默认StorageClass；PVC的`storageClassName`不可原地修改，修复时需要删除故障PVC后重新创建。
 
