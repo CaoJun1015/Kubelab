@@ -444,7 +444,7 @@ kubelab cleanup
 
 卡住时运行`kubelab hint`，每次只会解锁下一层提示。`reset`和`cleanup`都会显示目标Namespace并要求确认。日常短命令默认选择唯一活动实验，不需要手工保存Session ID。
 
-当前目录包含12个实验。运行LAB-011前，必须确认`kubelab doctor`中的Ingress addon为可用；运行LAB-012前，必须确认默认StorageClass存在，并先修复任何`storage-provisioner`异常。任一前置条件不满足时不要启动对应实验。PVC的StorageClass字段不可原地修改，应按实验提示删除故障PVC后使用可用StorageClass重新创建。
+当前目录包含18个实验。运行LAB-011前，必须确认`kubelab doctor`中的Ingress addon为可用；LAB-012和LAB-018会把默认StorageClass声明为实验级必需项，检查失败时在创建Session或访问集群前阻止启动，并展示固定修复命令。PVC的StorageClass字段不可原地修改，应按实验提示删除故障PVC后使用可用StorageClass重新创建。
 
 ### 14.1 固定版本实验镜像缓存
 
@@ -490,7 +490,7 @@ kubectl wait --for=condition=Ready pod/storage-provisioner -n kube-system --time
 
 Ingress遇到同类路径改写问题时，先用`minikube addons images ingress`查看当前版本和槽位，再为`IngressController`、`KubeWebhookCertgenCreate`、`KubeWebhookCertgenPatch`提供已经缓存且与默认版本一致的相对镜像名。不要凭猜测混用控制器或证书生成器版本。
 
-### 14.3 十二实验真实验收（仅本机受信任minikube）
+### 14.3 十八实验真实契约入口（仅本机受信任minikube）
 
 只有`kubelab context inspect`显示`trusted`，且当前Context明确为本机minikube时才运行：
 
@@ -499,7 +499,7 @@ KUBELAB_RUN_LAB_INTEGRATION=1 \
   uv run pytest --no-cov -q tests/test_first_labs_integration.py
 ```
 
-测试对全部12个实验执行`start → 受限workspace修复 → verify → reset → cleanup`，并验证工作区不能读取Secret或集群级Namespace。测试默认关闭；禁止在远程或生产集群设置该变量。
+测试定义会对全部18个实验执行`start → 受限workspace修复 → verify → reset → cleanup`，并验证工作区不能读取Secret或集群级Namespace。LAB-001至012已有真实验收记录；LAB-013至018在维护者明确运行并通过前只具备Fake Gateway契约，不声明真实集群验收完成。测试默认关闭；禁止在远程或生产集群设置该变量。
 
 ## 15. 升级KubeLab
 

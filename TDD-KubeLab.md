@@ -1446,9 +1446,16 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - [x] `EnvironmentReadinessService`组合Doctor、Context信任和实验requirements，`LabManager.start()`在任何Session或集群写入前执行新鲜门禁；
 - [x] 活动Session恢复改为SQLite纯读取，显式reconcile负责集群协调；资源、Events和Logs GET不改变状态；
 - [x] 时间线合并Session事件、提示、验证和best-effort evidence，阶段从既有SessionStatus派生；
-- [x] 提示按观察方向、建议命令和故障方向分层，12个实验的第二层均为固定Workspace命令；公开验证统一为passed/failed/unavailable；
+- [x] 提示按观察方向、建议命令和故障方向分层，18个实验的第二层均为固定Workspace命令；公开验证统一为passed/failed/unavailable；
 - [x] 进度从既有业务记录派生，复盘动态附加公开元数据并支持有界、脱敏、HTML中和的Markdown导出；
 - [x] Web公开资源使用独立白名单DTO，排除Secret及Kubernetes原始字段；新增写API继续执行Origin和CSRF校验。
+
+### M5-01 六个中级实验
+
+- 在既有`kubelab.io/v1alpha1`和八种验证器上新增LAB-013至018，不增加验证器、持久化状态、Workspace权限或Web业务入口；
+- 新场景覆盖Service TargetPort、ConfigMap键契约、失败Job、StatefulSet Headless Service、DaemonSet节点选择和缺失PVC依赖；
+- LAB-012与LAB-018声明`default-storageclass`实验要求，readiness复用Doctor的`default_storage_class`结果并在集群写入前阻断；
+- Fake Gateway和安全Fixture覆盖全部18个实验；真实集成测试定义同步扩展，但LAB-013至018在显式运行前不声明真实集群验收完成。
 
 ---
 
@@ -1615,3 +1622,12 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - 两端Ruff、Ruff format、strict mypy、JavaScript语法、`git diff --check`、wheel/sdist构建及统一产物检查全部通过；产物包含12个实验、9个Web资源、`0001`与`0002`迁移；
 - `KUBELAB_RUN_INTEGRATION`与`KUBELAB_RUN_LAB_INTEGRATION`在全部验收中保持为`0`，未执行真实start、reset、cleanup，未访问或修改minikube资源；
 - 分支保持为`codex/m5-guided-learning`，未修改`v0.1.0`标签或Release，未合并main，未推送远端。
+
+2026-08-29，M5-01六个中级实验与18实验目录契约完成双环境自动化质量门：
+
+- Windows Python 3.11收集510项测试，488项通过，18项实验集成、2项网关集成和2项符号链接测试按预期跳过，覆盖率92.36%；
+- WSL2 Ubuntu Python 3.11.16收集510项测试，490项通过，18项实验集成和2项网关集成测试按预期跳过，覆盖率92.51%；
+- 两端Ruff、Ruff format、strict mypy、JavaScript语法、`git diff --check`、wheel/sdist构建及统一产物检查全部通过；产物包含18个实验、9个Web资源、`0001`与`0002`迁移；
+- Fake Gateway逐项证明LAB-001至018的初始故障、成功条件预检失败、标准修复通过和reset恢复；全部初始Manifest与标准修复通过安全扫描；
+- `KUBELAB_RUN_INTEGRATION`与`KUBELAB_RUN_LAB_INTEGRATION`保持为`0`，未执行真实start、reset、cleanup；LAB-013至018在维护者显式验收前不声明真实集群兼容性；
+- 分支保持为`codex/m5-guided-learning`，版本保持`0.2.0a0`，未修改`v0.1.0`标签或Release，未合并main，未推送远端。

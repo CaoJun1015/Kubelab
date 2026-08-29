@@ -10,7 +10,7 @@ flowchart TB
     CLI --> App[Application Service / LabManager]
     Web --> App
 
-    App --> Registry[LabRegistry\n12 个包内实验]
+    App --> Registry[LabRegistry\n18 个包内实验]
     App --> Ready[EnvironmentReadinessService\nDoctor + Context + requirements]
     App --> Engine[ValidationEngine\n8 类声明式检查]
     App --> UoW[Unit of Work / Repositories]

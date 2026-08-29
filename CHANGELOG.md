@@ -10,11 +10,13 @@
 - 可恢复Session、派生学习阶段、排障时间线及脱敏资源快照。
 - 三层提示、公开验证三态、派生进度统计和脱敏Markdown复盘导出。
 - Alembic `0002_guided_learning`迁移，兼容v0.1.0数据库原地升级。
+- LAB-013至018六个中级实验，覆盖Service TargetPort、ConfigMap键契约、Job、StatefulSet Headless Service、DaemonSet调度和PVC依赖。
 
 ### Changed
 
 - 开始开发KubeLab 0.2.0a0的M5引导式排障学习闭环。
 - 活动Session GET改为纯SQLite读取；资源、Events和Logs读取不再推进学习状态，集群协调改为显式写API。
+- LAB-012和LAB-018把默认StorageClass纳入实验级readiness强制门禁；wheel、sdist和Web目录契约扩展为18个实验。
 
 ### Security
 

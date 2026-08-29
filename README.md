@@ -24,8 +24,8 @@ KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 
 - `ContextTrustService.assert_trusted_context()`：为后续所有Kubernetes写操作提供统一安全守卫；
 - `kubelab.io/v1alpha1`实验Schema：严格校验实验元数据、任务、检查、提示和声明式清理配置；
 - `LabRegistry`：确定性扫描本地实验，隔离损坏实验并拒绝危险Manifest、路径逃逸和集群级资源；
-- 十二个声明式实验：覆盖扩缩容、滚动更新、ConfigMap、探针、镜像、CrashLoop、Service、Readiness、OOM、Ingress和PVC；
-- wheel内置全部12个实验目录、Jinja模板和静态资源，安装后不依赖源码仓库中的`labs/`；
+- 十八个声明式实验：在原有扩缩容、滚动更新、配置、探针、镜像、网络、资源、Ingress和PVC场景上，增加Service端口映射、配置键契约、Job、StatefulSet、DaemonSet和PVC依赖排障；
+- wheel内置全部18个实验目录、Jinja模板和静态资源，安装后不依赖源码仓库中的`labs/`；
 - 可重复生成的`schemas/lab-v1alpha1.schema.json`及错误脱敏；
 - SQLAlchemy 2与Alembic持久化：保存Session、状态事件、验证记录、提示和复盘；
 - M5首次引导：Web缓存展示WSL2、Docker、minikube、kubectl和Context信任结果，只有显式“重新检查”或启动实验才执行固定只读诊断；修复命令只允许复制；
@@ -244,18 +244,18 @@ uv run mypy src
 
 如果Windows与WSL对同一工作目录执行检查，必须为两端配置不同的uv虚拟环境路径，不能共享`.venv`；更推荐把正式WSL开发副本放在Linux文件系统中。
 
-当前质量基线：Windows和WSL的最终数据见TDD“当前环境说明”中的M4记录。两端均要求pytest覆盖率不低于90%，并通过Ruff、格式检查、strict mypy、JavaScript语法、构建、统一产物检查和`git diff --check`。真实集成测试默认关闭，只能在已信任的本地minikube中显式运行。
+当前质量基线：Windows和WSL的最终数据见TDD“当前环境说明”中的M5-01记录。两端均要求pytest覆盖率不低于90%，并通过Ruff、格式检查、strict mypy、JavaScript语法、构建、统一产物检查和`git diff --check`。真实集成测试默认关闭，只能在已信任的本地minikube中显式运行。
 
 只有在WSL中确认`kubelab context inspect`显示`trusted`后，才可显式运行真实网关测试：
 
 ```bash
 KUBELAB_RUN_INTEGRATION=1 uv run pytest --no-cov -q tests/test_kubernetes_gateway_integration.py
 
-# 全部12个实验的真实start → 受限workspace修复 → verify → reset → cleanup契约
+# 全部18个实验的真实start → 受限workspace修复 → verify → reset → cleanup契约
 KUBELAB_RUN_LAB_INTEGRATION=1 uv run pytest --no-cov -q tests/test_first_labs_integration.py
 ```
 
-全部12个实验默认使用Fake Gateway证明`initial → success预检失败 → fix → reset`契约，不接触集群。显式真实测试覆盖12个实验，只创建随机`kubelab-test-*` Namespace；标准修复通过短期令牌和Namespace限定RBAC应用，并验证不能读取Secret或集群级Namespace，最后执行所有权校验和清理。执行前要求固定版本镜像已进入minikube缓存，LAB-011要求Ingress Controller可用，LAB-012要求默认`standard` StorageClass和storage-provisioner可用；缺失时会报告环境跳过。不要在远程或生产Context运行。
+全部18个实验默认使用Fake Gateway证明`initial → success预检失败 → fix → reset`契约，不接触集群。显式真实测试入口已覆盖18个实验，只创建随机`kubelab-test-*` Namespace；LAB-001至012已有真实验收记录，LAB-013至018在明确启用该变量并完成验收前不声明真实集群兼容性。执行前要求固定版本镜像已进入minikube缓存，LAB-011要求Ingress Controller可用，LAB-012和LAB-018要求默认`standard` StorageClass及storage-provisioner可用。不要在远程或生产Context运行。
 
 ## 安全边界
 
@@ -275,7 +275,7 @@ KUBELAB_RUN_LAB_INTEGRATION=1 uv run pytest --no-cov -q tests/test_first_labs_in
 ```text
 src/kubelab/              Python包、CLI、本地REST API和Web界面
 tests/                    单元测试
-labs/                     十二个声明式实验定义
+labs/                     十八个声明式实验定义
 docs/                     部署与环境文档
 scripts/                  发布产物与WSL隔离验收脚本
 .github/                  双平台CI、Issue表单和PR模板
@@ -301,6 +301,8 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 - [x] M3 十二个声明式实验。
 - [x] M3-01 受限WSL工作区、wheel实验打包与12实验真实验收。
 - [x] M4 首个GitHub-only稳定版发布就绪。
+- [x] M5 引导式排障学习闭环。
+- [x] LAB-013至018 六个中级排障实验与18实验产物契约。
 
 详细设计见[PRD](PRD-KubeLab.md)、[TDD](TDD-KubeLab.md)、[架构说明](docs/ARCHITECTURE.md)、[实验开发指南](docs/LAB_DEVELOPMENT.md)、[贡献指南](CONTRIBUTING.md)和[安全策略](SECURITY.md)。
 
