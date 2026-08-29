@@ -1,0 +1,56 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-015-job-command-failure
+  name: LAB-015 Job命令失败
+  description: 一次性Job执行错误命令并以非零状态退出，需要结合日志和不可变模板完成修复。
+  difficulty: intermediate
+  durationMinutes: 30
+  category: workloads
+  tags: [job, exit-code, immutable]
+requirements:
+  kubernetes: ">=1.28"
+  minimumCpu: 1
+  minimumMemoryMiB: 1024
+  addons: []
+environment:
+  namespace: kubelab-job-command-failure
+  manifests: [manifests/job.yaml]
+  provisionTimeoutSeconds: 180
+task:
+  description: 根据Job状态和Pod日志定位失败命令，删除不可变的旧Job并用正确命令重建。
+  completionDescription: 重建后的Job至少产生一个Succeeded Pod。
+  successMessage: Job命令已经修复，一次性任务成功完成。
+initialChecks:
+  - id: job-present
+    type: resource_exists
+    apiVersion: batch/v1
+    kind: Job
+    name: data-check
+    timeoutSeconds: 15
+    unmetMessage: 初始Job不存在。
+  - id: job-pod-failed
+    type: pod_status
+    selector: {app: job-command-lab}
+    expectedPhase: Failed
+    minimumCount: 1
+    timeoutSeconds: 90
+    unmetMessage: Job Pod未呈现预期的失败状态。
+successChecks:
+  - id: job-pod-succeeded
+    type: pod_status
+    selector: {app: job-command-lab}
+    expectedPhase: Succeeded
+    minimumCount: 1
+    timeoutSeconds: 120
+    unmetMessage: 重建后的Job尚未成功完成。
+hints:
+  - {level: 1, content: 查看Job创建的Pod状态和容器退出前输出。}
+  - {level: 2, content: "kubectl logs -l job-name=data-check"}
+  - {level: 3, content: Job模板不可变；删除data-check后，用返回成功退出码的命令重建。}
+cleanup: {deleteNamespace: true}
+interview:
+  questions:
+    - Job的Pod退出码如何影响Job完成状态？
+    - 为什么修改Job Pod模板通常需要删除并重建？
+    - backoffLimit如何影响失败任务的重试行为？

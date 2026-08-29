@@ -1,0 +1,69 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-014-configmap-key-missing
+  name: LAB-014 ConfigMap键缺失
+  description: ConfigMap对象存在，但Deployment引用的必需键缺失，导致Pod无法创建容器。
+  difficulty: intermediate
+  durationMinutes: 25
+  category: configuration
+  tags: [configmap, environment, createcontainerconfigerror]
+requirements:
+  kubernetes: ">=1.28"
+  minimumCpu: 1
+  minimumMemoryMiB: 1024
+  addons: []
+environment:
+  namespace: kubelab-configmap-key-missing
+  manifests: [manifests/resources.yaml]
+  provisionTimeoutSeconds: 180
+task:
+  description: 保留Deployment的配置引用，找出ConfigMap数据契约中的缺失项并补齐它。
+  completionDescription: APP_MODE配置存在且值正确，工作负载Pod稳定Running且Ready。
+  successMessage: ConfigMap数据契约已经恢复，Pod成功创建并进入Ready。
+initialChecks:
+  - id: configmap-present
+    type: resource_exists
+    apiVersion: v1
+    kind: ConfigMap
+    name: app-settings
+    timeoutSeconds: 15
+    unmetMessage: 初始ConfigMap对象不存在。
+  - id: pod-config-error
+    type: pod_status
+    selector: {app: config-key-lab}
+    expectedPhase: Pending
+    containerName: worker
+    expectedWaitingReasons: [CreateContainerConfigError]
+    minimumCount: 1
+    timeoutSeconds: 90
+    unmetMessage: Pod未呈现预期的配置键缺失故障。
+successChecks:
+  - id: app-mode-correct
+    type: config_value
+    sourceKind: ConfigMap
+    sourceName: app-settings
+    key: APP_MODE
+    expectedValue: production
+    timeoutSeconds: 30
+    unmetMessage: APP_MODE配置尚未恢复。
+  - id: worker-ready
+    type: pod_status
+    selector: {app: config-key-lab}
+    expectedPhase: Running
+    minimumCount: 1
+    minimumReady: 1
+    stableSeconds: 5
+    ready: true
+    timeoutSeconds: 120
+    unmetMessage: 工作负载Pod尚未稳定Ready。
+hints:
+  - {level: 1, content: 对象存在不代表引用有效，先查看Pod Events中的具体配置错误。}
+  - {level: 2, content: "kubectl describe pods -l app=config-key-lab"}
+  - {level: 3, content: 在app-settings ConfigMap中补充值为production的APP_MODE键。}
+cleanup: {deleteNamespace: true}
+interview:
+  questions:
+    - ConfigMap不存在与ConfigMap键不存在会产生什么不同的诊断线索？
+    - 为什么配置引用错误会发生在容器启动之前？
+    - 如何在发布前验证工作负载与ConfigMap之间的数据契约？

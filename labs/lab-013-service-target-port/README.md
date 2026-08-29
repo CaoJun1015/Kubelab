@@ -1,0 +1,5 @@
+# LAB-013 Service TargetPort错误
+
+Deployment和Service Endpoint均处于正常状态，但Service把流量发送到错误的容器端口。学习者需要沿Service到Pod的流量路径定位故障，不能修改Deployment或Pod标签。
+
+标准修复仅把Service的`targetPort`恢复为容器声明的`http`命名端口。完成条件同时检查Endpoint和集群内HTTP响应，避免只根据资源外观判断服务可用。

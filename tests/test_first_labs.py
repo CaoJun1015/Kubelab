@@ -1,4 +1,4 @@
-"""Static and fake-cluster contracts for the twelve troubleshooting labs."""
+"""Static and fake-cluster contracts for the bundled troubleshooting labs."""
 
 from __future__ import annotations
 
@@ -41,6 +41,9 @@ EXPECTED_IDS = (
     "lab-010-oom-killed",
     "lab-011-ingress-backend-port",
     "lab-012-pvc-pending",
+    "lab-013-service-target-port",
+    "lab-014-configmap-key-missing",
+    "lab-015-job-command-failure",
 )
 FINGERPRINT = "a" * 64
 
@@ -179,6 +182,27 @@ class ScenarioGateway:
                     container="consumer",
                 ),
             )
+        if self.lab_id == "lab-014-configmap-key-missing":
+            return (
+                _pod(
+                    name="worker-abc",
+                    image="busybox:1.36.1",
+                    phase="Running" if self.fixed else "Pending",
+                    ready=self.fixed,
+                    reason=None if self.fixed else "CreateContainerConfigError",
+                    container="worker",
+                ),
+            )
+        if self.lab_id == "lab-015-job-command-failure":
+            return (
+                _pod(
+                    name="data-check-abc",
+                    image="busybox:1.36.1",
+                    phase="Succeeded" if self.fixed else "Failed",
+                    ready=False,
+                    container="checker",
+                ),
+            )
         return (
             _pod(
                 name="web-abc",
@@ -239,6 +263,12 @@ class ScenarioGateway:
         matched = True
         if self.lab_id == "lab-003-configmap-injection":
             matched = expected_value == ("production" if self.fixed else "development")
+        if self.lab_id == "lab-014-configmap-key-missing":
+            return ConfigMatchResult(
+                resource_exists=True,
+                key_exists=self.fixed,
+                matched=self.fixed and expected_value == "production",
+            )
         return ConfigMatchResult(resource_exists=True, key_exists=True, matched=matched)
 
     def pvc_phase(self, scope: SessionScope, name: str) -> str | None:
@@ -257,6 +287,7 @@ class ScenarioGateway:
                 "lab-007-service-selector",
                 "lab-009-readiness-path",
                 "lab-011-ingress-backend-port",
+                "lab-013-service-target-port",
             }
             and not self.fixed
         ):
@@ -318,7 +349,7 @@ def _solution_documents(lab: LoadedLab) -> tuple[ManifestDocument, ...]:
     )
 
 
-def test_default_registry_loads_exactly_twelve_labs() -> None:
+def test_default_registry_loads_expected_labs() -> None:
     labs = _snapshot()
 
     assert tuple(lab.definition.metadata.id for lab in labs) == EXPECTED_IDS
@@ -455,14 +486,53 @@ def test_advanced_fault_repairs_and_prerequisites_are_explicit() -> None:
     assert pvc_fix["spec"]["storageClassName"] == "standard"
 
 
+def test_intermediate_service_config_and_job_repairs_are_narrow() -> None:
+    service_initial = _yaml_documents(
+        LABS_ROOT / "lab-013-service-target-port" / "manifests" / "resources.yaml"
+    )[-1]
+    service_fix = _yaml_documents(
+        LABS_ROOT / "lab-013-service-target-port" / "solutions" / "fix.yaml"
+    )[0]
+    config_initial = _yaml_documents(
+        LABS_ROOT / "lab-014-configmap-key-missing" / "manifests" / "resources.yaml"
+    )[0]
+    config_fix = _yaml_documents(
+        LABS_ROOT / "lab-014-configmap-key-missing" / "solutions" / "fix.yaml"
+    )[0]
+    job_initial = _yaml_documents(
+        LABS_ROOT / "lab-015-job-command-failure" / "manifests" / "job.yaml"
+    )[0]
+    job_fix = _yaml_documents(LABS_ROOT / "lab-015-job-command-failure" / "solutions" / "fix.yaml")[
+        0
+    ]
+
+    assert service_initial["spec"]["selector"] == service_fix["spec"]["selector"]
+    assert service_initial["spec"]["ports"][0]["targetPort"] == 8080
+    assert service_fix["spec"]["ports"][0]["targetPort"] == "http"
+    assert config_initial["data"] == {"LOG_LEVEL": "info"}
+    assert config_fix["data"] == {"LOG_LEVEL": "info", "APP_MODE": "production"}
+    assert job_initial["spec"]["backoffLimit"] == job_fix["spec"]["backoffLimit"] == 0
+    assert job_initial["spec"]["template"]["spec"]["restartPolicy"] == "Never"
+    assert job_fix["spec"]["template"]["spec"]["restartPolicy"] == "Never"
+    assert "exit 1" in _workload_container(job_initial)["command"][-1]
+    assert "exit 0" in _workload_container(job_fix)["command"][-1]
+
+
 def test_all_runtime_images_use_explicit_non_latest_tags() -> None:
     images = []
     for path in sorted(LABS_ROOT.glob("lab-*/**/*.yaml")):
         if path.name == "lab.yaml":
             continue
         for document in _yaml_documents(path):
-            if document.get("kind") == "Deployment":
-                images.append(str(_container(document)["image"]))
+            if document.get("kind") in {
+                "Pod",
+                "Deployment",
+                "StatefulSet",
+                "DaemonSet",
+                "Job",
+                "CronJob",
+            }:
+                images.append(str(_workload_container(document)["image"]))
 
     assert images
     assert all(":" in image and not image.endswith(":latest") for image in images)
@@ -527,6 +597,17 @@ def test_fault_repair_reset_contract_is_proven_and_persisted(
 
 def _container(deployment: Mapping[str, Any]) -> Mapping[str, Any]:
     return deployment["spec"]["template"]["spec"]["containers"][0]
+
+
+def _workload_container(workload: Mapping[str, Any]) -> Mapping[str, Any]:
+    kind = workload["kind"]
+    if kind == "Pod":
+        pod_spec = workload["spec"]
+    elif kind == "CronJob":
+        pod_spec = workload["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    else:
+        pod_spec = workload["spec"]["template"]["spec"]
+    return pod_spec["containers"][0]
 
 
 def _ingress_backend_port(ingress: Mapping[str, Any]) -> int:

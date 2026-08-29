@@ -1,0 +1,59 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-013-service-target-port
+  name: LAB-013 Service TargetPort错误
+  description: Deployment和Endpoint均正常，但Service把流量转发到了错误的容器端口。
+  difficulty: intermediate
+  durationMinutes: 30
+  category: networking
+  tags: [service, targetport, endpoints]
+requirements:
+  kubernetes: ">=1.28"
+  minimumCpu: 1
+  minimumMemoryMiB: 1024
+  addons: []
+environment:
+  namespace: kubelab-service-target-port
+  manifests: [manifests/resources.yaml]
+  provisionTimeoutSeconds: 180
+task:
+  description: 在不修改Deployment和Pod标签的前提下，定位Endpoint存在但HTTP访问失败的原因。
+  completionDescription: Service保留Ready Endpoint，并通过集群内HTTP 200探测。
+  successMessage: Service TargetPort已经修复，流量能够到达容器监听端口。
+initialChecks:
+  - id: deployment-available
+    type: deployment_available
+    name: web
+    minimumReplicas: 1
+    timeoutSeconds: 120
+    unmetMessage: 初始Deployment尚未达到可用状态。
+  - id: endpoints-present
+    type: service_endpoint_count
+    name: web
+    minimum: 1
+    timeoutSeconds: 30
+    unmetMessage: Service未保留预期的Ready Endpoint。
+successChecks:
+  - id: endpoints-preserved
+    type: service_endpoint_count
+    name: web
+    minimum: 1
+    timeoutSeconds: 30
+    unmetMessage: Service没有Ready Endpoint。
+  - id: http-restored
+    type: http_response
+    target: {mode: service, name: web, port: 80, path: /}
+    expectedStatus: 200
+    timeoutSeconds: 60
+    unmetMessage: 集群内HTTP探测仍未返回200。
+hints:
+  - {level: 1, content: Endpoint存在时，继续检查Service端口到容器端口的映射。}
+  - {level: 2, content: "kubectl get service web -o yaml"}
+  - {level: 3, content: 把Service的targetPort修正为容器声明的http端口。}
+cleanup: {deleteNamespace: true}
+interview:
+  questions:
+    - Service的port、targetPort和containerPort分别承担什么职责？
+    - 为什么Endpoint存在仍不能证明HTTP一定可达？
+    - 使用命名端口相比数字端口有什么维护优势？
