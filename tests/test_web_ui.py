@@ -181,5 +181,5 @@ def test_built_distributions_pass_shared_release_verifier(tmp_path: Path) -> Non
     lab_definitions = {
         name for name in files if name.startswith("kubelab/labs/") and name.endswith("/lab.yaml")
     }
-    assert len(lab_definitions) == 12
-    assert "kubelab/labs/lab-012-pvc-pending/lab.yaml" in lab_definitions
+    assert len(lab_definitions) == 18
+    assert "kubelab/labs/lab-018-pvc-claim-missing/lab.yaml" in lab_definitions

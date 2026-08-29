@@ -1,0 +1,65 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-018-pvc-claim-missing
+  name: LAB-018 PVC依赖缺失
+  description: Deployment引用不存在的PVC，Pod因未满足的存储依赖持续Pending。
+  difficulty: intermediate
+  durationMinutes: 30
+  category: storage
+  tags: [pvc, volume, dependency]
+requirements:
+  kubernetes: ">=1.28"
+  minimumCpu: 1
+  minimumMemoryMiB: 1024
+  addons: [default-storageclass]
+environment:
+  namespace: kubelab-pvc-claim-missing
+  manifests: [manifests/deployment.yaml]
+  provisionTimeoutSeconds: 180
+task:
+  description: 保留Deployment的卷引用，定位Pod Pending的存储依赖并创建受限规格的缺失PVC。
+  completionDescription: app-data PVC进入Bound，使用该卷的Pod稳定Running且Ready。
+  successMessage: 缺失的PVC已经创建并绑定，工作负载成功启动。
+initialChecks:
+  - id: deployment-present
+    type: resource_exists
+    apiVersion: apps/v1
+    kind: Deployment
+    name: consumer
+    timeoutSeconds: 15
+    unmetMessage: 初始Deployment不存在。
+  - id: consumer-pending
+    type: pod_status
+    selector: {app: pvc-consumer}
+    expectedPhase: Pending
+    minimumCount: 1
+    timeoutSeconds: 90
+    unmetMessage: Pod未呈现预期的存储依赖缺失故障。
+successChecks:
+  - id: app-data-bound
+    type: pvc_status
+    name: app-data
+    expectedPhase: Bound
+    timeoutSeconds: 120
+    unmetMessage: app-data PVC尚未进入Bound状态。
+  - id: consumer-ready
+    type: pod_status
+    selector: {app: pvc-consumer}
+    expectedPhase: Running
+    minimumCount: 1
+    minimumReady: 1
+    stableSeconds: 5
+    ready: true
+    timeoutSeconds: 120
+    unmetMessage: 使用app-data PVC的Pod尚未稳定Ready。
+hints:
+  - {level: 1, content: 查看Pod Events，并核对volume引用的PVC是否存在。}
+  - {level: 2, content: "kubectl describe pods -l app=pvc-consumer"}
+  - {level: 3, content: 创建名为app-data、使用standard StorageClass且容量受限的ReadWriteOnce PVC。}
+cleanup: {deleteNamespace: true}
+interview:
+  questions:
+    - Pod引用不存在的PVC时为什么会保持Pending？
+    - PVC创建后由哪些组件完成动态供应和绑定？
+    - 如何区分PVC对象缺失与PVC自身无法绑定？

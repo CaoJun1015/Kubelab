@@ -1,0 +1,52 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-017-daemonset-node-selector
+  name: LAB-017 DaemonSet节点选择错误
+  description: DaemonSet使用不存在的节点hostname作为选择条件，因此期望Pod始终为零。
+  difficulty: intermediate
+  durationMinutes: 30
+  category: workloads
+  tags: [daemonset, node-selector, scheduling]
+requirements:
+  kubernetes: ">=1.28"
+  minimumCpu: 1
+  minimumMemoryMiB: 1024
+  addons: []
+environment:
+  namespace: kubelab-daemonset-node-selector
+  manifests: [manifests/daemonset.yaml]
+  provisionTimeoutSeconds: 180
+task:
+  description: 不修改Node，定位DaemonSet没有期望Pod的原因，并修复工作负载自身的调度条件。
+  completionDescription: DaemonSet至少创建一个稳定Running且Ready的Pod。
+  successMessage: 错误的节点选择条件已经移除，DaemonSet Pod成功运行。
+initialChecks:
+  - id: daemonset-present
+    type: resource_exists
+    apiVersion: apps/v1
+    kind: DaemonSet
+    name: node-agent
+    timeoutSeconds: 15
+    unmetMessage: 初始DaemonSet不存在。
+successChecks:
+  - id: daemon-pod-ready
+    type: pod_status
+    selector: {app: daemonset-node-selector-lab}
+    expectedPhase: Running
+    minimumCount: 1
+    minimumReady: 1
+    stableSeconds: 5
+    ready: true
+    timeoutSeconds: 90
+    unmetMessage: DaemonSet尚未创建稳定Ready的Pod。
+hints:
+  - {level: 1, content: 比较DaemonSet期望调度数量，并检查工作负载声明的节点选择条件。}
+  - {level: 2, content: "kubectl describe daemonset node-agent"}
+  - {level: 3, content: 移除指向kubelab-never-match的hostname选择条件，不要修改Node标签。}
+cleanup: {deleteNamespace: true}
+interview:
+  questions:
+    - DaemonSet的期望调度数量由哪些条件决定？
+    - nodeSelector与修改Node标签相比，哪种修复更符合本实验边界？
+    - 为什么DaemonSet对象存在不能证明每个目标节点都有Pod？

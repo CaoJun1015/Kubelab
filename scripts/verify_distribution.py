@@ -12,7 +12,7 @@ from email import parser
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
-EXPECTED_LAB_COUNT = 12
+EXPECTED_LAB_COUNT = 18
 EXPECTED_WEB_ASSETS = {
     "static/app.js",
     "static/styles.css",

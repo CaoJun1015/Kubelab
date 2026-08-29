@@ -44,6 +44,9 @@ EXPECTED_IDS = (
     "lab-013-service-target-port",
     "lab-014-configmap-key-missing",
     "lab-015-job-command-failure",
+    "lab-016-statefulset-headless",
+    "lab-017-daemonset-node-selector",
+    "lab-018-pvc-claim-missing",
 )
 FINGERPRINT = "a" * 64
 
@@ -203,6 +206,38 @@ class ScenarioGateway:
                     container="checker",
                 ),
             )
+        if self.lab_id == "lab-016-statefulset-headless":
+            return (
+                _pod(
+                    name="web-0",
+                    image="nginx:1.27-alpine",
+                    phase="Running",
+                    ready=True,
+                    container="web",
+                ),
+            )
+        if self.lab_id == "lab-017-daemonset-node-selector":
+            if not self.fixed:
+                return ()
+            return (
+                _pod(
+                    name="node-agent-abc",
+                    image="busybox:1.36.1",
+                    phase="Running",
+                    ready=True,
+                    container="agent",
+                ),
+            )
+        if self.lab_id == "lab-018-pvc-claim-missing":
+            return (
+                _pod(
+                    name="consumer-abc",
+                    image="busybox:1.36.1",
+                    phase="Running" if self.fixed else "Pending",
+                    ready=self.fixed,
+                    container="consumer",
+                ),
+            )
         return (
             _pod(
                 name="web-abc",
@@ -231,7 +266,11 @@ class ScenarioGateway:
 
     def service_endpoint_count(self, scope: SessionScope, name: str) -> int | None:
         del scope, name
-        if self.lab_id in {"lab-007-service-selector", "lab-009-readiness-path"}:
+        if self.lab_id in {
+            "lab-007-service-selector",
+            "lab-009-readiness-path",
+            "lab-016-statefulset-headless",
+        }:
             return 1 if self.fixed else 0
         return 1
 
@@ -275,6 +314,8 @@ class ScenarioGateway:
         del scope, name
         if self.lab_id == "lab-012-pvc-pending":
             return "Bound" if self.fixed else "Pending"
+        if self.lab_id == "lab-018-pvc-claim-missing":
+            return "Bound" if self.fixed else None
         return "Bound"
 
     def run_http_probe(
@@ -288,6 +329,7 @@ class ScenarioGateway:
                 "lab-009-readiness-path",
                 "lab-011-ingress-backend-port",
                 "lab-013-service-target-port",
+                "lab-016-statefulset-headless",
             }
             and not self.fixed
         ):
@@ -357,6 +399,11 @@ def test_default_registry_loads_expected_labs() -> None:
     assert all(len(lab.definition.interview.questions) == 3 for lab in labs)
     assert all(lab.definition.hints[1].content.startswith("kubectl ") for lab in labs)
     assert all("<" not in lab.definition.hints[1].content for lab in labs)
+    assert all(
+        lab.definition.metadata.difficulty == "intermediate"
+        for lab in labs
+        if lab.definition.metadata.id >= "lab-013"
+    )
 
 
 @pytest.mark.parametrize("lab", _snapshot(), ids=lambda lab: lab.definition.metadata.id)
@@ -480,6 +527,9 @@ def test_advanced_fault_repairs_and_prerequisites_are_explicit() -> None:
     assert _container(oom_initial)["resources"]["limits"]["memory"] == "16Mi"
     assert _container(oom_fix)["resources"]["limits"]["memory"] == "128Mi"
     assert snapshot["lab-011-ingress-backend-port"].definition.requirements.addons == ("ingress",)
+    assert snapshot["lab-012-pvc-pending"].definition.requirements.addons == (
+        "default-storageclass",
+    )
     assert _ingress_backend_port(ingress_initial) == 81
     assert _ingress_backend_port(ingress_fix) == 80
     assert pvc_initial["spec"]["storageClassName"] == "kubelab-missing-storage-class"
@@ -516,6 +566,42 @@ def test_intermediate_service_config_and_job_repairs_are_narrow() -> None:
     assert job_fix["spec"]["template"]["spec"]["restartPolicy"] == "Never"
     assert "exit 1" in _workload_container(job_initial)["command"][-1]
     assert "exit 0" in _workload_container(job_fix)["command"][-1]
+
+
+def test_intermediate_controller_and_storage_repairs_are_narrow() -> None:
+    stateful_initial = _yaml_documents(
+        LABS_ROOT / "lab-016-statefulset-headless" / "manifests" / "resources.yaml"
+    )
+    stateful_fix = _yaml_documents(
+        LABS_ROOT / "lab-016-statefulset-headless" / "solutions" / "fix.yaml"
+    )[0]
+    headless_service, statefulset = stateful_initial
+    pod_labels = statefulset["spec"]["template"]["metadata"]["labels"]
+    daemon_initial = _yaml_documents(
+        LABS_ROOT / "lab-017-daemonset-node-selector" / "manifests" / "daemonset.yaml"
+    )[0]
+    daemon_fix = _yaml_documents(
+        LABS_ROOT / "lab-017-daemonset-node-selector" / "solutions" / "fix.yaml"
+    )[0]
+    pvc_initial = _yaml_documents(
+        LABS_ROOT / "lab-018-pvc-claim-missing" / "manifests" / "deployment.yaml"
+    )
+    pvc_fix = _yaml_documents(LABS_ROOT / "lab-018-pvc-claim-missing" / "solutions" / "fix.yaml")[0]
+
+    assert headless_service["spec"]["clusterIP"] == stateful_fix["spec"]["clusterIP"] == "None"
+    assert headless_service["spec"]["selector"] != pod_labels
+    assert stateful_fix["spec"]["selector"] == pod_labels
+    assert daemon_initial["spec"]["template"]["spec"]["nodeSelector"] == {
+        "kubernetes.io/hostname": "kubelab-never-match"
+    }
+    assert daemon_fix["spec"]["template"]["spec"]["nodeSelector"] is None
+    assert _workload_container(daemon_initial) == _workload_container(daemon_fix)
+    assert all(document["kind"] != "PersistentVolumeClaim" for document in pvc_initial)
+    assert pvc_fix["kind"] == "PersistentVolumeClaim"
+    assert pvc_fix["metadata"]["name"] == "app-data"
+    assert pvc_fix["spec"]["accessModes"] == ["ReadWriteOnce"]
+    assert pvc_fix["spec"]["storageClassName"] == "standard"
+    assert pvc_fix["spec"]["resources"]["requests"]["storage"] == "128Mi"
 
 
 def test_all_runtime_images_use_explicit_non_latest_tags() -> None:

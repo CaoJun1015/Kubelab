@@ -1,0 +1,62 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-016-statefulset-headless
+  name: LAB-016 StatefulSet无头服务错配
+  description: StatefulSet Pod正常运行，但Headless Service无法选择Pod，稳定网络入口没有Endpoint。
+  difficulty: intermediate
+  durationMinutes: 35
+  category: networking
+  tags: [statefulset, headless-service, endpoints]
+requirements:
+  kubernetes: ">=1.28"
+  minimumCpu: 1
+  minimumMemoryMiB: 1024
+  addons: []
+environment:
+  namespace: kubelab-statefulset-headless
+  manifests: [manifests/resources.yaml]
+  provisionTimeoutSeconds: 180
+task:
+  description: 保持StatefulSet及Pod标签不变，恢复Headless Service对有状态Pod的发现和HTTP访问。
+  completionDescription: StatefulSet Pod保持Ready，Headless Service拥有Endpoint且HTTP探测返回200。
+  successMessage: Headless Service已经重新发现StatefulSet Pod，稳定网络入口恢复。
+initialChecks:
+  - id: stateful-pod-ready
+    type: pod_status
+    selector: {app: stateful-headless-lab}
+    expectedPhase: Running
+    minimumCount: 1
+    minimumReady: 1
+    ready: true
+    timeoutSeconds: 120
+    unmetMessage: StatefulSet Pod尚未达到预期的Ready状态。
+  - id: headless-endpoints-empty
+    type: service_endpoint_count
+    name: web-headless
+    exactly: 0
+    timeoutSeconds: 30
+    unmetMessage: Headless Service未呈现预期的Endpoint为空故障。
+successChecks:
+  - id: headless-endpoints-restored
+    type: service_endpoint_count
+    name: web-headless
+    minimum: 1
+    timeoutSeconds: 30
+    unmetMessage: Headless Service仍然没有Ready Endpoint。
+  - id: headless-http-restored
+    type: http_response
+    target: {mode: service, name: web-headless, port: 80, path: /}
+    expectedStatus: 200
+    timeoutSeconds: 60
+    unmetMessage: 通过Headless Service的HTTP探测仍未返回200。
+hints:
+  - {level: 1, content: Pod已经Ready，检查Headless Service对应的EndpointSlice和选择条件。}
+  - {level: 2, content: "kubectl get endpointslice -l kubernetes.io/service-name=web-headless"}
+  - {level: 3, content: 让web-headless Service的app Selector匹配StatefulSet Pod标签。}
+cleanup: {deleteNamespace: true}
+interview:
+  questions:
+    - Headless Service与普通ClusterIP Service有什么区别？
+    - StatefulSet的serviceName如何参与稳定网络身份？
+    - 为什么Pod Ready不能证明有状态服务的发现链路正常？

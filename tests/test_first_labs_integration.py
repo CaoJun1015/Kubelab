@@ -40,6 +40,12 @@ REQUIRED_IMAGES = {
     "lab-010-oom-killed": ("busybox:1.36.1",),
     "lab-011-ingress-backend-port": ("nginx:1.27-alpine", "curlimages/curl:8.12.1"),
     "lab-012-pvc-pending": ("busybox:1.36.1",),
+    "lab-013-service-target-port": ("nginx:1.27-alpine", "curlimages/curl:8.12.1"),
+    "lab-014-configmap-key-missing": ("busybox:1.36.1",),
+    "lab-015-job-command-failure": ("busybox:1.36.1",),
+    "lab-016-statefulset-headless": ("nginx:1.27-alpine", "curlimages/curl:8.12.1"),
+    "lab-017-daemonset-node-selector": ("busybox:1.36.1",),
+    "lab-018-pvc-claim-missing": ("busybox:1.36.1",),
 }
 
 
@@ -101,6 +107,15 @@ def test_real_fault_repair_reset_cleanup_contract(tmp_path: Path, directory: str
                     "delete",
                     "persistentvolumeclaim",
                     "data",
+                    "--wait=true",
+                    "--timeout=60s",
+                )
+            if directory == "lab-015-job-command-failure":
+                _run_workspace_kubectl(
+                    workspace.kubeconfig_path,
+                    "delete",
+                    "job",
+                    "data-check",
                     "--wait=true",
                     "--timeout=60s",
                 )
@@ -187,7 +202,7 @@ def _require_lab_prerequisites(directory: str) -> None:
             ("-n", "ingress-nginx", "get", "deployment", "ingress-nginx-controller"),
             "Ingress controller is unavailable",
         )
-    if directory == "lab-012-pvc-pending":
+    if directory in {"lab-012-pvc-pending", "lab-018-pvc-claim-missing"}:
         _require_kubectl_value(
             ("get", "storageclass", "standard"),
             "The standard StorageClass is unavailable",
