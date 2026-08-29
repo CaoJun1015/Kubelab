@@ -21,6 +21,7 @@ from kubelab.guided_learning import (
 )
 from kubelab.kubernetes_gateway import EventSummary, LogResult, PodSummary, ResourceSummary
 from kubelab.lab_manager import (
+    ClusterState,
     HintResult,
     LabCatalogItem,
     LabCatalogResult,
@@ -30,7 +31,9 @@ from kubelab.lab_manager import (
     RetrospectiveEditState,
     SessionEvents,
     SessionResources,
+    SessionStage,
     SessionStatusResult,
+    SessionTimeline,
 )
 from kubelab.operation_lock import OperationLockError
 from kubelab.repositories import ActiveSessionConflict
@@ -153,7 +156,27 @@ class FakeApplicationService:
     def active_session(self) -> SessionStatusResult:
         self._raise_if_requested()
         self.calls.append(("active",))
-        return SessionStatusResult(session=session(), namespace_exists=True, namespace_owned=True)
+        return SessionStatusResult(
+            session=session(),
+            namespace_exists=None,
+            namespace_owned=None,
+            cluster_state=ClusterState.NOT_CHECKED,
+            stage=SessionStage.INVESTIGATING,
+        )
+
+    def reconcile_active_session(self) -> SessionStatusResult:
+        self.calls.append(("reconcile",))
+        return SessionStatusResult(
+            session=session(),
+            namespace_exists=True,
+            namespace_owned=True,
+            cluster_state=ClusterState.PRESENT,
+            stage=SessionStage.INVESTIGATING,
+        )
+
+    def timeline(self) -> SessionTimeline:
+        self.calls.append(("timeline",))
+        return SessionTimeline(session_id=SESSION_ID, entries=())
 
     def start(self, lab_id: str) -> LabSessionSnapshot:
         self.calls.append(("start", lab_id))
@@ -307,6 +330,7 @@ def test_read_endpoints_delegate_to_fake_application_service(client: TestClient)
     labs = client.get("/api/v1/labs?category=workloads&progress=active")
     detail = client.get("/api/v1/labs/lab-005-image-pull")
     active = client.get("/api/v1/sessions/active")
+    timeline = client.get("/api/v1/sessions/active/timeline")
     resources = client.get("/api/v1/sessions/active/resources")
     events = client.get("/api/v1/sessions/active/events")
     logs = client.get(
@@ -320,6 +344,9 @@ def test_read_endpoints_delegate_to_fake_application_service(client: TestClient)
     assert labs.json()["invalid_lab_count"] == 0
     assert detail.json()["hint_count"] == 3
     assert active.json()["session"]["status"] == "in_progress"
+    assert active.json()["cluster_state"] == "not_checked"
+    assert active.json()["namespace_exists"] is None
+    assert timeline.json() == {"session_id": SESSION_ID, "entries": []}
     resource_text = resources.text.lower()
     assert resources.json()["resources"][0]["secret_keys"] == ["password"]
     assert "must-not-be-public" not in resource_text
@@ -352,6 +379,7 @@ def test_write_endpoints_require_csrf_and_delegate_with_safe_public_results(
     client: TestClient, fake: FakeApplicationService
 ) -> None:
     headers = csrf(client)
+    reconciled = client.post("/api/v1/sessions/active/reconcile", headers=headers)
     started = client.post("/api/v1/labs/lab-005-image-pull/start", headers=headers)
     verified = client.post("/api/v1/sessions/active/verify", headers=headers)
     hinted = client.post("/api/v1/sessions/active/hint", headers=headers)
@@ -371,6 +399,7 @@ def test_write_endpoints_require_csrf_and_delegate_with_safe_public_results(
     )
 
     assert started.status_code == 201
+    assert reconciled.json()["cluster_state"] == "present"
     assert started.json()["status"] == "ready"
     assert "context_name" not in started.text
     assert verified.status_code == 200
@@ -521,6 +550,14 @@ class DelegatingManager:
         self.calls.append(("status",))
         return "status"
 
+    def session_status_snapshot(self) -> Any:
+        self.calls.append(("snapshot",))
+        return "snapshot"
+
+    def timeline(self) -> Any:
+        self.calls.append(("timeline",))
+        return "timeline"
+
     def start(self, lab_id: str) -> Any:
         self.calls.append(("start", lab_id))
         return "started"
@@ -572,7 +609,9 @@ def test_production_web_adapter_delegates_only_to_application_manager(monkeypatc
     assert service.environment().wsl_distribution == "Ubuntu"
     service.list_labs(category="workloads", progress=LabProgress.ACTIVE)
     assert service.show_lab("lab-id") == "detail"
-    assert service.active_session() == "status"
+    assert service.active_session() == "snapshot"
+    assert service.reconcile_active_session() == "status"
+    assert service.timeline() == "timeline"
     assert service.start("lab-id") == "started"
     assert service.resources() == "resources"
     assert service.events() == "events"

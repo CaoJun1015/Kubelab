@@ -205,6 +205,21 @@ class SessionEvidenceSnapshot(PersistenceDto):
     captured_at: datetime
 
 
+class HintUsageSnapshot(PersistenceDto):
+    level: int
+    used_at: datetime
+    request_count: int
+
+
+class VerificationRunSnapshot(PersistenceDto):
+    id: str
+    session_id: str
+    purpose: VerificationPurpose
+    status: ValidationStatus
+    checked_at: datetime
+    duration_ms: int
+
+
 def _require_uuid4(value: str) -> str:
     try:
         parsed = UUID(value)
@@ -219,6 +234,7 @@ __all__ = [
     "ACTIVE_SESSION_STATUSES",
     "CheckResultInput",
     "GuidedLearningStateSnapshot",
+    "HintUsageSnapshot",
     "InvalidSessionTransition",
     "LabSessionSnapshot",
     "NewLabSession",
@@ -230,5 +246,6 @@ __all__ = [
     "SessionStatus",
     "ValidationStatus",
     "VerificationPurpose",
+    "VerificationRunSnapshot",
     "VerificationRunInput",
 ]

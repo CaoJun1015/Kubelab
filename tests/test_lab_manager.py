@@ -30,11 +30,13 @@ from kubelab.kubernetes_gateway import (
     WorkspaceAccess,
 )
 from kubelab.lab_manager import (
+    ClusterState,
     InitialContractResult,
     LabManager,
     LabManagerError,
     LabProgress,
     ManagerErrorCode,
+    SessionStage,
 )
 from kubelab.lab_registry import LabRegistry, LoadedLab
 from kubelab.operation_lock import OperationLock, OperationLockError
@@ -358,9 +360,7 @@ def test_catalog_marks_active_then_completed_after_success(
     assert manager.session_snapshot(latest_if_inactive=True).status is SessionStatus.COMPLETED
 
 
-def test_safe_cluster_reads_move_ready_session_to_in_progress(
-    database: Database, tmp_path: Path
-) -> None:
+def test_safe_cluster_reads_do_not_change_ready_session(database: Database, tmp_path: Path) -> None:
     manager, gateway, _, _ = build_manager(database, tmp_path)
     created = manager.start("complete-lab")
     gateway.calls.clear()
@@ -369,7 +369,7 @@ def test_safe_cluster_reads_move_ready_session_to_in_progress(
     observed_events = manager.events(created.id)
     logs = manager.logs("web-abc", container="web", previous=True, tail_lines=10)
 
-    assert resources.session.status is SessionStatus.IN_PROGRESS
+    assert resources.session.status is SessionStatus.READY
     assert resources.resources[0].name == "web"
     assert resources.pods[0].name == "web-abc"
     assert observed_events.events[0].reason == "Failed"
@@ -388,7 +388,9 @@ def test_safe_cluster_reads_move_ready_session_to_in_progress(
     ]
 
 
-def test_cluster_read_reconciles_missing_namespace(database: Database, tmp_path: Path) -> None:
+def test_cluster_read_missing_namespace_does_not_change_session(
+    database: Database, tmp_path: Path
+) -> None:
     manager, gateway, _, _ = build_manager(database, tmp_path)
     created = manager.start("complete-lab")
     gateway.exists = False
@@ -397,7 +399,7 @@ def test_cluster_read_reconciles_missing_namespace(database: Database, tmp_path:
         manager.resources(created.id)
 
     assert error.value.code == ManagerErrorCode.ENVIRONMENT_REMOVED
-    assert persisted(database, created.id).status is SessionStatus.COMPLETED
+    assert persisted(database, created.id).status is SessionStatus.READY
 
 
 def test_hints_unlock_in_order_and_last_hint_is_idempotent(
@@ -437,7 +439,7 @@ def test_start_creates_ready_session_in_dependency_order(
 
     assert result.status is SessionStatus.READY
     assert result.namespace == "kubelab-complete-lab"
-    assert gateway.calls == ["create", "apply"]
+    assert gateway.calls == ["create", "apply", "resources", "pods"]
     assert gateway.closed is True
     assert trust.calls == 1
     assert validation.calls == 1
@@ -539,17 +541,83 @@ def test_start_rollback_cleanup_failure_preserves_error_session(
         assert active.last_error_context == {"operation": "start"}
 
 
-def test_status_marks_ready_in_progress(database: Database, tmp_path: Path) -> None:
+def test_status_reconciles_without_marking_learning_progress(
+    database: Database, tmp_path: Path
+) -> None:
     manager, gateway, _, _ = build_manager(database, tmp_path)
     manager.start("complete-lab")
     gateway.calls.clear()
 
     result = manager.status()
 
-    assert result.session.status is SessionStatus.IN_PROGRESS
+    assert result.session.status is SessionStatus.READY
     assert result.namespace_exists is True
     assert result.namespace_owned is True
+    assert result.cluster_state is ClusterState.PRESENT
+    assert result.stage is SessionStage.READY
     assert gateway.calls == ["exists", "owned"]
+
+
+def test_session_recovery_is_sqlite_only_for_stable_and_interrupted_states(
+    database: Database, tmp_path: Path
+) -> None:
+    manager, gateway, _, _ = build_manager(database, tmp_path)
+    created = manager.start("complete-lab")
+    gateway.calls.clear()
+
+    stable = manager.session_status_snapshot()
+    with database.unit_of_work() as uow:
+        uow.sessions.transition(
+            created.id,
+            SessionStatus.RESETTING,
+            event_type="simulated_interruption",
+        )
+        uow.commit()
+    interrupted = manager.session_status_snapshot()
+
+    assert stable.cluster_state is ClusterState.NOT_CHECKED
+    assert stable.namespace_exists is None
+    assert stable.stage is SessionStage.READY
+    assert interrupted.stage is SessionStage.RESETTING
+    assert interrupted.workspace_command == "kubelab workspace enter"
+    assert gateway.calls == []
+
+
+def test_timeline_merges_events_hints_and_sanitized_evidence(
+    database: Database, tmp_path: Path
+) -> None:
+    manager, _, _, _ = build_manager(database, tmp_path)
+    created = manager.start("complete-lab")
+    manager.next_hint(created.id)
+
+    timeline = manager.timeline(created.id)
+
+    assert timeline.session_id == created.id
+    assert {entry.kind for entry in timeline.entries} >= {"session_event", "hint", "evidence"}
+    assert list(timeline.entries) == sorted(
+        timeline.entries,
+        key=lambda item: (item.occurred_at, item.kind, item.title),
+    )
+    serialized = timeline.model_dump_json().casefold()
+    assert "secret" not in serialized
+    assert "expected" not in serialized
+    assert "actual" not in serialized
+
+
+def test_evidence_capture_failure_is_recorded_without_failing_start(
+    database: Database, tmp_path: Path
+) -> None:
+    gateway = FakeGateway()
+    gateway.failures["resources"] = RuntimeError("Bearer unsafe-stack")
+    manager, _, _, _ = build_manager(database, tmp_path, gateway=gateway)
+
+    created = manager.start("complete-lab")
+    evidence = [entry for entry in manager.timeline(created.id).entries if entry.kind == "evidence"]
+
+    assert created.status is SessionStatus.READY
+    assert evidence[0].status == "unavailable"
+    assert evidence[0].details == {"reason": "RESOURCE_SNAPSHOT_UNAVAILABLE"}
+    assert "unsafe-stack" not in evidence[0].model_dump_json()
 
 
 def test_workspace_uses_trusted_active_session_and_revokes_access(
@@ -658,7 +726,7 @@ def test_reset_preserves_session_id_and_increments_counter(
     assert result.id == session.id
     assert result.status is SessionStatus.READY
     assert result.reset_count == 1
-    assert gateway.calls == ["delete", "create", "apply"]
+    assert gateway.calls == ["delete", "create", "apply", "resources", "pods"]
     assert validation.calls == 2
     assert validation.reset_sequences == [0, 1]
 
@@ -696,7 +764,7 @@ def test_reset_resumes_session_already_marked_resetting(database: Database, tmp_
 
     assert result.status is SessionStatus.READY
     assert result.reset_count == 1
-    assert gateway.calls == ["delete", "create", "apply"]
+    assert gateway.calls == ["delete", "create", "apply", "resources", "pods"]
 
 
 def test_cleanup_completes_and_is_idempotent_by_explicit_id(
@@ -711,7 +779,7 @@ def test_cleanup_completes_and_is_idempotent_by_explicit_id(
 
     assert first.status is SessionStatus.COMPLETED
     assert second == first
-    assert gateway.calls == ["delete"]
+    assert gateway.calls == ["resources", "pods", "delete"]
 
 
 def test_cleanup_absent_namespace_is_controlled_completion(

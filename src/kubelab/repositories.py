@@ -25,6 +25,7 @@ from kubelab.redaction import redact_json
 from kubelab.session_state import (
     ACTIVE_SESSION_STATUSES,
     GuidedLearningStateSnapshot,
+    HintUsageSnapshot,
     LabSessionSnapshot,
     NewLabSession,
     RetrospectiveInput,
@@ -33,7 +34,10 @@ from kubelab.session_state import (
     SessionEvidenceSnapshot,
     SessionStateMachine,
     SessionStatus,
+    ValidationStatus,
+    VerificationPurpose,
     VerificationRunInput,
+    VerificationRunSnapshot,
 )
 
 
@@ -228,6 +232,7 @@ class VerificationRepository:
             )
         )
         self._session.flush()
+
         for result in run.results:
             self._session.add(
                 CheckResultRecord(
@@ -243,6 +248,24 @@ class VerificationRepository:
                 )
             )
         self._session.flush()
+
+    def list_for_session(self, session_id: str) -> tuple[VerificationRunSnapshot, ...]:
+        statement = (
+            select(VerificationRunRecord)
+            .where(VerificationRunRecord.session_id == session_id)
+            .order_by(VerificationRunRecord.checked_at, VerificationRunRecord.id)
+        )
+        return tuple(
+            VerificationRunSnapshot(
+                id=record.id,
+                session_id=record.session_id,
+                purpose=VerificationPurpose(record.purpose),
+                status=ValidationStatus(record.status),
+                checked_at=_aware_required(record.checked_at),
+                duration_ms=record.duration_ms,
+            )
+            for record in self._session.scalars(statement)
+        )
 
 
 class HintRepository:
@@ -298,6 +321,21 @@ class HintRepository:
     def request_count(self, session_id: str) -> int:
         statement = select(HintUsageRecord).where(HintUsageRecord.session_id == session_id)
         return sum(record.request_count for record in self._session.scalars(statement))
+
+    def list_for_session(self, session_id: str) -> tuple[HintUsageSnapshot, ...]:
+        statement = (
+            select(HintUsageRecord)
+            .where(HintUsageRecord.session_id == session_id)
+            .order_by(HintUsageRecord.used_at, HintUsageRecord.id)
+        )
+        return tuple(
+            HintUsageSnapshot(
+                level=record.level,
+                used_at=_aware_required(record.used_at),
+                request_count=record.request_count,
+            )
+            for record in self._session.scalars(statement)
+        )
 
 
 class GuidedLearningRepository:

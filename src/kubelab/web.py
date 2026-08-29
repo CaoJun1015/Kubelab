@@ -44,6 +44,7 @@ from kubelab.lab_manager import (
     SessionEvents,
     SessionResources,
     SessionStatusResult,
+    SessionTimeline,
 )
 from kubelab.operation_lock import OperationLockError
 from kubelab.redaction import redact_json
@@ -128,8 +129,11 @@ class PublicSession(WebModel):
 
 class ActiveSessionResponse(WebModel):
     session: PublicSession
-    namespace_exists: bool
-    namespace_owned: bool
+    namespace_exists: bool | None
+    namespace_owned: bool | None
+    cluster_state: str
+    stage: str
+    workspace_command: str
 
 
 class LabsResponse(WebModel):
@@ -191,6 +195,10 @@ class WebApplicationService(Protocol):
     def show_lab(self, lab_id: str) -> LabDetailResult: ...
 
     def active_session(self) -> SessionStatusResult: ...
+
+    def reconcile_active_session(self) -> SessionStatusResult: ...
+
+    def timeline(self) -> SessionTimeline: ...
 
     def start(self, lab_id: str) -> LabSessionSnapshot: ...
 
@@ -257,7 +265,13 @@ class KubeLabApplicationService:
         return self._manager.show_lab(lab_id)
 
     def active_session(self) -> SessionStatusResult:
+        return self._manager.session_status_snapshot()
+
+    def reconcile_active_session(self) -> SessionStatusResult:
         return self._manager.status()
+
+    def timeline(self) -> SessionTimeline:
+        return self._manager.timeline()
 
     def start(self, lab_id: str) -> LabSessionSnapshot:
         return self._manager.start(lab_id)
@@ -532,6 +546,14 @@ def create_app(
         result = _service(request).active_session()
         return _active_session_response(result)
 
+    @app.post("/api/v1/sessions/active/reconcile", response_model=ActiveSessionResponse)
+    def reconcile_active_session(request: Request) -> ActiveSessionResponse:
+        return _active_session_response(_service(request).reconcile_active_session())
+
+    @app.get("/api/v1/sessions/active/timeline", response_model=SessionTimeline)
+    def timeline(request: Request) -> SessionTimeline:
+        return _service(request).timeline()
+
     @app.post("/api/v1/labs/{lab_id}/start", response_model=PublicSession, status_code=201)
     def start(request: Request, lab_id: str) -> PublicSession:
         return _public_session(_service(request).start(lab_id))
@@ -644,6 +666,9 @@ def _active_session_response(result: SessionStatusResult) -> ActiveSessionRespon
         session=_public_session(result.session),
         namespace_exists=result.namespace_exists,
         namespace_owned=result.namespace_owned,
+        cluster_state=result.cluster_state.value,
+        stage=result.stage.value,
+        workspace_command=result.workspace_command,
     )
 
 

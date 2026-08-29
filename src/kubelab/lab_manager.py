@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 from enum import StrEnum
 from typing import Any, Protocol, TypeVar
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from kubelab.config import TrustedContext
 from kubelab.context_trust import ContextTrustService, trusted_context_fingerprint
@@ -78,10 +79,44 @@ class ManagerModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+class ClusterState(StrEnum):
+    NOT_CHECKED = "not_checked"
+    PRESENT = "present"
+    ABSENT = "absent"
+    OWNERSHIP_MISMATCH = "ownership_mismatch"
+
+
+class SessionStage(StrEnum):
+    PREPARING = "preparing"
+    READY = "ready"
+    INVESTIGATING = "investigating"
+    PASSED = "passed"
+    RESETTING = "resetting"
+    CLEANING = "cleaning"
+    ATTENTION_REQUIRED = "attention_required"
+    COMPLETED = "completed"
+
+
 class SessionStatusResult(ManagerModel):
     session: LabSessionSnapshot
-    namespace_exists: bool
-    namespace_owned: bool
+    namespace_exists: bool | None
+    namespace_owned: bool | None
+    cluster_state: ClusterState
+    stage: SessionStage
+    workspace_command: str = "kubelab workspace enter"
+
+
+class LearningTimelineEntry(ManagerModel):
+    kind: str
+    title: str
+    occurred_at: datetime
+    status: str | None = None
+    details: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+class SessionTimeline(ManagerModel):
+    session_id: str
+    entries: tuple[LearningTimelineEntry, ...]
 
 
 class LabProgress(StrEnum):
@@ -289,6 +324,68 @@ class LabManager:
             )
         return session
 
+    def session_status_snapshot(self, session_id: str | None = None) -> SessionStatusResult:
+        """Restore a Session from SQLite without touching trust or the cluster."""
+        session = self.session_snapshot(session_id)
+        return SessionStatusResult(
+            session=session,
+            namespace_exists=None,
+            namespace_owned=None,
+            cluster_state=ClusterState.NOT_CHECKED,
+            stage=_session_stage(session.status),
+        )
+
+    def timeline(self, session_id: str | None = None) -> SessionTimeline:
+        """Merge persisted learning activity without exposing validation internals."""
+        session = self.session_snapshot(session_id, latest_if_inactive=True)
+        with self._unit_of_work() as uow:
+            events = uow.sessions.list_events(session.id)
+            hints = uow.hints.list_for_session(session.id)
+            verifications = uow.verifications.list_for_session(session.id)
+            evidence = uow.guided_learning.list_evidence(session.id)
+        entries = [
+            LearningTimelineEntry(
+                kind="session_event",
+                title=_event_title(event.event_type),
+                occurred_at=event.created_at,
+                status=event.to_status.value if event.to_status is not None else None,
+            )
+            for event in events
+        ]
+        entries.extend(
+            LearningTimelineEntry(
+                kind="hint",
+                title=f"解锁第 {hint.level} 层提示",
+                occurred_at=hint.used_at,
+                details={"level": hint.level, "request_count": hint.request_count},
+            )
+            for hint in hints
+        )
+        entries.extend(
+            LearningTimelineEntry(
+                kind="verification",
+                title="手动验证" if run.purpose is VerificationPurpose.MANUAL else "契约检查",
+                occurred_at=run.checked_at,
+                status=(
+                    "unavailable" if run.status is ValidationStatus.ERROR else run.status.value
+                ),
+                details={"duration_ms": run.duration_ms},
+            )
+            for run in verifications
+        )
+        entries.extend(
+            LearningTimelineEntry(
+                kind="evidence",
+                title=_evidence_title(item.trigger),
+                occurred_at=item.captured_at,
+                status=item.capture_status,
+                details=item.summary,
+            )
+            for item in evidence
+        )
+        entries.sort(key=lambda item: (item.occurred_at, item.kind, item.title))
+        return SessionTimeline(session_id=session.id, entries=tuple(entries))
+
     def resources(self, session_id: str | None = None) -> SessionResources:
         """Return safe resource and Pod summaries for the owned experiment Namespace."""
         session, payload = self._cluster_read(
@@ -471,12 +568,14 @@ class LabManager:
                         "The lab initial fault contract was not satisfied.",
                         retryable=result.retryable,
                     )
-                return self._transition(
+                ready = self._transition(
                     session.id,
                     SessionStatus.READY,
                     event_type="environment_ready",
                     context={"namespace": session.namespace},
                 )
+                self._capture_evidence(ready, gateway, trigger="environment_ready")
+                return ready
             except Exception as exc:
                 self._rollback_failed_environment(session, gateway, exc, operation="start")
                 raise self._manager_error(exc, operation="start") from exc
@@ -489,7 +588,11 @@ class LabManager:
             session = self._require_session(session_id)
             if session.status is SessionStatus.COMPLETED:
                 return SessionStatusResult(
-                    session=session, namespace_exists=False, namespace_owned=False
+                    session=session,
+                    namespace_exists=False,
+                    namespace_owned=False,
+                    cluster_state=ClusterState.ABSENT,
+                    stage=_session_stage(session.status),
                 )
             trusted, fingerprint = self._trusted_for_session(session)
             gateway = self._gateway_factory(trusted, fingerprint)
@@ -497,7 +600,11 @@ class LabManager:
                 if not gateway.namespace_exists(self._scope(session)):
                     completed = self._complete_removed_environment(session)
                     return SessionStatusResult(
-                        session=completed, namespace_exists=False, namespace_owned=False
+                        session=completed,
+                        namespace_exists=False,
+                        namespace_owned=False,
+                        cluster_state=ClusterState.ABSENT,
+                        stage=_session_stage(completed.status),
                     )
                 try:
                     gateway.assert_namespace_owned(self._scope(session))
@@ -509,14 +616,12 @@ class LabManager:
                         operation="status",
                     )
                     raise self._manager_error(exc, operation="status") from exc
-                if session.status is SessionStatus.READY:
-                    session = self._transition(
-                        session.id,
-                        SessionStatus.IN_PROGRESS,
-                        event_type="session_observed",
-                    )
                 return SessionStatusResult(
-                    session=session, namespace_exists=True, namespace_owned=True
+                    session=session,
+                    namespace_exists=True,
+                    namespace_owned=True,
+                    cluster_state=ClusterState.PRESENT,
+                    stage=_session_stage(session.status),
                 )
             finally:
                 gateway.close()
@@ -560,7 +665,8 @@ class LabManager:
                         event_type="reset_completed",
                     )
                     uow.commit()
-                    return ready
+                self._capture_evidence(ready, gateway, trigger="reset_completed")
+                return ready
             except Exception as exc:
                 self._rollback_reset(session, gateway, exc)
                 raise self._manager_error(exc, operation="reset") from exc
@@ -580,13 +686,16 @@ class LabManager:
                 )
             gateway = self._gateway_factory(trusted, fingerprint)
             try:
+                self._capture_evidence(session, gateway, trigger="cleanup_before_delete")
                 result = gateway.delete_environment(self._scope(session))
-                return self._transition(
+                completed = self._transition(
                     session.id,
                     SessionStatus.COMPLETED,
                     event_type="cleanup_completed",
                     context={"already_absent": result.already_absent},
                 )
+                self._record_absent_evidence(completed, trigger="cleanup_completed")
+                return completed
             except Exception as exc:
                 self._mark_error(
                     session,
@@ -628,6 +737,7 @@ class LabManager:
                     reset_sequence=session.reset_count,
                     purpose=VerificationPurpose.MANUAL,
                 )
+                self._capture_evidence(session, gateway, trigger="manual_verify")
                 if (
                     result.status is ValidationStatus.PASSED
                     and session.status is SessionStatus.IN_PROGRESS
@@ -681,28 +791,14 @@ class LabManager:
             try:
                 scope = self._scope(session)
                 if not gateway.namespace_exists(scope):
-                    self._complete_removed_environment(session)
                     raise LabManagerError(
                         ManagerErrorCode.ENVIRONMENT_REMOVED,
                         "The experiment Namespace no longer exists.",
                     )
                 try:
                     gateway.assert_namespace_owned(scope)
-                except Exception as exc:
-                    self._mark_error(
-                        session,
-                        exc,
-                        event_type="namespace_identity_mismatch",
-                        operation=operation,
-                    )
+                except Exception:
                     raise
-                if session.status is SessionStatus.READY:
-                    session = self._transition(
-                        session.id,
-                        SessionStatus.IN_PROGRESS,
-                        event_type=f"{operation}_requested",
-                    )
-                    scope = self._scope(session)
                 return session, reader(gateway, scope)
             except LabManagerError:
                 raise
@@ -784,6 +880,71 @@ class LabManager:
             )
             uow.commit()
             return result
+
+    def _capture_evidence(
+        self, session: LabSessionSnapshot, gateway: ClusterGateway, *, trigger: str
+    ) -> None:
+        """Best-effort public resource summary; never changes the parent operation result."""
+        try:
+            resources = gateway.list_resources(self._scope(session))
+            pods = gateway.list_pods(self._scope(session))
+            allowed_kinds = {
+                "ConfigMap",
+                "CronJob",
+                "DaemonSet",
+                "Deployment",
+                "Job",
+                "PersistentVolumeClaim",
+                "Pod",
+                "ReplicaSet",
+                "Service",
+                "StatefulSet",
+            }
+            resource_counts: dict[str, int] = {}
+            for resource in resources:
+                if resource.kind in allowed_kinds:
+                    resource_counts[resource.kind] = resource_counts.get(resource.kind, 0) + 1
+            phases: dict[str, int] = {}
+            for pod in pods:
+                phase = pod.phase or "Unknown"
+                phases[phase] = phases.get(phase, 0) + 1
+            summary: dict[str, Any] = {
+                "resource_counts": resource_counts,
+                "pods": {
+                    "total": len(pods),
+                    "ready": sum(pod.ready for pod in pods),
+                    "restarts": sum(pod.restart_count for pod in pods),
+                    "phases": phases,
+                },
+            }
+            capture_status = "captured"
+        except Exception:
+            summary = {"reason": "RESOURCE_SNAPSHOT_UNAVAILABLE"}
+            capture_status = "unavailable"
+        try:
+            with self._unit_of_work() as uow:
+                uow.guided_learning.add_evidence(
+                    session.id,
+                    trigger=trigger,
+                    capture_status=capture_status,
+                    summary=summary,
+                )
+                uow.commit()
+        except Exception:
+            return
+
+    def _record_absent_evidence(self, session: LabSessionSnapshot, *, trigger: str) -> None:
+        try:
+            with self._unit_of_work() as uow:
+                uow.guided_learning.add_evidence(
+                    session.id,
+                    trigger=trigger,
+                    capture_status="captured",
+                    summary={"namespace_state": "absent"},
+                )
+                uow.commit()
+        except Exception:
+            return
 
     def _complete_removed_environment(self, session: LabSessionSnapshot) -> LabSessionSnapshot:
         current = session
@@ -896,6 +1057,46 @@ def _error_code(error: Exception) -> str:
     return str(code)
 
 
+def _session_stage(status: SessionStatus) -> SessionStage:
+    return {
+        SessionStatus.PROVISIONING: SessionStage.PREPARING,
+        SessionStatus.READY: SessionStage.READY,
+        SessionStatus.IN_PROGRESS: SessionStage.INVESTIGATING,
+        SessionStatus.PASSED: SessionStage.PASSED,
+        SessionStatus.RESETTING: SessionStage.RESETTING,
+        SessionStatus.CLEANING: SessionStage.CLEANING,
+        SessionStatus.ERROR: SessionStage.ATTENTION_REQUIRED,
+        SessionStatus.COMPLETED: SessionStage.COMPLETED,
+    }[status]
+
+
+def _event_title(event_type: str) -> str:
+    return {
+        "session_created": "Session 已创建",
+        "environment_ready": "实验环境已就绪",
+        "workspace_entered": "进入受限 Workspace",
+        "hint_requested": "开始使用提示",
+        "verification_started": "开始手动验证",
+        "success_contract_passed": "成功契约已通过",
+        "reset_started": "开始重置实验",
+        "reset_completed": "实验已重置",
+        "cleanup_started": "开始清理实验",
+        "cleanup_completed": "实验已清理",
+        "environment_removed_externally": "检测到环境已移除",
+        "external_removal_reconciled": "外部移除已协调",
+    }.get(event_type, "Session 状态已更新")
+
+
+def _evidence_title(trigger: str) -> str:
+    return {
+        "environment_ready": "就绪资源摘要",
+        "reset_completed": "重置后资源摘要",
+        "manual_verify": "验证时资源摘要",
+        "cleanup_before_delete": "清理前资源摘要",
+        "cleanup_completed": "清理完成摘要",
+    }.get(trigger, "资源状态摘要")
+
+
 def _registry_error_context(error: RegistryError) -> dict[str, Any]:
     return {
         "code": error.code.value,
@@ -906,6 +1107,7 @@ def _registry_error_context(error: RegistryError) -> dict[str, Any]:
 
 
 __all__ = [
+    "ClusterState",
     "ClusterGateway",
     "GatewayFactory",
     "HintResult",
@@ -915,12 +1117,15 @@ __all__ = [
     "LabDetailResult",
     "LabManager",
     "LabManagerError",
+    "LearningTimelineEntry",
     "LabProgress",
     "ManagerErrorCode",
     "RetrospectiveEditState",
     "SessionEvents",
     "SessionResources",
+    "SessionStage",
     "SessionStatusResult",
+    "SessionTimeline",
     "ValidationService",
     "WorkspaceAccess",
 ]
