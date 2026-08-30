@@ -9,8 +9,8 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from kubelab.lab_schema import LabDefinition
-from kubelab.schema_export import render_lab_json_schema
+from kubelab.lab_schema import LabDefinition, LabVariantDefinition
+from kubelab.schema_export import render_lab_json_schema, render_variant_json_schema
 
 
 def complete_lab() -> dict[str, Any]:
@@ -122,6 +122,15 @@ def complete_lab() -> dict[str, Any]:
                 "timeoutSeconds": 20,
                 "unmetMessage": "HTTP response is unhealthy.",
             },
+            {
+                "id": "stable-dns",
+                "type": "dns_resolution",
+                "service": "web-headless",
+                "pod": "web-0",
+                "expectedResolved": True,
+                "timeoutSeconds": 20,
+                "unmetMessage": "Stable DNS is unavailable.",
+            },
         ],
         "hints": [
             {"level": 1, "content": "Inspect the resources."},
@@ -132,7 +141,7 @@ def complete_lab() -> dict[str, Any]:
     }
 
 
-def test_complete_schema_accepts_all_eight_check_types() -> None:
+def test_complete_schema_accepts_all_nine_check_types() -> None:
     lab = LabDefinition.model_validate(complete_lab())
 
     assert lab.api_version == "kubelab.io/v1alpha1"
@@ -145,6 +154,7 @@ def test_complete_schema_accepts_all_eight_check_types() -> None:
         "config_value",
         "pvc_status",
         "http_response",
+        "dns_resolution",
     }
     assert lab.model_dump(by_alias=True)["cleanup"] == {"deleteNamespace": True}
 
@@ -259,3 +269,62 @@ def test_json_schema_is_in_sync_and_deterministic() -> None:
     assert generated == render_lab_json_schema().encode("utf-8")
     assert b'"discriminator"' in committed
     assert b'"http_response"' in committed
+    assert b'"dns_resolution"' in committed
+
+
+def complete_variant() -> dict[str, Any]:
+    return {
+        "apiVersion": "kubelab.io/v1alpha1",
+        "kind": "LabVariant",
+        "metadata": {
+            "id": "variant-b",
+            "sequence": 1,
+            "name": "Revealed only after pass",
+            "description": "A fixed alternate failure expression.",
+        },
+        "environment": {
+            "manifests": ["manifests/resources.yaml"],
+            "provisionTimeoutSeconds": 60,
+        },
+        "task": {
+            "description": "Investigate the symptom.",
+            "completionDescription": "Restore the behavior.",
+            "successMessage": "Restored.",
+        },
+        "initialChecks": [complete_lab()["initialChecks"][0]],
+        "successChecks": [complete_lab()["successChecks"][0]],
+        "hints": [
+            {"level": 1, "content": "Observe the workload."},
+            {"level": 2, "content": "kubectl get pods"},
+            {"level": 3, "content": "Inspect the alternate field."},
+        ],
+        "reveal": {
+            "keyEvidence": "The public evidence.",
+            "rootCause": "The root cause.",
+            "resolution": "The bounded repair.",
+            "prevention": "The prevention control.",
+        },
+    }
+
+
+def test_variant_contract_is_strict_fixed_and_has_exactly_three_hints() -> None:
+    variant = LabVariantDefinition.model_validate(complete_variant())
+
+    assert variant.metadata.id == "variant-b"
+    assert tuple(hint.level for hint in variant.hints) == (1, 2, 3)
+
+    invalid = complete_variant()
+    invalid["command"] = "kubectl apply -f answer.yaml"
+    invalid["hints"] = invalid["hints"][:2]
+    with pytest.raises(ValidationError):
+        LabVariantDefinition.model_validate(invalid)
+
+
+def test_variant_json_schema_is_in_sync_and_deterministic() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    committed = (project_root / "schemas" / "lab-variant-v1alpha1.schema.json").read_bytes()
+    generated = render_variant_json_schema().encode("utf-8")
+
+    assert committed == generated
+    assert generated == render_variant_json_schema().encode("utf-8")
+    assert b'"LabVariant"' in committed

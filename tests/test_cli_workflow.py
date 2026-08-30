@@ -113,6 +113,16 @@ class FakeManager:
             stage=SessionStage.INVESTIGATING,
         )
 
+    def session_status_snapshot(self):
+        self.calls.append(("status_snapshot",))
+        return SessionStatusResult(
+            session=session(SessionStatus.IN_PROGRESS),
+            namespace_exists=None,
+            namespace_owned=None,
+            cluster_state=ClusterState.NOT_CHECKED,
+            stage=SessionStage.INVESTIGATING,
+        )
+
     def resources(self):
         self.calls.append(("resources",))
         return SessionResources(

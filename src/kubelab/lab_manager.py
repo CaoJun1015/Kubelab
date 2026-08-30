@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import html
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Protocol, TypeVar
 from uuid import uuid4
@@ -23,7 +23,16 @@ from kubelab.kubernetes_gateway import (
     SessionScope,
     WorkspaceAccess,
 )
-from kubelab.lab_registry import LabRegistry, LoadedLab, RegistryError
+from kubelab.lab_registry import (
+    EffectiveLab,
+    ExecutableLab,
+    LabMaterializationError,
+    LabRegistry,
+    LabVariantNotFoundError,
+    LoadedLab,
+    LoadedVariant,
+    RegistryError,
+)
 from kubelab.lab_schema import LabRequirements
 from kubelab.operation_lock import OperationLock
 from kubelab.redaction import redact_json
@@ -37,6 +46,7 @@ from kubelab.session_state import (
     NewLabSession,
     RetrospectiveInput,
     RetrospectiveSnapshot,
+    SessionEventSnapshot,
     SessionStatus,
     ValidationStatus,
     VerificationPurpose,
@@ -57,6 +67,7 @@ class ManagerErrorCode(StrEnum):
     CLEANUP_FAILED = "CLEANUP_FAILED"
     SESSION_NOT_FOUND = "SESSION_NOT_FOUND"
     ENVIRONMENT_REMOVED = "ENVIRONMENT_REMOVED"
+    LAB_VARIANT_NOT_FOUND = "LAB_VARIANT_NOT_FOUND"
 
 
 class LabManagerError(RuntimeError):
@@ -99,12 +110,19 @@ class SessionStage(StrEnum):
     COMPLETED = "completed"
 
 
+class PracticeMode(StrEnum):
+    BASELINE = "baseline"
+    BLIND_REPEAT = "blind_repeat"
+
+
 class SessionStatusResult(ManagerModel):
     session: LabSessionSnapshot
     namespace_exists: bool | None
     namespace_owned: bool | None
     cluster_state: ClusterState
     stage: SessionStage
+    practice_mode: PracticeMode = PracticeMode.BASELINE
+    scenario_revealed: bool = True
     workspace_command: str = "kubelab workspace enter"
 
 
@@ -136,6 +154,20 @@ class LabCatalogItem(ManagerModel):
     category: str
     tags: tuple[str, ...]
     progress: LabProgress
+    baseline_completed: bool = False
+    variant_total: int = 0
+    variant_completed: int = 0
+
+
+class FaultMapEntry(ManagerModel):
+    slot: int
+    revealed: bool
+    name: str | None = None
+    description: str | None = None
+    key_evidence: str | None = None
+    root_cause: str | None = None
+    resolution: str | None = None
+    prevention: str | None = None
 
 
 class LabCatalogResult(ManagerModel):
@@ -156,6 +188,15 @@ class LabDetailResult(ManagerModel):
     success_check_types: tuple[str, ...]
     hint_count: int
     interview_questions: tuple[str, ...]
+    practice_mode: PracticeMode = PracticeMode.BASELINE
+    scenario_revealed: bool = True
+    scenario_name: str | None = None
+    scenario_description: str | None = None
+    key_evidence: str | None = None
+    root_cause: str | None = None
+    resolution: str | None = None
+    prevention: str | None = None
+    fault_map: tuple[FaultMapEntry, ...] = ()
 
 
 class SessionResources(ManagerModel):
@@ -219,6 +260,13 @@ class RetrospectiveMetadata(ManagerModel):
     reset_count: int
     completion_duration_seconds: int | None
     last_verification: PublicVerificationSummary | None
+    practice_mode: PracticeMode = PracticeMode.BASELINE
+    scenario_name: str | None = None
+    scenario_description: str | None = None
+    key_evidence: str | None = None
+    scenario_root_cause: str | None = None
+    scenario_resolution: str | None = None
+    scenario_prevention: str | None = None
 
 
 class RetrospectiveEditState(ManagerModel):
@@ -236,6 +284,12 @@ class LabLearningProgress(ManagerModel):
     repeat_completion_count: int
     first_completed_at: datetime | None
     last_completed_at: datetime | None
+    baseline_completed: bool = False
+    variant_total: int = 0
+    variant_completed: int = 0
+    variant_attempt_count: int = 0
+    last_practiced_at: datetime | None = None
+    revealed_scenarios: tuple[str, ...] = ()
 
 
 class CategoryLearningProgress(ManagerModel):
@@ -254,7 +308,7 @@ class ValidationService(Protocol):
     def validate_initial_contract(
         self,
         scope: SessionScope,
-        lab: LoadedLab,
+        lab: ExecutableLab,
         gateway: ValidationGateway,
         reset_sequence: int,
     ) -> InitialContractResult: ...
@@ -262,7 +316,7 @@ class ValidationService(Protocol):
     def validate_success_contract(
         self,
         scope: SessionScope,
-        lab: LoadedLab,
+        lab: ExecutableLab,
         gateway: ValidationGateway,
         reset_sequence: int,
         purpose: VerificationPurpose = VerificationPurpose.MANUAL,
@@ -276,7 +330,9 @@ class ReadinessGuard(Protocol):
 class ClusterGateway(ValidationGateway, Protocol):
     def create_environment(self, scope: SessionScope) -> None: ...
 
-    def apply_lab(self, scope: SessionScope, loaded: LoadedLab, registry: LabRegistry) -> None: ...
+    def apply_lab(
+        self, scope: SessionScope, loaded: ExecutableLab, registry: LabRegistry
+    ) -> None: ...
 
     def namespace_exists(self, scope: SessionScope) -> bool: ...
 
@@ -346,8 +402,16 @@ class LabManager:
         with self._unit_of_work() as uow:
             active = uow.sessions.get_active()
             passed = uow.sessions.passed_lab_ids()
+            sessions = uow.sessions.list_all()
+            event_map = {session.id: uow.sessions.list_events(session.id) for session in sessions}
         items = tuple(
-            self._catalog_item(lab, active=active, passed=passed)
+            self._catalog_item(
+                lab,
+                active=active,
+                passed=passed,
+                sessions=sessions,
+                event_map=event_map,
+            )
             for lab in snapshot.labs
             if category is None or lab.definition.metadata.category == category
         )
@@ -361,20 +425,74 @@ class LabManager:
         with self._unit_of_work() as uow:
             active = uow.sessions.get_active()
             passed = uow.sessions.passed_lab_ids()
+            sessions = uow.sessions.list_all()
+            event_map = {session.id: uow.sessions.list_events(session.id) for session in sessions}
         definition = loaded.definition
+        effective: ExecutableLab = loaded
+        practice_mode = PracticeMode.BASELINE
+        scenario_revealed = True
+        active_variant = None
+        if active is not None and active.lab_id == lab_id and active.variant_id != "baseline":
+            effective = self._resolve_session_lab(active, loaded=loaded)
+            assert isinstance(effective, EffectiveLab)
+            active_variant = effective.variant
+            practice_mode = PracticeMode.BLIND_REPEAT
+            scenario_revealed = _has_passed(event_map.get(active.id, ()))
+        public_definition = effective.definition
+        fault_map = tuple(
+            _fault_map_entry(
+                slot=index,
+                variant=variant,
+                revealed=variant.definition.metadata.id
+                in _passed_variants(loaded.definition.metadata.id, sessions, event_map),
+            )
+            for index, variant in enumerate(loaded.variants, start=1)
+        )
+        reveal = active_variant.definition.reveal if active_variant and scenario_revealed else None
         return LabDetailResult(
-            lab=self._catalog_item(loaded, active=active, passed=passed),
+            lab=self._catalog_item(
+                loaded,
+                active=active,
+                passed=passed,
+                sessions=sessions,
+                event_map=event_map,
+            ),
             namespace=definition.environment.namespace,
-            task=definition.task.description,
-            completion_description=definition.task.completion_description,
+            task=public_definition.task.description,
+            completion_description=public_definition.task.completion_description,
             kubernetes_requirement=definition.requirements.kubernetes,
             minimum_cpu=definition.requirements.minimum_cpu,
             minimum_memory_mib=definition.requirements.minimum_memory_mib,
             required_addons=definition.requirements.addons,
-            initial_check_types=tuple(check.type for check in definition.initial_checks),
-            success_check_types=tuple(check.type for check in definition.success_checks),
-            hint_count=len(definition.hints),
+            initial_check_types=(
+                ()
+                if practice_mode is PracticeMode.BLIND_REPEAT and not scenario_revealed
+                else tuple(check.type for check in public_definition.initial_checks)
+            ),
+            success_check_types=(
+                ()
+                if practice_mode is PracticeMode.BLIND_REPEAT and not scenario_revealed
+                else tuple(check.type for check in public_definition.success_checks)
+            ),
+            hint_count=len(public_definition.hints),
             interview_questions=definition.interview.questions,
+            practice_mode=practice_mode,
+            scenario_revealed=scenario_revealed,
+            scenario_name=(
+                active_variant.definition.metadata.name
+                if scenario_revealed and active_variant
+                else None
+            ),
+            scenario_description=(
+                active_variant.definition.metadata.description
+                if scenario_revealed and active_variant
+                else None
+            ),
+            key_evidence=reveal.key_evidence if reveal else None,
+            root_cause=reveal.root_cause if reveal else None,
+            resolution=reveal.resolution if reveal else None,
+            prevention=reveal.prevention if reveal else None,
+            fault_map=fault_map,
         )
 
     def session_snapshot(
@@ -396,12 +514,18 @@ class LabManager:
     def session_status_snapshot(self, session_id: str | None = None) -> SessionStatusResult:
         """Restore a Session from SQLite without touching trust or the cluster."""
         session = self.session_snapshot(session_id)
+        with self._unit_of_work() as uow:
+            revealed = session.variant_id == "baseline" or uow.sessions.has_event(
+                session.id, "success_contract_passed"
+            )
         return SessionStatusResult(
             session=session,
             namespace_exists=None,
             namespace_owned=None,
             cluster_state=ClusterState.NOT_CHECKED,
             stage=_session_stage(session.status),
+            practice_mode=_practice_mode(session),
+            scenario_revealed=revealed,
         )
 
     def timeline(self, session_id: str | None = None) -> SessionTimeline:
@@ -415,7 +539,11 @@ class LabManager:
         entries = [
             LearningTimelineEntry(
                 kind="session_event",
-                title=_event_title(event.event_type),
+                title=(
+                    "复练场景已选择"
+                    if session.variant_id != "baseline" and event.event_type == "session_created"
+                    else _event_title(event.event_type)
+                ),
                 occurred_at=event.created_at,
                 status=event.to_status.value if event.to_status is not None else None,
             )
@@ -560,7 +688,7 @@ class LabManager:
                     "Hints are unavailable in the current Session state.",
                 )
             self._trusted_for_session(session)
-            lab = self._require_lab(session.lab_id)
+            lab = self._resolve_session_lab(session)
             if session.status is SessionStatus.READY:
                 session = self._transition(
                     session.id,
@@ -625,6 +753,17 @@ class LabManager:
                 is not None
             )
             completion_count = len(completion_times)
+            passed_variants = _passed_variants(metadata.id, sessions, event_map)
+            baseline_completed = "baseline" in passed_variants
+            completed_variant_ids = passed_variants - {"baseline"}
+            revealed_names = tuple(
+                variant.definition.metadata.name
+                for variant in loaded.variants
+                if variant.definition.metadata.id in completed_variant_ids
+            )
+            variant_attempts = tuple(
+                session for session in attempts if session.variant_id != "baseline"
+            )
             lab_items.append(
                 LabLearningProgress(
                     lab_id=metadata.id,
@@ -635,6 +774,16 @@ class LabManager:
                     repeat_completion_count=max(completion_count - 1, 0),
                     first_completed_at=completion_times[0] if completion_times else None,
                     last_completed_at=completion_times[-1] if completion_times else None,
+                    baseline_completed=baseline_completed,
+                    variant_total=len(loaded.variants),
+                    variant_completed=len(completed_variant_ids),
+                    variant_attempt_count=len(variant_attempts),
+                    last_practiced_at=(
+                        max(session.created_at for session in variant_attempts)
+                        if variant_attempts
+                        else None
+                    ),
+                    revealed_scenarios=revealed_names,
                 )
             )
             totals = category_totals.setdefault(metadata.category, [0, 0, 0])
@@ -678,6 +827,20 @@ class LabManager:
             f"- 手动验证 / 重置：{metadata.manual_verification_count} / {metadata.reset_count}",
             "",
         ]
+        if metadata.scenario_name is not None:
+            lines.extend(
+                (
+                    "## 本次复练场景",
+                    "",
+                    f"- 场景：{_markdown_text(metadata.scenario_name)}",
+                    f"- 说明：{_markdown_text(metadata.scenario_description or '')}",
+                    f"- 关键证据：{_markdown_text(metadata.key_evidence or '')}",
+                    f"- 根因：{_markdown_text(metadata.scenario_root_cause or '')}",
+                    f"- 标准修复：{_markdown_text(metadata.scenario_resolution or '')}",
+                    f"- 预防：{_markdown_text(metadata.scenario_prevention or '')}",
+                    "",
+                )
+            )
         sections = (
             ("现象", value.symptom),
             ("影响", value.impact),
@@ -710,6 +873,11 @@ class LabManager:
             (event.created_at for event in events if event.event_type == "success_contract_passed"),
             None,
         )
+        variant = None
+        if session.variant_id != "baseline" and passed_at is not None:
+            effective = self._resolve_session_lab(session, loaded=lab)
+            assert isinstance(effective, EffectiveLab)
+            variant = effective.variant
         started_at = session.started_at
         duration = (
             max(int((passed_at - started_at).total_seconds()), 0)
@@ -753,6 +921,13 @@ class LabManager:
             reset_count=session.reset_count,
             completion_duration_seconds=duration,
             last_verification=last_verification,
+            practice_mode=_practice_mode(session),
+            scenario_name=variant.definition.metadata.name if variant else None,
+            scenario_description=variant.definition.metadata.description if variant else None,
+            key_evidence=variant.definition.reveal.key_evidence if variant else None,
+            scenario_root_cause=variant.definition.reveal.root_cause if variant else None,
+            scenario_resolution=variant.definition.reveal.resolution if variant else None,
+            scenario_prevention=variant.definition.reveal.prevention if variant else None,
         )
 
     def save_retrospective(
@@ -769,26 +944,29 @@ class LabManager:
     def start(self, lab_id: str) -> LabSessionSnapshot:
         """Provision one lab and prove its initial fault contract before returning ready."""
         with self._operation_lock:
-            lab = self._require_lab(lab_id)
+            parent_lab = self._require_lab(lab_id)
             if self._readiness is not None:
-                self._readiness.assert_ready(lab.definition.requirements)
+                self._readiness.assert_ready(parent_lab.definition.requirements)
             trusted = self._context_trust.assert_trusted_context()
             fingerprint = trusted_context_fingerprint(trusted)
             with self._unit_of_work() as uow:
                 active = uow.sessions.get_active()
                 if active is not None:
                     raise ActiveSessionConflict(active)
+                variant_id = self._select_variant(parent_lab, uow)
                 session = uow.sessions.create(
                     NewLabSession(
                         id=str(uuid4()),
                         lab_id=lab_id,
-                        namespace=lab.definition.environment.namespace,
+                        variant_id=variant_id,
+                        namespace=parent_lab.definition.environment.namespace,
                         context_name=trusted.name,
                         context_fingerprint=fingerprint,
                     )
                 )
                 uow.commit()
 
+            lab = self._resolve_session_lab(session, loaded=parent_lab)
             scope = self._scope(session)
             gateway = self._gateway_factory(trusted, fingerprint)
             try:
@@ -828,6 +1006,8 @@ class LabManager:
                     namespace_owned=False,
                     cluster_state=ClusterState.ABSENT,
                     stage=_session_stage(session.status),
+                    practice_mode=_practice_mode(session),
+                    scenario_revealed=self._scenario_revealed(session),
                 )
             trusted, fingerprint = self._trusted_for_session(session)
             gateway = self._gateway_factory(trusted, fingerprint)
@@ -840,6 +1020,8 @@ class LabManager:
                         namespace_owned=False,
                         cluster_state=ClusterState.ABSENT,
                         stage=_session_stage(completed.status),
+                        practice_mode=_practice_mode(completed),
+                        scenario_revealed=self._scenario_revealed(completed),
                     )
                 try:
                     gateway.assert_namespace_owned(self._scope(session))
@@ -857,6 +1039,8 @@ class LabManager:
                     namespace_owned=True,
                     cluster_state=ClusterState.PRESENT,
                     stage=_session_stage(session.status),
+                    practice_mode=_practice_mode(session),
+                    scenario_revealed=self._scenario_revealed(session),
                 )
             finally:
                 gateway.close()
@@ -869,7 +1053,7 @@ class LabManager:
                 raise LabManagerError(
                     "INVALID_SESSION_STATE", "A completed Session cannot be reset."
                 )
-            lab = self._require_lab(session.lab_id)
+            lab = self._resolve_session_lab(session)
             trusted, fingerprint = self._trusted_for_session(session)
             if session.status is not SessionStatus.RESETTING:
                 session = self._transition(
@@ -955,7 +1139,7 @@ class LabManager:
                     "INVALID_SESSION_STATE",
                     "The Session cannot be verified in its current state.",
                 )
-            lab = self._require_lab(session.lab_id)
+            lab = self._resolve_session_lab(session)
             trusted, fingerprint = self._trusted_for_session(session)
             if session.status is SessionStatus.READY:
                 session = self._transition(
@@ -977,15 +1161,84 @@ class LabManager:
                     result.status is ValidationStatus.PASSED
                     and session.status is SessionStatus.IN_PROGRESS
                 ):
-                    self._transition(
-                        session.id,
-                        SessionStatus.PASSED,
-                        event_type="success_contract_passed",
-                        context={"verification_run_id": result.id},
-                    )
+                    with self._unit_of_work() as uow:
+                        uow.sessions.transition(
+                            session.id,
+                            SessionStatus.PASSED,
+                            event_type="success_contract_passed",
+                            context={"verification_run_id": result.id},
+                        )
+                        if session.variant_id != "baseline":
+                            uow.sessions.record_event(session.id, "scenario_revealed")
+                        uow.commit()
                 return result
             finally:
                 gateway.close()
+
+    def _select_variant(self, loaded: LoadedLab, uow: SqlAlchemyUnitOfWork) -> str:
+        variants = loaded.variants
+        if not variants:
+            return "baseline"
+        sessions = uow.sessions.list_for_lab(loaded.definition.metadata.id)
+        event_map = {session.id: uow.sessions.list_events(session.id) for session in sessions}
+        passed = _passed_variants(loaded.definition.metadata.id, sessions, event_map)
+        if "baseline" not in passed:
+            return "baseline"
+
+        nonbaseline = tuple(session for session in sessions if session.variant_id != "baseline")
+        if nonbaseline:
+            latest = max(nonbaseline, key=lambda item: (item.created_at, item.id))
+            if not _has_passed(event_map[latest.id]):
+                return latest.variant_id
+
+        for variant in variants:
+            variant_id = variant.definition.metadata.id
+            if variant_id not in passed:
+                return variant_id
+
+        last_practiced = {
+            variant.definition.metadata.id: max(
+                (
+                    session.created_at
+                    for session in nonbaseline
+                    if session.variant_id == variant.definition.metadata.id
+                ),
+                default=datetime.min.replace(tzinfo=UTC),
+            )
+            for variant in variants
+        }
+        # All variants have at least one successful Session here; the fallback above is defensive.
+        return min(
+            variants,
+            key=lambda variant: (
+                last_practiced[variant.definition.metadata.id],
+                variant.definition.metadata.sequence,
+            ),
+        ).definition.metadata.id
+
+    def _resolve_session_lab(
+        self, session: LabSessionSnapshot, *, loaded: LoadedLab | None = None
+    ) -> ExecutableLab:
+        parent = loaded or self._require_lab(session.lab_id)
+        try:
+            return self._registry.resolve_variant(parent, session.variant_id)
+        except LabVariantNotFoundError as exc:
+            raise LabManagerError(
+                ManagerErrorCode.LAB_VARIANT_NOT_FOUND,
+                "The Session's fixed lab variant is no longer available.",
+            ) from exc
+        except LabMaterializationError as exc:
+            raise LabManagerError(
+                ManagerErrorCode.LAB_INVALID,
+                "The Session's fixed lab variant changed after validation.",
+                retryable=True,
+            ) from exc
+
+    def _scenario_revealed(self, session: LabSessionSnapshot) -> bool:
+        if session.variant_id == "baseline":
+            return True
+        with self._unit_of_work() as uow:
+            return uow.sessions.has_event(session.id, "success_contract_passed")
 
     @staticmethod
     def _catalog_item(
@@ -993,6 +1246,8 @@ class LabManager:
         *,
         active: LabSessionSnapshot | None,
         passed: frozenset[str],
+        sessions: tuple[LabSessionSnapshot, ...],
+        event_map: dict[str, tuple[SessionEventSnapshot, ...]],
     ) -> LabCatalogItem:
         metadata = loaded.definition.metadata
         if active is not None and active.lab_id == metadata.id:
@@ -1001,6 +1256,7 @@ class LabManager:
             progress = LabProgress.COMPLETED
         else:
             progress = LabProgress.NOT_STARTED
+        passed_variants = _passed_variants(metadata.id, sessions, event_map)
         return LabCatalogItem(
             id=metadata.id,
             name=metadata.name,
@@ -1010,6 +1266,9 @@ class LabManager:
             category=metadata.category,
             tags=metadata.tags,
             progress=progress,
+            baseline_completed="baseline" in passed_variants,
+            variant_total=len(loaded.variants),
+            variant_completed=len(passed_variants - {"baseline"}),
         )
 
     def _cluster_read(
@@ -1313,6 +1572,7 @@ def _event_title(event_type: str) -> str:
         "hint_requested": "开始使用提示",
         "verification_started": "开始手动验证",
         "success_contract_passed": "成功契约已通过",
+        "scenario_revealed": "复练故障场景已揭示",
         "reset_started": "开始重置实验",
         "reset_completed": "实验已重置",
         "cleanup_started": "开始清理实验",
@@ -1338,6 +1598,43 @@ def _hint_kind(level: int) -> HintKind:
         2: HintKind.COMMAND,
         3: HintKind.FAULT_DIRECTION,
     }[level]
+
+
+def _practice_mode(session: LabSessionSnapshot) -> PracticeMode:
+    return PracticeMode.BASELINE if session.variant_id == "baseline" else PracticeMode.BLIND_REPEAT
+
+
+def _has_passed(events: tuple[SessionEventSnapshot, ...]) -> bool:
+    return any(event.event_type == "success_contract_passed" for event in events)
+
+
+def _passed_variants(
+    lab_id: str,
+    sessions: tuple[LabSessionSnapshot, ...],
+    event_map: dict[str, tuple[SessionEventSnapshot, ...]],
+) -> frozenset[str]:
+    return frozenset(
+        session.variant_id
+        for session in sessions
+        if session.lab_id == lab_id and _has_passed(event_map.get(session.id, ()))
+    )
+
+
+def _fault_map_entry(*, slot: int, variant: LoadedVariant, revealed: bool) -> FaultMapEntry:
+    if not revealed:
+        return FaultMapEntry(slot=slot, revealed=False)
+    metadata = variant.definition.metadata
+    reveal = variant.definition.reveal
+    return FaultMapEntry(
+        slot=slot,
+        revealed=True,
+        name=metadata.name,
+        description=metadata.description,
+        key_evidence=reveal.key_evidence,
+        root_cause=reveal.root_cause,
+        resolution=reveal.resolution,
+        prevention=reveal.prevention,
+    )
 
 
 def _markdown_text(value: str) -> str:

@@ -949,6 +949,81 @@ def test_verify_failure_keeps_session_in_progress(database: Database, tmp_path: 
     assert persisted(database, session.id).status is SessionStatus.IN_PROGRESS
 
 
+def test_fixed_variants_follow_baseline_coverage_retry_and_lru_order(
+    database: Database, tmp_path: Path
+) -> None:
+    registry = LabRegistry(Path(__file__).parents[1] / "labs")
+    manager, _, _, _ = build_manager(database, tmp_path, registry=registry)
+
+    baseline = manager.start("lab-013-service-target-port")
+    assert baseline.variant_id == "baseline"
+    manager.verify(baseline.id)
+    manager.cleanup(baseline.id)
+
+    first_variant = manager.start("lab-013-service-target-port")
+    assert first_variant.variant_id == "variant-b"
+    manager.verify(first_variant.id)
+    manager.cleanup(first_variant.id)
+
+    second_variant = manager.start("lab-013-service-target-port")
+    assert second_variant.variant_id == "variant-c"
+    manager.cleanup(second_variant.id)
+
+    retried = manager.start("lab-013-service-target-port")
+    assert retried.variant_id == "variant-c"
+    manager.verify(retried.id)
+    manager.cleanup(retried.id)
+
+    least_recently_practiced = manager.start("lab-013-service-target-port")
+    assert least_recently_practiced.variant_id == "variant-b"
+
+
+def test_blind_variant_is_hidden_until_success_then_revealed_everywhere(
+    database: Database, tmp_path: Path
+) -> None:
+    registry = LabRegistry(Path(__file__).parents[1] / "labs")
+    manager, _, _, _ = build_manager(database, tmp_path, registry=registry)
+    baseline = manager.start("lab-013-service-target-port")
+    manager.verify(baseline.id)
+    manager.cleanup(baseline.id)
+    variant = manager.start("lab-013-service-target-port")
+
+    hidden = manager.show_lab("lab-013-service-target-port")
+    assert hidden.practice_mode.value == "blind_repeat"
+    assert hidden.scenario_revealed is False
+    assert hidden.scenario_name is None
+    assert hidden.root_cause is None
+    assert hidden.initial_check_types == ()
+    assert hidden.success_check_types == ()
+    assert all(item.revealed is False for item in hidden.fault_map)
+    serialized = hidden.model_dump_json()
+    assert "Service命名端口错配" not in serialized
+    assert "错误的命名targetPort" not in serialized
+    hidden_export = manager.export_retrospective(variant.id)
+    assert "Service命名端口错配" not in hidden_export
+    assert "错误的命名targetPort" not in hidden_export
+    assert manager.timeline(variant.id).entries[0].title == "复练场景已选择"
+
+    hint = manager.next_hint(variant.id)
+    assert hint.content.startswith("Endpoint存在时")
+    manager.verify(variant.id)
+
+    revealed = manager.show_lab("lab-013-service-target-port")
+    assert revealed.scenario_revealed is True
+    assert revealed.scenario_name == "Service命名端口错配"
+    assert revealed.root_cause == "Service使用了错误的命名targetPort。"
+    assert revealed.fault_map[0].revealed is True
+    assert "scenario_revealed" in events(database, variant.id)
+    assert "Service命名端口错配" in manager.export_retrospective(variant.id)
+
+    progress = manager.progress()
+    item = next(value for value in progress.labs if value.lab_id == variant.lab_id)
+    assert item.baseline_completed is True
+    assert item.variant_total == 2
+    assert item.variant_completed == 1
+    assert item.revealed_scenarios == ("Service命名端口错配",)
+
+
 def test_context_drift_blocks_verify_before_gateway_or_state_change(
     database: Database, tmp_path: Path
 ) -> None:

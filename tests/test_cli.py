@@ -16,9 +16,41 @@ from kubelab.context_trust import (
     TrustState,
 )
 from kubelab.doctor import CheckStatus, DiagnosticCheck, DoctorReport, HealthStatus
+from kubelab.lab_manager import PracticeMode
+from kubelab.session_state import LabSessionSnapshot, SessionStatus
 from kubelab.workspace import WorkspaceEnvironment
 
 runner = CliRunner()
+
+
+def test_public_session_json_hides_internal_variant_and_context() -> None:
+    session = LabSessionSnapshot(
+        id="123e4567-e89b-42d3-a456-426614174111",
+        lab_id="lab-013-service-target-port",
+        variant_id="variant-b",
+        namespace="kubelab-service-target-port",
+        status=SessionStatus.IN_PROGRESS,
+        context_name="minikube",
+        context_fingerprint="a" * 64,
+        created_at=datetime(2026, 8, 30, tzinfo=UTC),
+        started_at=datetime(2026, 8, 30, tzinfo=UTC),
+        completed_at=None,
+        reset_count=0,
+        last_error_code=None,
+        last_error_context={"token": "must-not-leak"},
+    )
+
+    payload = cli._public_session_payload(
+        session,
+        practice_mode=PracticeMode.BLIND_REPEAT,
+        scenario_revealed=False,
+    )
+
+    assert payload["practice_mode"] == "blind_repeat"
+    assert payload["scenario_revealed"] is False
+    assert "variant_id" not in payload
+    assert "context_fingerprint" not in payload
+    assert "last_error_context" not in payload
 
 
 def test_help_shows_product_and_usage() -> None:

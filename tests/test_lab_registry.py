@@ -15,6 +15,7 @@ import yaml
 from kubelab.lab_registry import (
     LabMaterializationError,
     LabRegistry,
+    LabVariantNotFoundError,
     RegistryErrorCode,
     _portable_relative_path,
 )
@@ -110,6 +111,62 @@ def write_lab(
     return lab_dir
 
 
+def variant_data(variant_id: str, sequence: int, manifest: str = "manifest.yaml") -> dict[str, Any]:
+    base = lab_data("variant-parent", manifest)
+    return {
+        "apiVersion": "kubelab.io/v1alpha1",
+        "kind": "LabVariant",
+        "metadata": {
+            "id": variant_id,
+            "sequence": sequence,
+            "name": f"Variant {sequence}",
+            "description": "Post-pass scenario description.",
+        },
+        "environment": {
+            "manifests": [manifest],
+            "provisionTimeoutSeconds": 30,
+        },
+        "task": base["task"],
+        "initialChecks": base["initialChecks"],
+        "successChecks": base["successChecks"],
+        "hints": [
+            {"level": 1, "content": "Observe."},
+            {"level": 2, "content": "kubectl get pods"},
+            {"level": 3, "content": "Inspect the fault field."},
+        ],
+        "reveal": {
+            "keyEvidence": "Evidence.",
+            "rootCause": "Cause.",
+            "resolution": "Resolution.",
+            "prevention": "Prevention.",
+        },
+    }
+
+
+def write_variant(
+    lab_dir: Path,
+    variant_id: str,
+    sequence: int,
+    *,
+    manifest_reference: str = "manifest.yaml",
+) -> Path:
+    directory = lab_dir / "variants" / variant_id
+    directory.mkdir(parents=True)
+    data = variant_data(variant_id, sequence, manifest_reference)
+    (directory / "variant.yaml").write_text(
+        yaml.safe_dump(data, sort_keys=False), encoding="utf-8", newline="\n"
+    )
+    if ".." not in Path(manifest_reference).parts:
+        manifest = directory / manifest_reference
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text(
+            yaml.safe_dump(pod_manifest("variant-pod"), sort_keys=False),
+            encoding="utf-8",
+            newline="\n",
+        )
+    return directory
+
+
 def codes(snapshot: Any) -> set[RegistryErrorCode]:
     return {error.code for error in snapshot.errors}
 
@@ -122,6 +179,75 @@ def test_committed_valid_fixture_loads_with_multidocument_manifest() -> None:
     assert [lab.definition.metadata.id for lab in snapshot.labs] == ["complete-lab"]
     assert snapshot.errors == ()
     assert len(snapshot.labs[0].manifest_sha256[0]) == 64
+
+
+def test_fixed_variants_load_in_sequence_and_resolve_to_effective_lab(tmp_path: Path) -> None:
+    lab_dir = write_lab(
+        tmp_path, "parent", lab_data("variant-parent"), pod_manifest("variant-parent")
+    )
+    write_variant(lab_dir, "variant-c", 2)
+    write_variant(lab_dir, "variant-b", 1)
+
+    registry = LabRegistry(tmp_path)
+    snapshot = registry.scan()
+    loaded = snapshot.labs[0]
+    effective = registry.resolve_variant(loaded, "variant-b")
+
+    assert snapshot.errors == ()
+    assert [item.definition.metadata.id for item in loaded.variants] == [
+        "variant-b",
+        "variant-c",
+    ]
+    assert effective.definition.task.description == "Find the fault."
+    assert registry.materialize_for_gateway(effective).documents
+
+
+def test_duplicate_variant_sequence_rejects_the_entire_lab_family(tmp_path: Path) -> None:
+    lab_dir = write_lab(
+        tmp_path, "parent", lab_data("variant-parent"), pod_manifest("variant-parent")
+    )
+    write_variant(lab_dir, "variant-b", 1)
+    write_variant(lab_dir, "variant-c", 1)
+
+    snapshot = LabRegistry(tmp_path).scan()
+
+    assert snapshot.labs == ()
+    assert RegistryErrorCode.LAB_VARIANT_DUPLICATE_ID in codes(snapshot)
+
+
+def test_variant_path_escape_and_post_scan_tamper_fail_closed(tmp_path: Path) -> None:
+    escaped_root = tmp_path / "escaped"
+    escaped_lab = write_lab(
+        escaped_root,
+        "parent",
+        lab_data("variant-parent"),
+        pod_manifest("variant-parent"),
+    )
+    write_variant(escaped_lab, "variant-b", 1, manifest_reference="../outside.yaml")
+    escaped = LabRegistry(escaped_root).scan()
+    assert escaped.labs == ()
+    assert RegistryErrorCode.LAB_PATH_ESCAPE in codes(escaped)
+
+    safe_root = tmp_path / "safe"
+    safe_lab = write_lab(
+        safe_root, "parent", lab_data("variant-parent"), pod_manifest("variant-parent")
+    )
+    variant_dir = write_variant(safe_lab, "variant-b", 1)
+    registry = LabRegistry(safe_root)
+    loaded = registry.scan().labs[0]
+    effective = registry.resolve_variant(loaded, "variant-b")
+    (variant_dir / "manifest.yaml").write_text(
+        yaml.safe_dump(pod_manifest("changed"), sort_keys=False), encoding="utf-8"
+    )
+
+    with pytest.raises(LabMaterializationError):
+        registry.materialize_for_gateway(effective)
+    with pytest.raises(LabMaterializationError):
+        registry.resolve_variant(loaded, "variant-b")
+
+    (variant_dir / "variant.yaml").unlink()
+    with pytest.raises(LabVariantNotFoundError):
+        registry.resolve_variant(loaded, "variant-b")
 
 
 def test_committed_invalid_fixtures_are_isolated_and_redacted() -> None:

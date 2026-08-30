@@ -15,6 +15,7 @@ from pydantic import (
 
 LAB_API_VERSION = "kubelab.io/v1alpha1"
 LAB_KIND = "Lab"
+LAB_VARIANT_KIND = "LabVariant"
 
 Slug = Annotated[
     str,
@@ -239,6 +240,15 @@ class HttpResponseCheck(CheckBase):
     expected_status: int = Field(alias="expectedStatus", ge=100, le=599)
 
 
+class DnsResolutionCheck(CheckBase):
+    """Restricted Kubernetes service DNS check; arbitrary hostnames are forbidden."""
+
+    type: Literal["dns_resolution"]
+    service: KubernetesName
+    pod: KubernetesName | None = None
+    expected_resolved: bool = Field(alias="expectedResolved")
+
+
 CheckDefinition = Annotated[
     ResourceExistsCheck
     | PodStatusCheck
@@ -247,7 +257,8 @@ CheckDefinition = Annotated[
     | ContainerImageCheck
     | ConfigValueCheck
     | PvcStatusCheck
-    | HttpResponseCheck,
+    | HttpResponseCheck
+    | DnsResolutionCheck,
     Field(discriminator="type"),
 ]
 
@@ -265,6 +276,64 @@ class LabCleanup(LabModel):
 
 class LabInterview(LabModel):
     questions: tuple[NonEmptyText, ...] = Field(min_length=1)
+
+
+class LabVariantMetadata(LabModel):
+    """Opaque runtime identity plus post-pass learning copy for one fixed variant."""
+
+    id: Annotated[
+        str,
+        StringConstraints(pattern=r"^variant-[a-z0-9][a-z0-9-]{0,53}$", max_length=63),
+    ]
+    sequence: int = Field(ge=1, le=20)
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
+    description: NonEmptyText
+
+
+class LabVariantEnvironment(LabModel):
+    """Variant manifests; namespace and requirements are inherited from the parent Lab."""
+
+    manifests: tuple[Annotated[str, StringConstraints(min_length=1)], ...] = Field(min_length=1)
+    provision_timeout_seconds: int = Field(alias="provisionTimeoutSeconds", ge=10, le=300)
+
+    @field_validator("manifests")
+    @classmethod
+    def manifests_are_unique(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(value) != len(set(value)):
+            raise ValueError("manifest paths must be unique")
+        return value
+
+
+class LabVariantReveal(LabModel):
+    """Learning outcome disclosed only after this scenario passes."""
+
+    key_evidence: NonEmptyText = Field(alias="keyEvidence")
+    root_cause: NonEmptyText = Field(alias="rootCause")
+    resolution: NonEmptyText
+    prevention: NonEmptyText
+
+
+class LabVariantDefinition(LabModel):
+    """Strict fixed variant definition scoped by its parent lab directory."""
+
+    api_version: Literal["kubelab.io/v1alpha1"] = Field(alias="apiVersion")
+    kind: Literal["LabVariant"]
+    metadata: LabVariantMetadata
+    environment: LabVariantEnvironment
+    task: LabTask
+    initial_checks: tuple[CheckDefinition, ...] = Field(alias="initialChecks", min_length=1)
+    success_checks: tuple[CheckDefinition, ...] = Field(alias="successChecks", min_length=1)
+    hints: tuple[LabHint, ...] = Field(min_length=3, max_length=3)
+    reveal: LabVariantReveal
+
+    @model_validator(mode="after")
+    def cross_field_invariants(self) -> LabVariantDefinition:
+        check_ids = [check.id for check in (*self.initial_checks, *self.success_checks)]
+        if len(check_ids) != len(set(check_ids)):
+            raise ValueError("check IDs must be unique across the entire variant")
+        if [hint.level for hint in self.hints] != [1, 2, 3]:
+            raise ValueError("variant hint levels must be exactly 1, 2, 3")
+        return self
 
 
 class LabDefinition(LabModel):
@@ -296,6 +365,9 @@ class LabDefinition(LabModel):
 
 __all__ = [
     "CheckDefinition",
+    "DnsResolutionCheck",
     "LabDefinition",
     "LabMetadata",
+    "LabVariantDefinition",
+    "LabVariantReveal",
 ]

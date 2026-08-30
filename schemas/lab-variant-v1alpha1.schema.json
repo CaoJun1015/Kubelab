@@ -349,57 +349,6 @@
       "title": "HttpTarget",
       "type": "object"
     },
-    "LabCleanup": {
-      "additionalProperties": false,
-      "description": "The only cleanup action permitted in v1alpha1.",
-      "properties": {
-        "deleteNamespace": {
-          "const": true,
-          "title": "Deletenamespace",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "deleteNamespace"
-      ],
-      "title": "LabCleanup",
-      "type": "object"
-    },
-    "LabEnvironment": {
-      "additionalProperties": false,
-      "description": "Declarative namespace and manifest inputs for the faulty environment.",
-      "properties": {
-        "manifests": {
-          "items": {
-            "minLength": 1,
-            "type": "string"
-          },
-          "minItems": 1,
-          "title": "Manifests",
-          "type": "array"
-        },
-        "namespace": {
-          "maxLength": 63,
-          "minLength": 10,
-          "pattern": "^kubelab-[a-z0-9](?:[a-z0-9-]{0,53}[a-z0-9])?$",
-          "title": "Namespace",
-          "type": "string"
-        },
-        "provisionTimeoutSeconds": {
-          "maximum": 300,
-          "minimum": 10,
-          "title": "Provisiontimeoutseconds",
-          "type": "integer"
-        }
-      },
-      "required": [
-        "namespace",
-        "manifests",
-        "provisionTimeoutSeconds"
-      ],
-      "title": "LabEnvironment",
-      "type": "object"
-    },
     "LabHint": {
       "additionalProperties": false,
       "properties": {
@@ -420,134 +369,6 @@
         "content"
       ],
       "title": "LabHint",
-      "type": "object"
-    },
-    "LabInterview": {
-      "additionalProperties": false,
-      "properties": {
-        "questions": {
-          "items": {
-            "minLength": 1,
-            "type": "string"
-          },
-          "minItems": 1,
-          "title": "Questions",
-          "type": "array"
-        }
-      },
-      "required": [
-        "questions"
-      ],
-      "title": "LabInterview",
-      "type": "object"
-    },
-    "LabMetadata": {
-      "additionalProperties": false,
-      "description": "Human-facing identity and catalogue data for one lab.",
-      "properties": {
-        "category": {
-          "maxLength": 63,
-          "minLength": 1,
-          "pattern": "^[a-z][a-z0-9-]*$",
-          "title": "Category",
-          "type": "string"
-        },
-        "description": {
-          "minLength": 1,
-          "title": "Description",
-          "type": "string"
-        },
-        "difficulty": {
-          "enum": [
-            "beginner",
-            "intermediate",
-            "advanced"
-          ],
-          "title": "Difficulty",
-          "type": "string"
-        },
-        "durationMinutes": {
-          "maximum": 180,
-          "minimum": 5,
-          "title": "Durationminutes",
-          "type": "integer"
-        },
-        "id": {
-          "maxLength": 40,
-          "minLength": 3,
-          "pattern": "^[a-z][a-z0-9-]{2,39}$",
-          "title": "Id",
-          "type": "string"
-        },
-        "name": {
-          "maxLength": 80,
-          "minLength": 1,
-          "title": "Name",
-          "type": "string"
-        },
-        "tags": {
-          "items": {
-            "maxLength": 63,
-            "minLength": 1,
-            "pattern": "^[a-z][a-z0-9-]*$",
-            "type": "string"
-          },
-          "minItems": 1,
-          "title": "Tags",
-          "type": "array"
-        }
-      },
-      "required": [
-        "id",
-        "name",
-        "description",
-        "difficulty",
-        "durationMinutes",
-        "category",
-        "tags"
-      ],
-      "title": "LabMetadata",
-      "type": "object"
-    },
-    "LabRequirements": {
-      "additionalProperties": false,
-      "description": "Minimum local cluster capabilities declared by a lab.",
-      "properties": {
-        "addons": {
-          "items": {
-            "maxLength": 63,
-            "minLength": 1,
-            "pattern": "^[a-z][a-z0-9-]*$",
-            "type": "string"
-          },
-          "title": "Addons",
-          "type": "array"
-        },
-        "kubernetes": {
-          "minLength": 1,
-          "title": "Kubernetes",
-          "type": "string"
-        },
-        "minimumCpu": {
-          "maximum": 64,
-          "minimum": 1,
-          "title": "Minimumcpu",
-          "type": "integer"
-        },
-        "minimumMemoryMiB": {
-          "maximum": 131072,
-          "minimum": 128,
-          "title": "Minimummemorymib",
-          "type": "integer"
-        }
-      },
-      "required": [
-        "kubernetes",
-        "minimumCpu",
-        "minimumMemoryMiB",
-        "addons"
-      ],
-      "title": "LabRequirements",
       "type": "object"
     },
     "LabTask": {
@@ -576,6 +397,104 @@
         "successMessage"
       ],
       "title": "LabTask",
+      "type": "object"
+    },
+    "LabVariantEnvironment": {
+      "additionalProperties": false,
+      "description": "Variant manifests; namespace and requirements are inherited from the parent Lab.",
+      "properties": {
+        "manifests": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Manifests",
+          "type": "array"
+        },
+        "provisionTimeoutSeconds": {
+          "maximum": 300,
+          "minimum": 10,
+          "title": "Provisiontimeoutseconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "manifests",
+        "provisionTimeoutSeconds"
+      ],
+      "title": "LabVariantEnvironment",
+      "type": "object"
+    },
+    "LabVariantMetadata": {
+      "additionalProperties": false,
+      "description": "Opaque runtime identity plus post-pass learning copy for one fixed variant.",
+      "properties": {
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 63,
+          "pattern": "^variant-[a-z0-9][a-z0-9-]{0,53}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "sequence",
+        "name",
+        "description"
+      ],
+      "title": "LabVariantMetadata",
+      "type": "object"
+    },
+    "LabVariantReveal": {
+      "additionalProperties": false,
+      "description": "Learning outcome disclosed only after this scenario passes.",
+      "properties": {
+        "keyEvidence": {
+          "minLength": 1,
+          "title": "Keyevidence",
+          "type": "string"
+        },
+        "prevention": {
+          "minLength": 1,
+          "title": "Prevention",
+          "type": "string"
+        },
+        "resolution": {
+          "minLength": 1,
+          "title": "Resolution",
+          "type": "string"
+        },
+        "rootCause": {
+          "minLength": 1,
+          "title": "Rootcause",
+          "type": "string"
+        }
+      },
+      "required": [
+        "keyEvidence",
+        "rootCause",
+        "resolution",
+        "prevention"
+      ],
+      "title": "LabVariantReveal",
       "type": "object"
     },
     "PodStatusCheck": {
@@ -940,25 +859,22 @@
     }
   },
   "additionalProperties": false,
-  "description": "Complete kubelab.io/v1alpha1 experiment definition.",
+  "description": "Strict fixed variant definition scoped by its parent lab directory.",
   "properties": {
     "apiVersion": {
       "const": "kubelab.io/v1alpha1",
       "title": "Apiversion",
       "type": "string"
     },
-    "cleanup": {
-      "$ref": "#/$defs/LabCleanup"
-    },
     "environment": {
-      "$ref": "#/$defs/LabEnvironment"
+      "$ref": "#/$defs/LabVariantEnvironment"
     },
     "hints": {
       "items": {
         "$ref": "#/$defs/LabHint"
       },
       "maxItems": 3,
-      "minItems": 1,
+      "minItems": 3,
       "title": "Hints",
       "type": "array"
     },
@@ -1012,19 +928,16 @@
       "title": "Initialchecks",
       "type": "array"
     },
-    "interview": {
-      "$ref": "#/$defs/LabInterview"
-    },
     "kind": {
-      "const": "Lab",
+      "const": "LabVariant",
       "title": "Kind",
       "type": "string"
     },
     "metadata": {
-      "$ref": "#/$defs/LabMetadata"
+      "$ref": "#/$defs/LabVariantMetadata"
     },
-    "requirements": {
-      "$ref": "#/$defs/LabRequirements"
+    "reveal": {
+      "$ref": "#/$defs/LabVariantReveal"
     },
     "successChecks": {
       "items": {
@@ -1084,15 +997,13 @@
     "apiVersion",
     "kind",
     "metadata",
-    "requirements",
     "environment",
     "task",
     "initialChecks",
     "successChecks",
     "hints",
-    "cleanup",
-    "interview"
+    "reveal"
   ],
-  "title": "LabDefinition",
+  "title": "LabVariantDefinition",
   "type": "object"
 }

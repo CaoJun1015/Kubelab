@@ -26,6 +26,8 @@ from kubelab.lab_manager import (
     LabManager,
     LabManagerError,
     LabProgress,
+    PracticeMode,
+    SessionStatusResult,
 )
 from kubelab.operation_lock import OperationLockError
 from kubelab.repositories import ActiveSessionConflict
@@ -34,7 +36,7 @@ from kubelab.runtime import (
     RuntimeEnvironmentError,
     build_application_runtime,
 )
-from kubelab.session_state import RetrospectiveInput, ValidationStatus
+from kubelab.session_state import LabSessionSnapshot, RetrospectiveInput, ValidationStatus
 from kubelab.web import WEB_HOST, WEB_PORT, create_app
 from kubelab.workspace import WorkspaceError, workspace_environment
 
@@ -60,6 +62,32 @@ def _show_version(value: bool) -> None:
     if value:
         typer.echo(f"KubeLab {__version__}")
         raise typer.Exit
+
+
+def _public_session_payload(
+    session: LabSessionSnapshot,
+    *,
+    practice_mode: PracticeMode,
+    scenario_revealed: bool,
+) -> dict[str, Any]:
+    payload = session.model_dump(
+        mode="json",
+        exclude_none=True,
+        exclude={"variant_id", "context_fingerprint", "last_error_context"},
+    )
+    payload["practice_mode"] = practice_mode.value
+    payload["scenario_revealed"] = scenario_revealed
+    return payload
+
+
+def _public_status_payload(result: SessionStatusResult) -> dict[str, Any]:
+    payload = result.model_dump(mode="json", exclude_none=True, exclude={"session"})
+    payload["session"] = _public_session_payload(
+        result.session,
+        practice_mode=result.practice_mode,
+        scenario_revealed=result.scenario_revealed,
+    )
+    return payload
 
 
 @app.callback()
@@ -164,8 +192,18 @@ def start_command(
     """Create one faulty lab environment and prove its initial contract."""
     with _application(json_output) as manager:
         session = manager.start(lab_id)
+        presentation = manager.session_status_snapshot()
     if json_output:
-        typer.echo(session.model_dump_json(indent=2, exclude_none=True))
+        typer.echo(
+            json.dumps(
+                _public_session_payload(
+                    session,
+                    practice_mode=presentation.practice_mode,
+                    scenario_revealed=presentation.scenario_revealed,
+                ),
+                indent=2,
+            )
+        )
     else:
         typer.echo(f"Lab ready: {session.lab_id}")
         typer.echo(f"Namespace: {session.namespace}")
@@ -180,7 +218,7 @@ def status_command(
     with _application(json_output) as manager:
         result = manager.status()
     if json_output:
-        typer.echo(result.model_dump_json(indent=2, exclude_none=True))
+        typer.echo(json.dumps(_public_status_payload(result), indent=2))
     else:
         typer.echo(f"Lab: {result.session.lab_id}")
         typer.echo(f"Status: {result.session.status.value}")
@@ -196,6 +234,7 @@ def resources_command(
     """Show safe summaries of resources in the active lab Namespace."""
     with _application(json_output) as manager:
         result = manager.resources()
+        presentation = manager.session_status_snapshot()
     if kind is not None:
         result = result.model_copy(
             update={
@@ -206,7 +245,13 @@ def resources_command(
             }
         )
     if json_output:
-        typer.echo(result.model_dump_json(indent=2, exclude_none=True))
+        payload = result.model_dump(mode="json", exclude_none=True)
+        payload["session"] = _public_session_payload(
+            result.session,
+            practice_mode=presentation.practice_mode,
+            scenario_revealed=presentation.scenario_revealed,
+        )
+        typer.echo(json.dumps(payload, indent=2))
         return
     typer.echo(f"Namespace: {result.session.namespace}")
     for item in result.resources:
@@ -222,8 +267,15 @@ def events_command(
     """Show Kubernetes Events for the active lab Namespace."""
     with _application(json_output) as manager:
         result = manager.events()
+        presentation = manager.session_status_snapshot()
     if json_output:
-        typer.echo(result.model_dump_json(indent=2, exclude_none=True))
+        payload = result.model_dump(mode="json", exclude_none=True)
+        payload["session"] = _public_session_payload(
+            result.session,
+            practice_mode=presentation.practice_mode,
+            scenario_revealed=presentation.scenario_revealed,
+        )
+        typer.echo(json.dumps(payload, indent=2))
         return
     typer.echo(f"Namespace: {result.session.namespace}")
     for event in result.events:
@@ -310,8 +362,18 @@ def reset_command(
         if not _confirm_destructive("reset", session.namespace, json_output=json_output):
             return
         result = manager.reset(session.id)
+        presentation = manager.session_status_snapshot()
     if json_output:
-        typer.echo(result.model_dump_json(indent=2, exclude_none=True))
+        typer.echo(
+            json.dumps(
+                _public_session_payload(
+                    result,
+                    practice_mode=presentation.practice_mode,
+                    scenario_revealed=presentation.scenario_revealed,
+                ),
+                indent=2,
+            )
+        )
     else:
         typer.echo(f"Lab reset to its initial fault: {result.lab_id}")
         typer.echo(f"Namespace: {result.namespace}")
@@ -326,9 +388,19 @@ def cleanup_command(
         session = manager.session_snapshot()
         if not _confirm_destructive("delete", session.namespace, json_output=json_output):
             return
+        presentation = manager.session_status_snapshot()
         result = manager.cleanup(session.id)
     if json_output:
-        typer.echo(result.model_dump_json(indent=2, exclude_none=True))
+        typer.echo(
+            json.dumps(
+                _public_session_payload(
+                    result,
+                    practice_mode=presentation.practice_mode,
+                    scenario_revealed=presentation.scenario_revealed,
+                ),
+                indent=2,
+            )
+        )
     else:
         typer.echo(f"Cleanup completed: {result.namespace}")
 
