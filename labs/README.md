@@ -1,6 +1,6 @@
 # KubeLab实验目录
 
-每个实验是一个独立目录，包含一个`lab.yaml`、一个或多个声明式Kubernetes Manifest、练习说明和维护者标准修复。当前目录包含18个实验，可以通过CLI、本地REST API或Web UI执行；同一时间只允许一个活动Session。
+每个实验族是一个独立目录，包含一个`lab.yaml`、一个或多个声明式Kubernetes Manifest、练习说明和维护者标准修复。当前目录包含21个实验族、12个固定变体，共33个可执行场景；同一时间只允许一个活动Session。
 
 ## 目录结构
 
@@ -14,6 +14,8 @@ labs/
     └── solutions/
         └── fix.yaml
 ```
+
+LAB-013至018还包含`variants/variant-b|variant-c/`。每个目录使用严格的`LabVariant`定义，并提供自己的Manifest、标准修复和README。变体继承父实验的Namespace、requirements、cleanup与三个静态复盘问题；Registry会把整个实验族作为原子单元校验。
 
 Registry会递归查找文件名严格为`lab.yaml`的实验。Manifest路径以该`lab.yaml`所在目录为基准，并必须使用`manifests/deployment.yaml`这样的POSIX相对路径。
 
@@ -92,10 +94,11 @@ uv run pytest tests/test_lab_schema.py
 - `config_value`
 - `pvc_status`
 - `http_response`
+- `dns_resolution`
 
 这些验证器由M1-08 ValidationEngine执行。每个实验必须同时证明初始故障契约、修复后的成功契约和重置后的故障恢复。
 
-## 十八个实验
+## 二十一个实验、三十三个场景
 
 - LAB-001至004：Deployment扩缩容、滚动更新、ConfigMap注入和Liveness探针；
 - LAB-005至007：ImagePullBackOff、CrashLoopBackOff和Service Selector错误；
@@ -103,10 +106,13 @@ uv run pytest tests/test_lab_schema.py
 - LAB-011至012：Ingress后端端口错误和PVC无法绑定。
 - LAB-013至015：Service TargetPort错误、ConfigMap键缺失和Job命令失败；
 - LAB-016至018：StatefulSet无头服务错配、DaemonSet节点选择错误和PVC依赖缺失。
+- LAB-019至021：配置到Service、存储到Readiness、StatefulSet到Service的双根因高级故障链。
 
-全部18个实验使用Fake Gateway证明初始故障、成功条件预检失败、标准修复通过和reset恢复。默认关闭的真实minikube契约测试也已对LAB-001至018完成`start → 受限workspace修复 → verify → reset → cleanup`端到端验收。
+全部21个基线和12个变体使用Fake Gateway证明初始故障、成功条件预检失败、标准修复通过和reset恢复。真实minikube测试已定义33个场景并默认关闭；M5时期LAB-001至018的真实验收历史记录保持不变。
 
-LAB-011要求Doctor确认`ingress` addon已启用。LAB-012和LAB-018通过实验级readiness要求默认StorageClass；PVC的`storageClassName`不可原地修改，修复时需要删除故障PVC后重新创建。
+首次成功前固定启动基线。基线成功后，服务端按`variant-b`、`variant-c`确定性轮换；中断或未通过时继续同一变体。盲练通过前不公开场景名称、根因、标准修复或内部检查结构，通过后才揭示并进入故障地图。
+
+LAB-011要求Doctor确认`ingress` addon已启用。LAB-012、LAB-018和LAB-020通过实验级readiness要求默认StorageClass；PVC的`storageClassName`不可原地修改，修复时需要删除故障PVC后重新创建。
 
 每个`solutions/fix.yaml`仅供契约测试和维护者核对，不在`lab.yaml.environment.manifests`中，因此Registry启动实验时不会读取或自动应用答案。
 

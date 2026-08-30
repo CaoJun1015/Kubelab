@@ -12,7 +12,8 @@ from email import parser
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
-EXPECTED_LAB_COUNT = 18
+EXPECTED_LAB_COUNT = 21
+EXPECTED_VARIANT_COUNT = 12
 EXPECTED_WEB_ASSETS = {
     "static/app.js",
     "static/styles.css",
@@ -29,6 +30,7 @@ EXPECTED_PACKAGE_FILES = {
     "migrations/script.py.mako",
     "migrations/versions/0001_initial_persistence.py",
     "migrations/versions/0002_guided_learning.py",
+    "migrations/versions/0003_lab_variants.py",
     "py.typed",
 }
 EXPECTED_PROJECT_DOCS = {
@@ -202,6 +204,15 @@ def verify_wheel(path: Path, expected_version: str) -> None:
         }
         if len(labs) != EXPECTED_LAB_COUNT:
             raise ValueError(f"wheel contains {len(labs)} labs, expected {EXPECTED_LAB_COUNT}")
+        variants = {
+            name
+            for name in names
+            if re.fullmatch(r"kubelab/labs/[^/]+/variants/[^/]+/variant\.yaml", name)
+        }
+        if len(variants) != EXPECTED_VARIANT_COUNT:
+            raise ValueError(
+                f"wheel contains {len(variants)} variants, expected {EXPECTED_VARIANT_COUNT}"
+            )
         for asset in EXPECTED_WEB_ASSETS | EXPECTED_PACKAGE_FILES:
             if f"kubelab/{asset}" not in names:
                 raise ValueError(f"wheel is missing kubelab/{asset}")
@@ -236,6 +247,15 @@ def verify_sdist(path: Path, expected_version: str) -> None:
         }
         if len(labs) != EXPECTED_LAB_COUNT:
             raise ValueError(f"sdist contains {len(labs)} labs, expected {EXPECTED_LAB_COUNT}")
+        variants = {
+            name
+            for name in relative
+            if re.fullmatch(r"labs/[^/]+/variants/[^/]+/variant\.yaml", name)
+        }
+        if len(variants) != EXPECTED_VARIANT_COUNT:
+            raise ValueError(
+                f"sdist contains {len(variants)} variants, expected {EXPECTED_VARIANT_COUNT}"
+            )
         for asset in EXPECTED_WEB_ASSETS | EXPECTED_PACKAGE_FILES:
             if f"src/kubelab/{asset}" not in relative:
                 raise ValueError(f"sdist is missing src/kubelab/{asset}")
@@ -263,6 +283,7 @@ def main() -> int:
         return 1
     print(
         f"verified KubeLab {args.version}: {EXPECTED_LAB_COUNT} labs, "
+        f"{EXPECTED_VARIANT_COUNT} variants, "
         f"{len(EXPECTED_WEB_ASSETS)} Web assets, metadata and safety rules"
     )
     return 0

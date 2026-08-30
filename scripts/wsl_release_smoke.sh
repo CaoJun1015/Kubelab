@@ -57,8 +57,8 @@ fi
 $kubelab_bin doctor --json > "$release_root/doctor.json"
 $kubelab_bin list --json > "$release_root/labs.json"
 lab_count=$(grep -c '"id":' "$release_root/labs.json")
-if [[ "$lab_count" -ne 18 ]] || ! grep -q '"errors": \[\]' "$release_root/labs.json"; then
-    echo "installed registry did not load exactly 18 valid package labs" >&2
+if [[ "$lab_count" -ne 21 ]] || ! grep -q '"errors": \[\]' "$release_root/labs.json"; then
+    echo "installed registry did not load exactly 21 valid package labs" >&2
     exit 1
 fi
 

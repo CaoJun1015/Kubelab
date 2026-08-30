@@ -445,12 +445,13 @@ P0验证类型：
 | `config_value` | sourceKind/sourceName/key/expectedValue | ConfigMap或Secret中值匹配 |
 | `pvc_status` | name/expectedPhase | PVC达到目标Phase |
 | `http_response` | target/expectedStatus | 集群内HTTP返回预期状态 |
+| `dns_resolution` | service/pod/expectedResolved | 平台构造的实验内稳定Service FQDN达到期望解析状态 |
 
 `minimum`、`maximum`和`exactly`至少出现一个；使用`exactly`时不得同时设置其他数量字段。
 
 `pod_status`中的waiting reason和restart约束必须同时指定`containerName`；`minimumRestartCount`不得大于`maximumRestartCount`。`minimumReady`始终统计Pod Ready数量，`ready`在指定`containerName`时检查该容器，否则检查整个Pod。
 
-M1-04确认上述8种类型为`kubelab.io/v1alpha1`唯一正式协议，不兼容早期草案中的`resource_not_exists`、`pod_phase`、`pod_ready`、`pvc_phase`和`http_status`。`http_response.target`只接受结构化Service或Ingress引用，不接受任意URL。
+M1-04最初确认前8种类型，M6在同一`kubelab.io/v1alpha1`协议内增加受限`dns_resolution`。协议不兼容早期草案中的`resource_not_exists`、`pod_phase`、`pod_ready`、`pvc_phase`和`http_status`。`http_response.target`只接受结构化Service或Ingress引用，不接受任意URL；`dns_resolution`不接受hostname、命令或Shell。
 
 ### 6.5 初始故障契约
 
@@ -1348,7 +1349,7 @@ M1-03提供`ContextTrustService.assert_trusted_context()`作为后续所有集�
 
 完成标准：failed与error严格区分，Probe成功、超时和清理失败均有测试。
 
-实际实现提供冻结的`ValidationRunResult`和`PublicCheckResult`，公开结果不携带expected/actual。8种检查统一顺序执行，单项deadline取检查超时与全局deadline的较早值，轮询间隔为500ms、1秒、2秒后保持2秒；`stableSeconds`要求条件连续成立，中途失败会重置窗口。聚合严格采用`error > failed > passed`。
+实际实现提供冻结的`ValidationRunResult`和`PublicCheckResult`，公开结果不携带expected/actual。9种检查统一顺序执行，单项deadline取检查超时与全局deadline的较早值，轮询间隔为500ms、1秒、2秒后保持2秒；`stableSeconds`要求条件连续成立，中途失败会重置窗口。聚合严格采用`error > failed > passed`。
 
 初始契约分别持久化`initial`与`success_contract`运行：全部初始检查必须通过，成功条件预检不得出现error且至少一项必须failed。手动成功验证由`LabManager.verify()`接入，READY首次验证转IN_PROGRESS，仅通过时转PASSED；failed或error保留IN_PROGRESS，PASSED可重复只读验证，ERROR和COMPLETED拒绝验证。
 
@@ -1456,6 +1457,26 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - 新场景覆盖Service TargetPort、ConfigMap键契约、失败Job、StatefulSet Headless Service、DaemonSet节点选择和缺失PVC依赖；
 - LAB-012与LAB-018声明`default-storageclass`实验要求，readiness复用Doctor的`default_storage_class`结果并在集群写入前阻断；
 - Fake Gateway和安全Fixture覆盖全部18个实验；真实集成测试已对LAB-001至018完成受限Workspace端到端验收。
+
+### M6 可复现故障变体与综合排障场景
+
+- `LabVariant`与父实验使用同一`kubelab.io/v1alpha1`版本，但采用独立严格Schema。变体只能位于父实验的`variants/variant-*`目录，继承Namespace、requirements、cleanup和静态复盘问题。
+- Registry把实验族作为校验单元，检查Schema、目录归属、重复ID、Manifest路径、安全策略和摘要。Apply前再次读取并核对摘要；活动变体缺失时提示、验证和reset返回稳定错误，cleanup仍按Session所有权执行。
+- `0003_lab_variants`为`lab_session`增加非空`variant_id`，默认并回填`baseline`，并建立`(lab_id, variant_id, created_at)`索引。不增加变体进度表或随机种子。
+- 选择顺序固定为：基线未成功时始终基线；最近非基线未通过时继续原变体；按序选择尚未成功的变体；全部完成后选择最久未练的变体。客户端不能提交`variant_id`。
+- 变体通过前只公开现象、成功目标、Namespace、Workspace和分层提示。`success_contract_passed`后立即记录`scenario_revealed`并公开关键证据、根因、修复和预防措施。时间线、故障地图、进度和复盘均从Session及事件派生。
+- `dns_resolution`只接受Service名和可选Pod名，由Gateway构造`<pod>.<service>.<namespace>.svc.cluster.local`，使用固定`busybox:1.36.1`与固定`nslookup`参数。探针有短超时、输出上限、所有权校验和finally清理；公共结果不包含原始输出或地址。
+- LAB-013至018各提供`variant-b`与`variant-c`；LAB-019至021分别覆盖配置到Service、存储到Readiness、StatefulSet到Service的双根因故障链。目录共21个实验族、33个可执行场景。
+- M6明确不实现随机练习入口、限时面试、评分、排名、浏览器终端或用户选择变体路由。盲练是教学呈现边界，不是本地源码保密机制。
+
+实际实现状态（0.3.0a0）：
+
+- [x] 严格变体Schema、Registry原子校验、摘要复核与有效实验解析；
+- [x] 迁移、确定性选择、Session恢复与丢失变体稳定错误；
+- [x] 盲练DTO、即时揭示、故障地图、进度与Markdown复盘扩展；
+- [x] 受限稳定DNS验证器及异常脱敏；
+- [x] 12个固定变体、3个双根因高级实验和33场景Fake Gateway契约；
+- [x] Web目录、详情、Session与进度页支持基线/盲练呈现，不接受变体输入。
 
 ---
 
@@ -1639,3 +1660,12 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - LAB-013验证Endpoint存在但错误TargetPort导致HTTP失败，修复后返回200；LAB-014验证缺失ConfigMap键；LAB-015验证不可变Job删除重建；LAB-016验证Headless Service；LAB-017验证`nodeSelector: null`清除调度条件；LAB-018验证PVC动态供应；
 - 独立残留审计确认不存在`kubelab-*` Namespace、KubeLab Workspace ServiceAccount/Role/RoleBinding、Probe Pod、PVC、PV或`/tmp/kubelab-workspace-*`目录；
 - 验收只访问本机Docker驱动的minikube，没有访问远程或生产集群；残留审计后已把profile恢复为Stopped，也未修改`v0.1.0`标签或Release。
+
+2026-08-30，M6可复现故障变体与综合排障场景完成双环境自动化质量门：
+
+- Windows Python 3.11收集557项测试，520项通过，33项实验场景集成、2项网关集成和2项符号链接测试按预期跳过，覆盖率91.79%；
+- WSL2 Ubuntu Python 3.11.16使用独立`/tmp/kubelab-m6-venv`收集557项测试，522项通过，33项实验场景集成和2项网关集成测试按预期跳过，覆盖率91.92%；
+- 两端Ruff、Ruff format、strict mypy、JavaScript语法、`git diff --check`、wheel/sdist构建和统一产物检查全部通过；产物包含21个实验族、12个固定变体、9个Web资源及`0001`至`0003`迁移；
+- Fake Gateway逐项证明21个基线与12个变体的初始故障、成功条件预检失败、标准修复通过和reset恢复；三个综合实验还证明修复第一根因后第二根因仍可观测；
+- WSL隔离wheel安装成功，包内Registry无错误加载21个实验族和12个变体，`127.0.0.1:8765`的health、总览和实验目录均返回200并正常停止；完整Doctor流程因M5验收后按记录停止了本机minikube而返回`unhealthy`，未为验收重新启动集群；
+- `KUBELAB_RUN_INTEGRATION`与`KUBELAB_RUN_LAB_INTEGRATION`保持关闭，未执行真实start、reset或cleanup，未访问远程或生产集群；`v0.1.0`标签与Release保持不变。

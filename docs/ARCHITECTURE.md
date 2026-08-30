@@ -10,9 +10,9 @@ flowchart TB
     CLI --> App[Application Service / LabManager]
     Web --> App
 
-    App --> Registry[LabRegistry\n18 个包内实验]
+    App --> Registry[LabRegistry\n21 个实验族 / 33 个场景]
     App --> Ready[EnvironmentReadinessService\nDoctor + Context + requirements]
-    App --> Engine[ValidationEngine\n8 类声明式检查]
+    App --> Engine[ValidationEngine\n9 类声明式检查]
     App --> UoW[Unit of Work / Repositories]
     App --> Gateway[KubernetesGateway]
     UoW --> SQLite[(SQLite + Alembic)]
@@ -31,6 +31,7 @@ flowchart TB
 - CLI 将参数转换为 Application Service 调用，并输出稳定 DTO 与退出码。
 - FastAPI lifespan 持有运行时；API 与页面只依赖 `WebApplicationService` 协议。
 - `LabRegistry` 在访问集群前完成 Schema、路径与 Manifest 安全扫描。
+- `LabRegistry`将父实验与固定变体解析为统一的有效实验对象；Session只持久化已选变体，reset、恢复和reconcile不会重新选择。
 - `ValidationEngine` 只接收结构化检查，不执行实验提供的任意命令或 URL。
 - `KubernetesGateway` 在所有写操作前重新确认 Context、Session、Namespace 和管理标签。
 
@@ -58,8 +59,16 @@ Role 不授权 Secret、RBAC 对象、Namespace 或其他集群级资源。临�
 
 ## 数据与输出
 
-SQLite只保存Session、状态事件、脱敏验证结果、提示进度、复盘、白名单化readiness缓存和脱敏evidence。`0002_guided_learning`迁移保留v0.1.0数据；已有Session数据库回填为非首次用户，新数据库保持未完成引导。
+SQLite只保存Session、状态事件、脱敏验证结果、提示进度、复盘、白名单化readiness缓存和脱敏evidence。`0002_guided_learning`迁移保留v0.1.0数据；`0003_lab_variants`只在Session增加默认值为`baseline`的变体引用与查询索引，不增加第二套进度状态。
 
 活动Session恢复与集群协调明确分离：`GET /api/v1/sessions/active`只读SQLite并返回`cluster_state=not_checked`；`POST /api/v1/sessions/active/reconcile`才访问集群。学习阶段从`SessionStatus`派生，时间线合并事件、提示、验证与evidence，不持久化第二套状态。快照采集失败只记录`unavailable`，不改变start/reset/verify/cleanup结果。
 
 公共CLI/API/Web不返回Secret值、验证expected/actual、完整Manifest、凭证或异常堆栈。Web资源DTO只允许资源类型、名称、状态和Pod汇总；日志有行数和字节上限，错误使用稳定的`code/message/context/retryable`结构。
+
+## M6场景选择与揭示
+
+首次练习固定选择基线。基线成功后，Application Service依次选择尚未完成的`variant-b`、`variant-c`；最近非基线Session未通过时继续该变体，两者都完成后选择最久未练的一个。客户端不能提交`variant_id`。
+
+变体在通过前以`blind_repeat`呈现，只公开现象、成功目标、Namespace、Workspace和逐层提示；通过`success_contract_passed`后立即公开场景名称、关键证据、根因、修复与预防措施。故障地图和复盘都从Session与事件派生，未完成变体只显示匿名占位。盲练是教学呈现边界，不是对本地源码读取者的保密机制。
+
+`dns_resolution`验证器只接受Service名和可选Pod名，由服务端构造同Namespace的固定FQDN，使用固定BusyBox镜像和参数运行短时探针。它不接受任意hostname、Shell或网络目标，原始DNS输出和解析地址不会进入持久化或公共DTO。

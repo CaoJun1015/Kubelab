@@ -7,6 +7,10 @@
 ### Added
 
 - 开始开发固定故障变体、渐进式盲练和双根因综合排障场景。
+- LAB-013至018各增加两个固定变体；LAB-019至021增加三个双根因高级实验，目录达到21个实验族、33个场景。
+- 严格`LabVariant`契约、变体Manifest摘要复核、确定性轮换、盲练揭示和已完成故障地图。
+- 受限`dns_resolution`验证器，只允许平台构造同Namespace稳定Service DNS探测。
+- Alembic `0003_lab_variants`迁移，为旧Session安全回填`baseline`。
 - 首次使用环境引导、实验级readiness门禁和固定可复制修复建议。
 - 可恢复Session、派生学习阶段、排障时间线及脱敏资源快照。
 - 三层提示、公开验证三态、派生进度统计和脱敏Markdown复盘导出。
@@ -19,11 +23,13 @@
 - 开始开发KubeLab 0.2.0a0的M5引导式排障学习闭环。
 - 活动Session GET改为纯SQLite读取；资源、Events和Logs读取不再推进学习状态，集群协调改为显式写API。
 - LAB-012和LAB-018把默认StorageClass纳入实验级readiness强制门禁；wheel、sdist和Web目录契约扩展为18个实验。
+- LabRegistry、Application Service、CLI和Web统一消费“基线或已选变体”的有效实验对象；客户端不能指定变体。
 
 ### Security
 
 - Web资源与evidence使用独立白名单DTO，完全排除Secret、labels、annotations、conditions、镜像信息和Kubernetes原始对象。
 - 验证、Doctor、复盘导出和未知异常统一脱敏，不公开内部值、Manifest或堆栈。
+- 盲练通过前不公开变体ID、名称、根因、标准修复或内部验证结构；活动变体缺失时禁止静默回退到基线。
 
 ## [0.1.0] - 2026-08-27
 

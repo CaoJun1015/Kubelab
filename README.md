@@ -24,9 +24,10 @@ KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 
 - `ContextTrustService.assert_trusted_context()`：为后续所有Kubernetes写操作提供统一安全守卫；
 - `kubelab.io/v1alpha1`实验Schema：严格校验实验元数据、任务、检查、提示和声明式清理配置；
 - `LabRegistry`：确定性扫描本地实验，隔离损坏实验并拒绝危险Manifest、路径逃逸和集群级资源；
-- 十八个声明式实验：在原有扩缩容、滚动更新、配置、探针、镜像、网络、资源、Ingress和PVC场景上，增加Service端口映射、配置键契约、Job、StatefulSet、DaemonSet和PVC依赖排障；
-- wheel内置全部18个实验目录、Jinja模板和静态资源，安装后不依赖源码仓库中的`labs/`；
-- 可重复生成的`schemas/lab-v1alpha1.schema.json`及错误脱敏；
+- 二十一个声明式实验：18个单根因基线、12个固定复练变体和3个双根因高级场景，共33个可执行场景；
+- 首次练习固定使用基线；基线首次成功后按确定性规则轮换两个固定变体，中断时继续原场景，不提供随机抽题、计时、评分或排名；
+- wheel内置全部21个实验目录、12个变体、Jinja模板和静态资源，安装后不依赖源码仓库中的`labs/`；
+- 可重复生成的实验与变体JSON Schema及错误脱敏；
 - SQLAlchemy 2与Alembic持久化：保存Session、状态事件、验证记录、提示和复盘；
 - M5首次引导：Web缓存展示WSL2、Docker、minikube、kubectl和Context信任结果，只有显式“重新检查”或启动实验才执行固定只读诊断；修复命令只允许复制；
 - 实验级readiness门禁：`LabManager.start()`在创建Session和集群写入前检查Kubernetes版本、CPU、内存和Addon，未满足时返回`ENVIRONMENT_NOT_READY`；
@@ -36,7 +37,7 @@ KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 
 - `KubernetesGateway`：只在Session作用域内创建受保护Namespace，执行server-side dry-run/apply，并提供脱敏资源、Pod、Events和受限Logs读取；
 - Namespace删除前核对前缀、Session记录、管理标签、lab ID、Session ID和Context指纹；超时只报告finalizer和残留资源，不强制删除；
 - `LabRegistry.materialize_for_gateway()`：Apply前重新读取、校验摘要并执行安全扫描，阻止扫描后替换文件；
-- 8种声明式验证器：资源存在、Pod状态、Deployment可用副本、Service Endpoint、容器镜像、配置值、PVC状态和集群内HTTP响应；
+- 9种声明式验证器：资源存在、Pod状态、Deployment可用副本、Service Endpoint、容器镜像、配置值、PVC状态、集群内HTTP响应和受限稳定DNS解析；
 - `ValidationEngine`：顺序执行检查，使用500ms/1s/2s轮询、单项及全局deadline、Pod稳定窗口，并严格区分`passed/failed/error`；
 - 初始故障契约：证明所有初始条件成立，同时证明至少一项成功条件尚未满足；每次运行和逐项结果在短事务中原子持久化；
 - 受限curl探测Pod闭环：固定镜像、资源限额和安全上下文，只允许访问实验Service或内置minikube ingress-nginx目录，并在成功、失败或超时后清理；
@@ -244,18 +245,18 @@ uv run mypy src
 
 如果Windows与WSL对同一工作目录执行检查，必须为两端配置不同的uv虚拟环境路径，不能共享`.venv`；更推荐把正式WSL开发副本放在Linux文件系统中。
 
-当前质量基线：Windows和WSL的最终数据见TDD“当前环境说明”中的M5-01记录。两端均要求pytest覆盖率不低于90%，并通过Ruff、格式检查、strict mypy、JavaScript语法、构建、统一产物检查和`git diff --check`。真实集成测试默认关闭，只能在已信任的本地minikube中显式运行。
+当前质量基线：Windows和WSL的最终数据见TDD“当前环境说明”。两端均要求pytest覆盖率不低于90%，并通过Ruff、格式检查、strict mypy、JavaScript语法、构建、统一产物检查和`git diff --check`。真实集成测试默认关闭，只能在已信任的本地minikube中显式运行。
 
 只有在WSL中确认`kubelab context inspect`显示`trusted`后，才可显式运行真实网关测试：
 
 ```bash
 KUBELAB_RUN_INTEGRATION=1 uv run pytest --no-cov -q tests/test_kubernetes_gateway_integration.py
 
-# 全部18个实验的真实start → 受限workspace修复 → verify → reset → cleanup契约
+# 全部33个场景的真实start → 受限workspace修复 → verify → reset → cleanup契约
 KUBELAB_RUN_LAB_INTEGRATION=1 uv run pytest --no-cov -q tests/test_first_labs_integration.py
 ```
 
-全部18个实验默认使用Fake Gateway证明`initial → success预检失败 → fix → reset`契约，不接触集群。显式真实测试已对18个实验完成`start → 受限workspace修复 → verify → reset → cleanup`验收，只创建随机`kubelab-test-*` Namespace，并验证Secret、集群级Namespace和残留资源安全边界。执行前要求固定版本镜像已进入minikube缓存，LAB-011要求Ingress Controller可用，LAB-012和LAB-018要求默认`standard` StorageClass及storage-provisioner可用。不要在远程或生产Context运行。
+全部21个基线和12个变体默认使用Fake Gateway证明`initial → success预检失败 → fix → reset`契约，不接触集群。真实测试入口已参数化为33个场景，但M6开发期保持关闭；此前完成的18个M5基线真实验收记录仍保留。测试只允许创建随机`kubelab-test-*` Namespace，并验证Secret、集群级Namespace和残留资源安全边界。执行前要求固定版本镜像已进入minikube缓存，LAB-011要求Ingress Controller可用，LAB-012、LAB-018和LAB-020要求默认`standard` StorageClass及storage-provisioner可用。不要在远程或生产Context运行。
 
 ## 安全边界
 
@@ -275,7 +276,7 @@ KUBELAB_RUN_LAB_INTEGRATION=1 uv run pytest --no-cov -q tests/test_first_labs_in
 ```text
 src/kubelab/              Python包、CLI、本地REST API和Web界面
 tests/                    单元测试
-labs/                     十八个声明式实验定义
+labs/                     二十一个实验族与十二个固定变体
 docs/                     部署与环境文档
 scripts/                  发布产物与WSL隔离验收脚本
 .github/                  双平台CI、Issue表单和PR模板
@@ -303,6 +304,7 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 - [x] M4 首个GitHub-only稳定版发布就绪。
 - [x] M5 引导式排障学习闭环。
 - [x] LAB-013至018 六个中级排障实验与18实验真实验收。
+- [x] M6 可复现故障变体、盲练揭示和三个双根因高级场景。
 
 详细设计见[PRD](PRD-KubeLab.md)、[TDD](TDD-KubeLab.md)、[架构说明](docs/ARCHITECTURE.md)、[实验开发指南](docs/LAB_DEVELOPMENT.md)、[贡献指南](CONTRIBUTING.md)和[安全策略](SECURITY.md)。
 
