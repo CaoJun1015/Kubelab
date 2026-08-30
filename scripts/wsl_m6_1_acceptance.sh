@@ -49,6 +49,10 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     exit 1
 fi
 candidate_commit=$(git rev-parse HEAD)
+uv venv "$results_root/venv" --python 3.11
+export VIRTUAL_ENV="$results_root/venv"
+export PATH="$VIRTUAL_ENV/bin:$PATH"
+uv sync --active --locked --dev
 minikube profile list --output json > "$results_root/profile-before.json"
 read -r initial_status driver < <(
     python3 "$validator" profile --path "$results_root/profile-before.json"
@@ -65,13 +69,13 @@ if [[ "$(kubectl config current-context)" != "minikube" ]]; then
     echo "Current Kubernetes Context must remain minikube." >&2
     exit 1
 fi
-uv run kubelab context inspect --json > "$results_root/context.json"
+kubelab context inspect --json > "$results_root/context.json"
 python3 "$validator" context --path "$results_root/context.json" > "$results_root/context-status.txt"
-if [[ "$(uv run kubelab --version)" != "KubeLab 0.3.0rc1" ]]; then
+if [[ "$(kubelab --version)" != "KubeLab 0.3.0rc1" ]]; then
     echo "The acceptance environment is not running KubeLab 0.3.0rc1." >&2
     exit 1
 fi
-uv run kubelab doctor --json > "$results_root/doctor.json"
+kubelab doctor --json > "$results_root/doctor.json"
 python3 - "$results_root/doctor.json" <<'PY'
 import json
 import sys
@@ -126,7 +130,7 @@ for batch in "${batches[@]}"; do
     export KUBELAB_LAB_INTEGRATION_BATCH="$batch"
     started_at=$(date +%s)
     junit="$results_root/${batch}.xml"
-    uv run pytest \
+    python -m pytest \
         tests/test_first_labs_integration.py::test_real_fault_repair_reset_cleanup_contract \
         --no-cov -q --junitxml="$junit"
     python3 "$validator" junit --path "$junit" --batch "$batch" \
