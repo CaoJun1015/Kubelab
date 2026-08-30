@@ -1,0 +1,25 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabVariant
+metadata:
+  id: variant-b
+  sequence: 1
+  name: DaemonSet节点亲和性无法满足
+  description: required nodeAffinity要求不存在的节点标签，DaemonSet无法在本地节点运行。
+environment: {manifests: [manifests/daemonset.yaml], provisionTimeoutSeconds: 180}
+task:
+  description: 不修改Node标签，定位DaemonSet工作负载内部无法满足的节点约束。
+  completionDescription: 移除错误约束，使至少一个DaemonSet Pod稳定Running且Ready。
+  successMessage: DaemonSet节点亲和性已经恢复。
+initialChecks:
+  - {id: daemonset-present, type: resource_exists, apiVersion: apps/v1, kind: DaemonSet, name: node-agent, timeoutSeconds: 15, unmetMessage: DaemonSet不存在。}
+successChecks:
+  - {id: daemon-pod-ready, type: pod_status, selector: {app: daemonset-node-selector-lab}, expectedPhase: Running, minimumCount: 1, minimumReady: 1, stableSeconds: 5, ready: true, timeoutSeconds: 90, unmetMessage: DaemonSet Pod尚未稳定Ready。}
+hints:
+  - {level: 1, content: 检查Pod模板中的required nodeAffinity，而不是修改节点。}
+  - {level: 2, content: "kubectl get daemonset node-agent -o yaml"}
+  - {level: 3, content: 移除要求kubelab.io/node-pool=missing的required nodeAffinity。}
+reveal:
+  keyEvidence: required nodeAffinity引用了所有Node都没有的标签值。
+  rootCause: DaemonSet Pod模板包含不可满足的节点亲和性。
+  resolution: 只移除错误nodeAffinity，不修改Node。
+  prevention: 发布前把required调度条件与目标节点标签集合进行匹配。

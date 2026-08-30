@@ -2,8 +2,8 @@ apiVersion: kubelab.io/v1alpha1
 kind: Lab
 metadata:
   id: lab-018-pvc-claim-missing
-  name: LAB-018 PVC依赖缺失
-  description: Deployment引用不存在的PVC，Pod因未满足的存储依赖持续Pending。
+  name: LAB-018 工作负载存储异常
+  description: 调查PVC存在性、动态供应、绑定状态与工作负载卷挂载契约。
   difficulty: intermediate
   durationMinutes: 30
   category: storage

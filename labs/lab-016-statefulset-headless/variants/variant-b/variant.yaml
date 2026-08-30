@@ -1,0 +1,33 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabVariant
+metadata:
+  id: variant-b
+  sequence: 1
+  name: StatefulSet治理服务名称错配
+  description: Pod与Headless Service均正常，但StatefulSet声明了错误的serviceName，稳定Pod域名不存在。
+environment: {manifests: [manifests/resources.yaml], provisionTimeoutSeconds: 180}
+task:
+  description: 有状态Pod可以运行且Service有Endpoint，但稳定Pod DNS不可用。恢复治理关系。
+  completionDescription: 保持Pod Ready和HTTP 200，使web-0的稳定Service域名可以解析。
+  successMessage: StatefulSet稳定网络身份已经恢复。
+initialChecks:
+  - {id: stateful-pod-ready, type: pod_status, selector: {app: stateful-headless-lab}, expectedPhase: Running, minimumCount: 1, minimumReady: 1, ready: true, timeoutSeconds: 120, unmetMessage: StatefulSet Pod尚未Ready。}
+  - {id: endpoints-present, type: service_endpoint_count, name: web-headless, minimum: 1, timeoutSeconds: 30, unmetMessage: Headless Service没有Endpoint。}
+  - {id: stable-dns-missing, type: dns_resolution, service: web-headless, pod: web-0, expectedResolved: false, timeoutSeconds: 30, unmetMessage: 初始稳定Pod DNS没有呈现预期故障。}
+successChecks:
+  - {id: stable-dns-restored, type: dns_resolution, service: web-headless, pod: web-0, expectedResolved: true, timeoutSeconds: 45, unmetMessage: 稳定Pod DNS仍不可解析。}
+  - id: service-http-ok
+    type: http_response
+    target: {mode: service, name: web-headless, port: 80, path: /}
+    expectedStatus: 200
+    timeoutSeconds: 60
+    unmetMessage: Headless Service访问未返回HTTP 200。
+hints:
+  - {level: 1, content: Endpoint正常时，检查StatefulSet用于稳定网络身份的serviceName。}
+  - {level: 2, content: "kubectl get statefulset web -o yaml && kubectl get service web-headless -o yaml"}
+  - {level: 3, content: 删除并重建StatefulSet，把不可变serviceName恢复为web-headless。}
+reveal:
+  keyEvidence: Service有Endpoint，但StatefulSet serviceName指向missing-headless。
+  rootCause: StatefulSet没有使用实际Headless Service作为治理服务。
+  resolution: 删除并以serviceName web-headless重建StatefulSet。
+  prevention: 将StatefulSet serviceName、Headless Service名称和DNS契约一起验证。

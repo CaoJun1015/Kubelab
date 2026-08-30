@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: app-data, namespace: kubelab-pvc-claim-missing}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: standard
+  resources: {requests: {storage: 128Mi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: consumer, namespace: kubelab-pvc-claim-missing}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: pvc-consumer}}
+  template:
+    metadata: {labels: {app: pvc-consumer}}
+    spec:
+      containers:
+        - name: consumer
+          image: busybox:1.36.1
+          command: [sh, -c, "date > /data/heartbeat"]
+          volumeMounts: [{name: data, mountPath: /data, readOnly: true}]
+          resources: {requests: {cpu: 25m, memory: 32Mi}, limits: {cpu: 100m, memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, seccompProfile: {type: RuntimeDefault}}
+      volumes: [{name: data, persistentVolumeClaim: {claimName: app-data}}]

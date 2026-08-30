@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Service
+metadata: {name: web-headless, namespace: kubelab-statefulset-headless}
+spec:
+  selector: {app: stateful-headless-lab}
+  ports: [{name: http, port: 80, targetPort: http}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: web, namespace: kubelab-statefulset-headless, labels: {app: stateful-headless-lab}}
+spec:
+  serviceName: web-headless
+  replicas: 1
+  selector: {matchLabels: {app: stateful-headless-lab}}
+  template:
+    metadata: {labels: {app: stateful-headless-lab}}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 101, runAsGroup: 101, fsGroup: 101, seccompProfile: {type: RuntimeDefault}}
+      volumes: [{name: nginx-cache, emptyDir: {}}, {name: nginx-run, emptyDir: {}}]
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          ports: [{name: http, containerPort: 80}]
+          resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {cpu: 250m, memory: 256Mi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, seccompProfile: {type: RuntimeDefault}}
+          volumeMounts: [{name: nginx-cache, mountPath: /var/cache/nginx}, {name: nginx-run, mountPath: /run}]

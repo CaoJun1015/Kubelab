@@ -2,8 +2,8 @@ apiVersion: kubelab.io/v1alpha1
 kind: Lab
 metadata:
   id: lab-017-daemonset-node-selector
-  name: LAB-017 DaemonSet节点选择错误
-  description: DaemonSet使用不存在的节点hostname作为选择条件，因此期望Pod始终为零。
+  name: LAB-017 DaemonSet调度异常
+  description: 通过节点选择、节点亲和性与Pod亲和性调查DaemonSet调度异常。
   difficulty: intermediate
   durationMinutes: 30
   category: workloads

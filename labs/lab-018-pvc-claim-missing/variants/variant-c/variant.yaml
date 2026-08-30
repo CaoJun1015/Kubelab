@@ -1,0 +1,27 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabVariant
+metadata:
+  id: variant-c
+  sequence: 2
+  name: PVC挂载被错误设为只读
+  description: PVC已经Bound，但写入型工作负载以只读方式挂载卷并持续重启。
+environment: {manifests: [manifests/resources.yaml], provisionTimeoutSeconds: 180}
+task:
+  description: 存储已经成功绑定，但consumer仍无法稳定运行。检查Pod内的卷使用方式。
+  completionDescription: 保持PVC Bound，把卷恢复为可写挂载并使Pod稳定Ready。
+  successMessage: 工作负载已经以正确模式使用绑定存储。
+initialChecks:
+  - {id: app-data-bound, type: pvc_status, name: app-data, expectedPhase: Bound, timeoutSeconds: 120, unmetMessage: PVC尚未Bound。}
+  - {id: consumer-write-failure, type: pod_status, selector: {app: pvc-consumer}, expectedPhase: Running, containerName: consumer, expectedWaitingReasons: [CrashLoopBackOff], minimumRestartCount: 1, minimumCount: 1, timeoutSeconds: 120, unmetMessage: Pod未呈现预期写入失败重启。}
+successChecks:
+  - {id: app-data-still-bound, type: pvc_status, name: app-data, expectedPhase: Bound, timeoutSeconds: 60, unmetMessage: PVC不再Bound。}
+  - {id: consumer-ready, type: pod_status, selector: {app: pvc-consumer}, expectedPhase: Running, minimumCount: 1, minimumReady: 1, stableSeconds: 5, ready: true, containerName: consumer, maximumRestartCount: 5, timeoutSeconds: 120, unmetMessage: consumer Pod尚未稳定Ready。}
+hints:
+  - {level: 1, content: PVC Bound后继续检查容器日志与volumeMount的读写模式。}
+  - {level: 2, content: "kubectl logs -l app=pvc-consumer --previous && kubectl get deployment consumer -o yaml"}
+  - {level: 3, content: 保持PVC不变，把consumer的/data挂载恢复为可写。}
+reveal:
+  keyEvidence: PVC已Bound，但容器写/data时报告只读文件系统。
+  rootCause: 写入型工作负载把PVC错误地以readOnly方式挂载。
+  resolution: 只移除volumeMount.readOnly true，保持PVC与卷声明不变。
+  prevention: 同时验证存储绑定状态与应用实际读写行为。

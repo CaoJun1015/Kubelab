@@ -2,8 +2,8 @@ apiVersion: kubelab.io/v1alpha1
 kind: Lab
 metadata:
   id: lab-016-statefulset-headless
-  name: LAB-016 StatefulSet无头服务错配
-  description: StatefulSet Pod正常运行，但Headless Service无法选择Pod，稳定网络入口没有Endpoint。
+  name: LAB-016 StatefulSet稳定网络异常
+  description: 调查StatefulSet、治理Service、Endpoint与稳定Pod DNS之间的网络身份契约。
   difficulty: intermediate
   durationMinutes: 35
   category: networking

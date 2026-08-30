@@ -1,0 +1,26 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabVariant
+metadata:
+  id: variant-c
+  sequence: 2
+  name: DaemonSet Pod亲和性缺少锚点
+  description: required podAffinity依赖不存在的锚点Pod，DaemonSet Pod持续Pending。
+environment: {manifests: [manifests/daemonset.yaml], provisionTimeoutSeconds: 180}
+task:
+  description: DaemonSet已经创建Pod，但Pod无法调度。定位不必要的共置依赖并恢复运行。
+  completionDescription: 不创建伪造锚点Pod，使DaemonSet Pod稳定Running且Ready。
+  successMessage: DaemonSet Pod亲和性约束已经恢复。
+initialChecks:
+  - {id: daemonset-present, type: resource_exists, apiVersion: apps/v1, kind: DaemonSet, name: node-agent, timeoutSeconds: 15, unmetMessage: DaemonSet不存在。}
+  - {id: daemon-pod-pending, type: pod_status, selector: {app: daemonset-node-selector-lab}, expectedPhase: Pending, minimumCount: 1, timeoutSeconds: 60, unmetMessage: Pod未呈现预期调度等待。}
+successChecks:
+  - {id: daemon-pod-ready, type: pod_status, selector: {app: daemonset-node-selector-lab}, expectedPhase: Running, minimumCount: 1, minimumReady: 1, stableSeconds: 5, ready: true, timeoutSeconds: 90, unmetMessage: DaemonSet Pod尚未稳定Ready。}
+hints:
+  - {level: 1, content: 从Pending Pod Events回看Pod模板中的required podAffinity。}
+  - {level: 2, content: "kubectl describe pods -l app=daemonset-node-selector-lab"}
+  - {level: 3, content: 移除依赖app=missing-anchor的required podAffinity，不要创建锚点Pod。}
+reveal:
+  keyEvidence: 调度事件显示没有满足PodAffinity规则的节点，目标锚点Pod不存在。
+  rootCause: DaemonSet错误依赖不存在的共置Pod。
+  resolution: 只移除错误required podAffinity。
+  prevention: 对required podAffinity的锚点生命周期建立显式契约。

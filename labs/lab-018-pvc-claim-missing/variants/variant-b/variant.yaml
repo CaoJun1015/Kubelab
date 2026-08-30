@@ -1,0 +1,27 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabVariant
+metadata:
+  id: variant-b
+  sequence: 1
+  name: PVC引用不存在的StorageClass
+  description: PVC对象存在但请求了不存在的StorageClass，PVC和工作负载都无法就绪。
+environment: {manifests: [manifests/resources.yaml], provisionTimeoutSeconds: 180}
+task:
+  description: PVC已经创建但持续Pending。定位动态供应条件并恢复受限存储声明。
+  completionDescription: 以standard StorageClass重建PVC，使PVC Bound且consumer Pod稳定Ready。
+  successMessage: PVC动态供应和工作负载已经恢复。
+initialChecks:
+  - {id: app-data-pending, type: pvc_status, name: app-data, expectedPhase: Pending, timeoutSeconds: 60, unmetMessage: PVC未呈现预期Pending状态。}
+  - {id: consumer-pending, type: pod_status, selector: {app: pvc-consumer}, expectedPhase: Pending, minimumCount: 1, timeoutSeconds: 90, unmetMessage: consumer Pod未等待存储。}
+successChecks:
+  - {id: app-data-bound, type: pvc_status, name: app-data, expectedPhase: Bound, timeoutSeconds: 120, unmetMessage: PVC尚未Bound。}
+  - {id: consumer-ready, type: pod_status, selector: {app: pvc-consumer}, expectedPhase: Running, minimumCount: 1, minimumReady: 1, stableSeconds: 5, ready: true, timeoutSeconds: 120, unmetMessage: consumer Pod尚未稳定Ready。}
+hints:
+  - {level: 1, content: 查看PVC Events并核对请求的StorageClass是否存在。}
+  - {level: 2, content: "kubectl describe pvc app-data && kubectl get storageclass"}
+  - {level: 3, content: 删除未绑定PVC，以standard、RWO和128Mi重新创建。}
+reveal:
+  keyEvidence: PVC Events找不到名为archived-storage的StorageClass。
+  rootCause: PVC指定了不存在的StorageClass。
+  resolution: 删除未绑定PVC并以standard StorageClass和受限容量重建。
+  prevention: 把StorageClass可用性纳入环境readiness与部署契约。
