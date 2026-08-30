@@ -182,7 +182,10 @@ class ValidationEngine:
             reset_sequence=reset_sequence,
             purpose=VerificationPurpose.SUCCESS_CONTRACT,
         )
-        if success_preflight.status is ValidationStatus.ERROR:
+        preflight_has_failure = any(
+            result.status is ValidationStatus.FAILED for result in success_preflight.results
+        )
+        if success_preflight.status is ValidationStatus.ERROR and not preflight_has_failure:
             return InitialContractResult(
                 status=ValidationStatus.ERROR,
                 error_code="SUCCESS_PREFLIGHT_ERROR",
