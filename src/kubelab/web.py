@@ -142,6 +142,8 @@ class PublicSession(WebModel):
     completed_at: datetime | None
     reset_count: int
     last_error_code: str | None
+    practice_mode: str = "baseline"
+    scenario_revealed: bool = True
 
 
 class ActiveSessionResponse(WebModel):
@@ -728,7 +730,12 @@ def _service(request: Request) -> WebApplicationService:
     return cast(WebApplicationService, request.app.state.application_service)
 
 
-def _public_session(session: LabSessionSnapshot) -> PublicSession:
+def _public_session(
+    session: LabSessionSnapshot,
+    *,
+    practice_mode: str | None = None,
+    scenario_revealed: bool | None = None,
+) -> PublicSession:
     return PublicSession(
         id=session.id,
         lab_id=session.lab_id,
@@ -739,12 +746,23 @@ def _public_session(session: LabSessionSnapshot) -> PublicSession:
         completed_at=session.completed_at,
         reset_count=session.reset_count,
         last_error_code=session.last_error_code,
+        practice_mode=practice_mode
+        or ("baseline" if session.variant_id == "baseline" else "blind_repeat"),
+        scenario_revealed=(
+            scenario_revealed
+            if scenario_revealed is not None
+            else session.variant_id == "baseline" or session.status is SessionStatus.PASSED
+        ),
     )
 
 
 def _active_session_response(result: SessionStatusResult) -> ActiveSessionResponse:
     return ActiveSessionResponse(
-        session=_public_session(result.session),
+        session=_public_session(
+            result.session,
+            practice_mode=result.practice_mode.value,
+            scenario_revealed=result.scenario_revealed,
+        ),
         namespace_exists=result.namespace_exists,
         namespace_owned=result.namespace_owned,
         cluster_state=result.cluster_state.value,

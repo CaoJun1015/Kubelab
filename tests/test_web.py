@@ -31,6 +31,7 @@ from kubelab.lab_manager import (
     LabManagerError,
     LabProgress,
     LearningProgressReport,
+    PracticeMode,
     RetrospectiveEditState,
     SessionEvents,
     SessionResources,
@@ -412,6 +413,33 @@ def test_read_endpoints_delegate_to_fake_application_service(client: TestClient)
     assert "attachment" in exported.headers["content-disposition"]
     assert "脱敏复盘" in exported.text
     assert onboarding.json() == {"first_use": True, "completed_at": None, "report": None}
+
+
+def test_blind_repeat_session_never_exposes_internal_variant_identifier(
+    client: TestClient, fake: FakeApplicationService
+) -> None:
+    blind_session = session().model_copy(update={"variant_id": "variant-b"})
+
+    def active_session() -> SessionStatusResult:
+        return SessionStatusResult(
+            session=blind_session,
+            namespace_exists=None,
+            namespace_owned=None,
+            cluster_state=ClusterState.NOT_CHECKED,
+            stage=SessionStage.INVESTIGATING,
+            practice_mode=PracticeMode.BLIND_REPEAT,
+            scenario_revealed=False,
+        )
+
+    fake.active_session = active_session  # type: ignore[method-assign]
+
+    response = client.get("/api/v1/sessions/active")
+
+    assert response.status_code == 200
+    assert response.json()["session"]["practice_mode"] == "blind_repeat"
+    assert response.json()["session"]["scenario_revealed"] is False
+    assert "variant-b" not in response.text
+    assert "variant_id" not in response.text
 
 
 def test_onboarding_page_is_static_and_explicit_check_requires_csrf(

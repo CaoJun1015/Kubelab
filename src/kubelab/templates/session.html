@@ -6,8 +6,13 @@
 
 <header class="session-header">
   <div><p id="session-lab-id" class="eyebrow">ACTIVE SESSION</p><h1 id="session-title">正在读取 Session…</h1><p id="session-task"></p></div>
-  <div class="session-identity"><span id="session-status" class="status-badge neutral">读取中</span><span id="session-stage" class="status-badge neutral">阶段未知</span><code id="session-namespace">—</code><button id="copy-namespace" class="button secondary small" type="button">复制 Namespace</button><button id="reconcile-session" class="button secondary small" type="button">协调集群状态</button></div>
+  <div class="session-identity"><span id="session-status" class="status-badge neutral">读取中</span><span id="session-stage" class="status-badge neutral">阶段未知</span><span id="session-practice" class="status-badge info">首次练习</span><code id="session-namespace">—</code><button id="copy-namespace" class="button secondary small" type="button">复制 Namespace</button><button id="reconcile-session" class="button secondary small" type="button">协调集群状态</button></div>
 </header>
+
+<section id="scenario-reveal" class="panel workspace-section hidden" aria-labelledby="scenario-reveal-title">
+  <div class="panel-heading"><div><p class="eyebrow">SCENARIO REVEALED</p><h2 id="scenario-reveal-title">本次复练场景</h2></div></div>
+  <dl id="scenario-reveal-details" class="detail-list"></dl>
+</section>
 
 <nav class="workspace-nav" aria-label="工作台区域">
   <a href="#investigate">调查</a><a href="#resources">资源</a><a href="#events">Events</a><a href="#logs">Logs</a><a href="#verify">验证</a><a href="#retrospective">复盘</a>

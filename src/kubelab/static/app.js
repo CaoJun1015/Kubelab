@@ -188,6 +188,9 @@
     const meta = element("div", { className: "card-meta" });
     meta.append(element("span", { text: `${lab.category} · ${lab.difficulty}` }));
     meta.append(element("span", { text: `${lab.duration_minutes} 分钟` }));
+    if (lab.variant_total) {
+      meta.append(element("span", { text: `变体 ${lab.variant_completed}/${lab.variant_total}` }));
+    }
     card.append(meta);
     return card;
   };
@@ -364,6 +367,18 @@
     appendTextPair(facts, "Kubernetes", detail.kubernetes_requirement);
     appendTextPair(facts, "最低资源", `${detail.minimum_cpu} CPU / ${detail.minimum_memory_mib} MiB`);
     appendTextPair(facts, "提示层级", String(detail.hint_count));
+    appendTextPair(
+      facts,
+      "练习模式",
+      detail.practice_mode === "blind_repeat" ? "渐进式盲练" : "原始基线",
+    );
+    appendTextPair(
+      facts,
+      "变体覆盖",
+      `${detail.lab.variant_completed}/${detail.lab.variant_total}`,
+    );
+
+    renderFaultMap(detail);
 
     const tags = document.querySelector("#lab-tags");
     detail.lab.tags.forEach((value) => tags.append(element("span", { className: "tag", text: value })));
@@ -371,6 +386,9 @@
     detail.interview_questions.forEach((value) => questions.append(element("li", { text: value })));
 
     const startButton = document.querySelector("#start-lab");
+    if (detail.lab.baseline_completed && detail.lab.variant_total) {
+      startButton.textContent = "再次练习";
+    }
     const readiness = onboarding.report;
     if (readiness?.status === "blocked") {
       startButton.disabled = true;
@@ -409,6 +427,33 @@
     });
   };
 
+  const renderFaultMap = (detail) => {
+    text(
+      "#practice-summary",
+      detail.lab.variant_total
+        ? `已揭示 ${detail.lab.variant_completed}/${detail.lab.variant_total}`
+        : "本实验暂无固定变体",
+    );
+    const target = document.querySelector("#fault-map");
+    clear(target);
+    if (!detail.fault_map.length) {
+      target.append(element("p", { className: "quiet-text", text: "完成基线后将逐步解锁复练场景。" }));
+      return;
+    }
+    detail.fault_map.forEach((entry) => {
+      const item = element("article", { className: "stack-item" });
+      item.append(element("strong", { text: entry.revealed ? entry.name : `未揭示场景 ${entry.slot}` }));
+      item.append(
+        element("p", {
+          text: entry.revealed
+            ? `${entry.description}\n关键证据：${entry.key_evidence}\n根因：${entry.root_cause}`
+            : "完成该变体后揭示现象、证据与根因。",
+        }),
+      );
+      target.append(item);
+    });
+  };
+
   const updateSessionIdentity = (session) => {
     state.activeSession = session;
     text("#session-lab-id", session.lab_id);
@@ -416,6 +461,27 @@
     const status = document.querySelector("#session-status");
     status.textContent = statusLabel(session.status);
     status.className = `status-badge ${statusTone(session.status)}`;
+    const practice = document.querySelector("#session-practice");
+    if (practice) {
+      practice.textContent = session.practice_mode === "blind_repeat" ? "复练盲练" : "首次基线";
+    }
+  };
+
+  const renderScenarioReveal = (detail) => {
+    const section = document.querySelector("#scenario-reveal");
+    if (!section) return;
+    if (!detail.scenario_revealed || !detail.scenario_name) {
+      section.classList.add("hidden");
+      return;
+    }
+    const list = document.querySelector("#scenario-reveal-details");
+    clear(list);
+    appendTextPair(list, "场景", detail.scenario_name);
+    appendTextPair(list, "关键证据", detail.key_evidence);
+    appendTextPair(list, "根因", detail.root_cause);
+    appendTextPair(list, "修复", detail.resolution);
+    appendTextPair(list, "预防", detail.prevention);
+    section.classList.remove("hidden");
   };
 
   const copyText = async (value, label) => {
@@ -661,6 +727,10 @@
       appendTextPair(metadata, "提示请求 / 解锁", `${payload.metadata.hint_request_count} / ${payload.metadata.unlocked_hint_count}`);
       appendTextPair(metadata, "手动验证 / 重置", `${payload.metadata.manual_verification_count} / ${payload.metadata.reset_count}`);
       appendTextPair(metadata, "首次通过", payload.metadata.first_passed_at ? new Date(payload.metadata.first_passed_at).toLocaleString("zh-CN") : "尚未通过");
+      if (payload.metadata.scenario_name) {
+        appendTextPair(metadata, "复练场景", payload.metadata.scenario_name);
+        appendTextPair(metadata, "关键证据", payload.metadata.key_evidence);
+      }
     }
   };
 
@@ -728,7 +798,13 @@
     document.querySelector("#run-verify").addEventListener("click", async (event) => {
       try {
         const payload = await withBusy(event.currentTarget, "验证中…", () => api("/api/v1/sessions/active/verify", { method: "POST" }));
-        if (payload) renderVerification(payload);
+        if (payload) {
+          renderVerification(payload);
+          if (payload.status === "passed") {
+            const detail = await api(`/api/v1/labs/${encodeURIComponent(state.activeSession.lab_id)}`);
+            renderScenarioReveal(detail);
+          }
+        }
         await pollResources();
       } catch (error) { showPageError(error); }
     });
@@ -801,6 +877,7 @@
     ]);
     text("#session-title", detail.lab.name);
     text("#session-task", detail.task);
+    renderScenarioReveal(detail);
     renderInvestigationCommands(active.session.namespace);
     fillRetrospective(retrospective);
     renderTimeline(timeline);
@@ -851,7 +928,12 @@
       completedOutcomes.forEach((lab) => {
         const link = element("a", { className: "stack-item", href: `/labs/${encodeURIComponent(lab.lab_id)}` });
         const first = new Date(lab.first_completed_at).toLocaleDateString("zh-CN");
-        link.append(element("strong", { text: lab.name }), element("p", { text: `${lab.category} · 首次 ${first} · 重复完成 ${lab.repeat_completion_count} 次` }));
+        link.append(
+          element("strong", { text: lab.name }),
+          element("p", {
+            text: `${lab.category} · 首次 ${first} · 重复完成 ${lab.repeat_completion_count} 次 · 变体 ${lab.variant_completed}/${lab.variant_total}`,
+          }),
+        );
         completedTarget.append(link);
       });
     }
