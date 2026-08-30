@@ -125,6 +125,8 @@ def test_acceptance_profile_and_context_fail_closed() -> None:
     }
 
     assert validator.validate_profile(profile) == ("Stopped", "docker")
+    profile["valid"][0]["Status"] = "OK"
+    assert validator.validate_profile(profile) == ("Running", "docker")
     assert validator.validate_context(context) is None
     context["trust_state"] = "drifted"
     with pytest.raises(ValueError, match="not already trusted"):

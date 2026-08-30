@@ -51,10 +51,11 @@ def validate_profile(report: dict[str, Any]) -> tuple[str, str]:
     config = profile.get("Config")
     if not isinstance(config, dict) or config.get("Driver") != "docker":
         raise ValueError("The minikube profile must use the local Docker driver.")
-    status = profile.get("Status")
-    if status not in {"Running", "Stopped"}:
+    raw_status = profile.get("Status")
+    statuses = {"OK": "Running", "Running": "Running", "Stopped": "Stopped"}
+    if raw_status not in statuses:
         raise ValueError("The minikube profile must already be Running or Stopped.")
-    return str(status), "docker"
+    return statuses[raw_status], "docker"
 
 
 def validate_context(report: dict[str, Any]) -> None:
