@@ -80,7 +80,7 @@ def test_initialize_creates_all_tables_and_required_pragmas(tmp_path: Path) -> N
             revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-        assert revision == "0002_guided_learning"
+        assert revision == "0003_lab_variants"
     finally:
         database.dispose()
 
@@ -143,6 +143,7 @@ def test_v010_database_upgrades_without_losing_session_history(tmp_path: Path) -
         ).fetchone()
         assert state is not None and state[0] is not None and state[1] is None
         assert connection.execute("SELECT request_count FROM hint_usage").fetchall() == []
+        assert connection.execute("SELECT variant_id FROM lab_session").fetchone() == ("baseline",)
     assert database.backup_path.is_file()
     database.dispose()
 

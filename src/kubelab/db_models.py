@@ -51,6 +51,7 @@ class LabSessionRecord(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     lab_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    variant_id: Mapped[str] = mapped_column(String(63), nullable=False, default="baseline")
     namespace: Mapped[str] = mapped_column(String(63), nullable=False)
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default=SessionStatus.PROVISIONING.value
@@ -63,6 +64,14 @@ class LabSessionRecord(Base):
     reset_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_error_code: Mapped[str | None] = mapped_column(String(128))
     last_error_context: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+
+Index(
+    "ix_lab_session_lab_variant_created",
+    LabSessionRecord.lab_id,
+    LabSessionRecord.variant_id,
+    LabSessionRecord.created_at,
+)
 
 
 class SessionEventRecord(Base):

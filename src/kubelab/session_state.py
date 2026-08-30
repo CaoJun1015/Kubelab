@@ -98,6 +98,9 @@ class PersistenceDto(BaseModel):
 class NewLabSession(PersistenceDto):
     id: str = Field(min_length=1)
     lab_id: str = Field(min_length=1)
+    variant_id: str = Field(
+        default="baseline", pattern=r"^(?:baseline|variant-[a-z0-9][a-z0-9-]{0,53})$"
+    )
     namespace: str = Field(pattern=r"^kubelab-[a-z0-9](?:[a-z0-9-]{0,53}[a-z0-9])?$")
     context_name: str = Field(min_length=1)
     context_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -113,6 +116,7 @@ class NewLabSession(PersistenceDto):
 class LabSessionSnapshot(PersistenceDto):
     id: str
     lab_id: str
+    variant_id: str = "baseline"
     namespace: str
     status: SessionStatus
     context_name: str

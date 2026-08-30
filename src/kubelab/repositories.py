@@ -66,6 +66,7 @@ class SessionRepository:
         record = LabSessionRecord(
             id=new_session.id,
             lab_id=new_session.lab_id,
+            variant_id=new_session.variant_id,
             namespace=new_session.namespace,
             status=SessionStatus.PROVISIONING.value,
             context_name=new_session.context_name,
@@ -123,6 +124,33 @@ class SessionRepository:
             LabSessionRecord.created_at, LabSessionRecord.id
         )
         return tuple(_session_snapshot(record) for record in self._session.scalars(statement))
+
+    def list_for_lab(self, lab_id: str) -> tuple[LabSessionSnapshot, ...]:
+        statement: Select[tuple[LabSessionRecord]] = (
+            select(LabSessionRecord)
+            .where(LabSessionRecord.lab_id == lab_id)
+            .order_by(LabSessionRecord.created_at, LabSessionRecord.id)
+        )
+        return tuple(_session_snapshot(record) for record in self._session.scalars(statement))
+
+    def passed_variant_ids(self, lab_id: str) -> frozenset[str]:
+        statement = (
+            select(LabSessionRecord.variant_id)
+            .join(SessionEventRecord, SessionEventRecord.session_id == LabSessionRecord.id)
+            .where(
+                LabSessionRecord.lab_id == lab_id,
+                SessionEventRecord.event_type == "success_contract_passed",
+            )
+            .distinct()
+        )
+        return frozenset(self._session.scalars(statement))
+
+    def has_event(self, session_id: str, event_type: str) -> bool:
+        statement = select(SessionEventRecord.id).where(
+            SessionEventRecord.session_id == session_id,
+            SessionEventRecord.event_type == event_type,
+        )
+        return self._session.scalar(statement) is not None
 
     def passed_lab_ids(self) -> frozenset[str]:
         statement = (
@@ -186,6 +214,28 @@ class SessionRepository:
             .order_by(SessionEventRecord.created_at, SessionEventRecord.id)
         )
         return tuple(_event_snapshot(record) for record in self._session.scalars(statement))
+
+    def record_event(
+        self,
+        session_id: str,
+        event_type: str,
+        *,
+        context: dict[str, Any] | None = None,
+        occurred_at: datetime | None = None,
+    ) -> SessionEventSnapshot:
+        record = self._require_record(session_id)
+        timestamp = occurred_at or utc_now()
+        event = SessionEventRecord(
+            session_id=session_id,
+            event_type=event_type,
+            from_status=record.status,
+            to_status=record.status,
+            context=_safe_dict(context),
+            created_at=timestamp,
+        )
+        self._session.add(event)
+        self._session.flush()
+        return _event_snapshot(event)
 
     def _require_record(self, session_id: str) -> LabSessionRecord:
         record = self._session.get(LabSessionRecord, session_id)
@@ -531,6 +581,7 @@ def _session_snapshot(record: LabSessionRecord) -> LabSessionSnapshot:
     return LabSessionSnapshot(
         id=record.id,
         lab_id=record.lab_id,
+        variant_id=record.variant_id,
         namespace=record.namespace,
         status=SessionStatus(record.status),
         context_name=record.context_name,
