@@ -2,8 +2,8 @@ apiVersion: kubelab.io/v1alpha1
 kind: Lab
 metadata:
   id: lab-013-service-target-port
-  name: LAB-013 Service TargetPort错误
-  description: Deployment和Endpoint均正常，但Service把流量转发到了错误的容器端口。
+  name: LAB-013 Service流量转发异常
+  description: 通过Service端口、目标端口与Pod端口契约调查业务流量转发异常。
   difficulty: intermediate
   durationMinutes: 30
   category: networking

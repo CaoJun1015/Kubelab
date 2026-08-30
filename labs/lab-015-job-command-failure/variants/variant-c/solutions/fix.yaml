@@ -1,0 +1,17 @@
+apiVersion: batch/v1
+kind: Job
+metadata: {name: data-check, namespace: kubelab-job-command-failure, labels: {app: job-command-lab}}
+spec:
+  backoffLimit: 0
+  template:
+    metadata: {labels: {app: job-command-lab}}
+    spec:
+      restartPolicy: Never
+      volumes: [{name: work, emptyDir: {sizeLimit: 16Mi}}]
+      containers:
+        - name: checker
+          image: busybox:1.36.1
+          command: [sh, -c, "echo checked > /work/result"]
+          volumeMounts: [{name: work, mountPath: /work}]
+          resources: {requests: {cpu: 25m, memory: 32Mi}, limits: {cpu: 100m, memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true, seccompProfile: {type: RuntimeDefault}}

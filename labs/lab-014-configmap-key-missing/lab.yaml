@@ -2,8 +2,8 @@ apiVersion: kubelab.io/v1alpha1
 kind: Lab
 metadata:
   id: lab-014-configmap-key-missing
-  name: LAB-014 ConfigMap键缺失
-  description: ConfigMap对象存在，但Deployment引用的必需键缺失，导致Pod无法创建容器。
+  name: LAB-014 工作负载配置引用异常
+  description: 沿Deployment到ConfigMap的引用链调查对象名称、键名与数据契约异常。
   difficulty: intermediate
   durationMinutes: 25
   category: configuration

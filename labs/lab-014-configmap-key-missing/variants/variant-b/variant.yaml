@@ -1,0 +1,27 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabVariant
+metadata:
+  id: variant-b
+  sequence: 1
+  name: ConfigMap来源名称错配
+  description: 正确配置对象已经存在，但Deployment引用了另一个不存在的ConfigMap名称。
+environment: {manifests: [manifests/resources.yaml], provisionTimeoutSeconds: 180}
+task:
+  description: 配置数据已经存在，但Pod无法创建容器。沿引用链定位并恢复配置来源。
+  completionDescription: 保留app-settings数据，使worker Pod稳定Running且Ready。
+  successMessage: Deployment已经重新引用正确的ConfigMap。
+initialChecks:
+  - {id: settings-present, type: resource_exists, apiVersion: v1, kind: ConfigMap, name: app-settings, timeoutSeconds: 15, unmetMessage: 正确ConfigMap不存在。}
+  - {id: pod-config-error, type: pod_status, selector: {app: config-key-lab}, expectedPhase: Pending, containerName: worker, expectedWaitingReasons: [CreateContainerConfigError], minimumCount: 1, timeoutSeconds: 90, unmetMessage: Pod未呈现预期配置引用错误。}
+successChecks:
+  - {id: app-mode-correct, type: config_value, sourceKind: ConfigMap, sourceName: app-settings, key: APP_MODE, expectedValue: production, timeoutSeconds: 30, unmetMessage: 正确配置数据不存在。}
+  - {id: worker-ready, type: pod_status, selector: {app: config-key-lab}, expectedPhase: Running, minimumCount: 1, minimumReady: 1, stableSeconds: 5, ready: true, timeoutSeconds: 120, unmetMessage: worker Pod尚未稳定Ready。}
+hints:
+  - {level: 1, content: 对比Pod Events中的对象名与Namespace内实际ConfigMap名称。}
+  - {level: 2, content: "kubectl describe pods -l app=config-key-lab && kubectl get configmap"}
+  - {level: 3, content: 把Deployment的configMapKeyRef.name改回app-settings。}
+reveal:
+  keyEvidence: Events报告找不到app-settings-current，而app-settings包含正确数据。
+  rootCause: Deployment引用了错误的ConfigMap对象名称。
+  resolution: 只修正configMapKeyRef.name。
+  prevention: 在部署前校验所有配置对象引用均能在目标Namespace解析。

@@ -2,8 +2,8 @@ apiVersion: kubelab.io/v1alpha1
 kind: Lab
 metadata:
   id: lab-015-job-command-failure
-  name: LAB-015 Job命令失败
-  description: 一次性Job执行错误命令并以非零状态退出，需要结合日志和不可变模板完成修复。
+  name: LAB-015 Job执行失败
+  description: 根据退出状态、日志、入口命令与文件系统契约调查一次性任务失败。
   difficulty: intermediate
   durationMinutes: 30
   category: workloads

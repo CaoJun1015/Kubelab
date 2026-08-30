@@ -1,0 +1,34 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabVariant
+metadata:
+  id: variant-b
+  sequence: 1
+  name: Service命名端口错配
+  description: Service引用了Pod中不存在的命名端口，Endpoint存在但业务流量无法到达容器。
+environment:
+  manifests: [manifests/resources.yaml]
+  provisionTimeoutSeconds: 180
+task:
+  description: Deployment正常且Service已经选中Pod，但集群内访问仍失败。调查流量映射并恢复服务。
+  completionDescription: 保持Deployment和Selector不变，使Service通过80端口返回HTTP 200。
+  successMessage: Service命名端口映射已经恢复。
+initialChecks:
+  - {id: deployment-ready, type: deployment_available, name: web, minimumReplicas: 1, timeoutSeconds: 120, unmetMessage: Deployment尚未Ready。}
+  - {id: endpoint-present, type: service_endpoint_count, name: web, minimum: 1, timeoutSeconds: 30, unmetMessage: Service没有选中Pod。}
+successChecks:
+  - {id: endpoint-preserved, type: service_endpoint_count, name: web, minimum: 1, timeoutSeconds: 30, unmetMessage: Service没有Ready Endpoint。}
+  - id: service-http-ok
+    type: http_response
+    target: {mode: service, name: web, port: 80, path: /}
+    expectedStatus: 200
+    timeoutSeconds: 60
+    unmetMessage: Service访问仍未返回HTTP 200。
+hints:
+  - {level: 1, content: Endpoint存在时，比较Service targetPort与Pod声明的端口名称。}
+  - {level: 2, content: "kubectl get service web -o yaml && kubectl get deployment web -o yaml"}
+  - {level: 3, content: 让Service targetPort引用容器实际声明的http命名端口。}
+reveal:
+  keyEvidence: Service targetPort名称在Pod端口列表中不存在。
+  rootCause: Service使用了错误的命名targetPort。
+  resolution: 保留Selector与port，只把targetPort改为http。
+  prevention: 在发布检查中验证Service命名端口可在目标Pod中解析。

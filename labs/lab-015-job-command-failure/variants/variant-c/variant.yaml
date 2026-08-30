@@ -1,0 +1,26 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabVariant
+metadata:
+  id: variant-c
+  sequence: 2
+  name: Job临时写入路径不可用
+  description: Job启用了只读根文件系统，但任务仍尝试直接写入工作目录。
+environment: {manifests: [manifests/job.yaml], provisionTimeoutSeconds: 180}
+task:
+  description: Job命令本身有效但写入失败。保留只读根文件系统并提供最小可写工作区。
+  completionDescription: 删除旧Job并重建，在不关闭只读根文件系统的前提下完成任务。
+  successMessage: Job获得了受限临时工作区并成功完成。
+initialChecks:
+  - {id: job-present, type: resource_exists, apiVersion: batch/v1, kind: Job, name: data-check, timeoutSeconds: 15, unmetMessage: Job不存在。}
+  - {id: job-failed, type: pod_status, selector: {app: job-command-lab}, expectedPhase: Failed, minimumCount: 1, timeoutSeconds: 90, unmetMessage: Job Pod未进入预期失败状态。}
+successChecks:
+  - {id: job-succeeded, type: pod_status, selector: {app: job-command-lab}, expectedPhase: Succeeded, minimumCount: 1, timeoutSeconds: 120, unmetMessage: 重建后的Job尚未成功。}
+hints:
+  - {level: 1, content: 对比任务写入路径与容器文件系统、volumeMount声明。}
+  - {level: 2, content: "kubectl logs -l job-name=data-check && kubectl get job data-check -o yaml"}
+  - {level: 3, content: 保留readOnlyRootFilesystem，为/work挂载受限emptyDir后重建Job。}
+reveal:
+  keyEvidence: 日志显示/work写入失败，而容器启用了只读根文件系统且没有挂载卷。
+  rootCause: 任务的可写路径需求与容器文件系统安全策略冲突。
+  resolution: 为/work增加emptyDir挂载，保留只读根文件系统。
+  prevention: 明确一次性任务的临时存储契约并在安全上下文下测试。

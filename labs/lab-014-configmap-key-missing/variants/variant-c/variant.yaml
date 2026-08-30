@@ -1,0 +1,27 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabVariant
+metadata:
+  id: variant-c
+  sequence: 2
+  name: ConfigMap键引用错配
+  description: ConfigMap包含正确键值，但Deployment引用了不存在的另一个键。
+environment: {manifests: [manifests/resources.yaml], provisionTimeoutSeconds: 180}
+task:
+  description: 配置对象与所需数据都存在，但Pod无法创建容器。检查消费者的数据契约。
+  completionDescription: 保持ConfigMap不变，使worker读取APP_MODE并稳定Ready。
+  successMessage: Deployment的配置键引用已经恢复。
+initialChecks:
+  - {id: app-mode-present, type: config_value, sourceKind: ConfigMap, sourceName: app-settings, key: APP_MODE, expectedValue: production, timeoutSeconds: 30, unmetMessage: APP_MODE初始数据不正确。}
+  - {id: pod-config-error, type: pod_status, selector: {app: config-key-lab}, expectedPhase: Pending, containerName: worker, expectedWaitingReasons: [CreateContainerConfigError], minimumCount: 1, timeoutSeconds: 90, unmetMessage: Pod未呈现预期配置键引用错误。}
+successChecks:
+  - {id: app-mode-preserved, type: config_value, sourceKind: ConfigMap, sourceName: app-settings, key: APP_MODE, expectedValue: production, timeoutSeconds: 30, unmetMessage: APP_MODE数据被意外修改。}
+  - {id: worker-ready, type: pod_status, selector: {app: config-key-lab}, expectedPhase: Running, minimumCount: 1, minimumReady: 1, stableSeconds: 5, ready: true, timeoutSeconds: 120, unmetMessage: worker Pod尚未稳定Ready。}
+hints:
+  - {level: 1, content: 对比ConfigMap中的实际键与Deployment引用的key。}
+  - {level: 2, content: "kubectl get configmap app-settings -o yaml && kubectl get deployment worker -o yaml"}
+  - {level: 3, content: 保留ConfigMap数据，把configMapKeyRef.key改为APP_MODE。}
+reveal:
+  keyEvidence: ConfigMap包含APP_MODE，但Deployment请求MODE。
+  rootCause: 消费者引用的ConfigMap键名错误。
+  resolution: 只修正configMapKeyRef.key。
+  prevention: 把配置键视为发布契约并进行静态检查。

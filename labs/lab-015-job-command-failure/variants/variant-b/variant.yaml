@@ -1,0 +1,26 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabVariant
+metadata:
+  id: variant-b
+  sequence: 1
+  name: Job可执行文件不存在
+  description: Job入口命令不存在，容器以127退出且任务失败。
+environment: {manifests: [manifests/job.yaml], provisionTimeoutSeconds: 180}
+task:
+  description: Job已经创建但一次性任务失败。根据容器状态定位入口错误并安全重建Job。
+  completionDescription: 删除不可变旧Job并重建，使任务Pod进入Succeeded。
+  successMessage: Job入口命令已经修复。
+initialChecks:
+  - {id: job-present, type: resource_exists, apiVersion: batch/v1, kind: Job, name: data-check, timeoutSeconds: 15, unmetMessage: Job不存在。}
+  - {id: job-failed, type: pod_status, selector: {app: job-command-lab}, expectedPhase: Failed, minimumCount: 1, timeoutSeconds: 90, unmetMessage: Job Pod未进入预期失败状态。}
+successChecks:
+  - {id: job-succeeded, type: pod_status, selector: {app: job-command-lab}, expectedPhase: Succeeded, minimumCount: 1, timeoutSeconds: 120, unmetMessage: 重建后的Job尚未成功。}
+hints:
+  - {level: 1, content: 检查容器终止状态与Job声明的入口可执行文件。}
+  - {level: 2, content: "kubectl describe pods -l job-name=data-check"}
+  - {level: 3, content: 删除data-check，用镜像中存在的sh命令重建Job。}
+reveal:
+  keyEvidence: 容器终止信息表明入口无法执行，对应常见退出码127。
+  rootCause: Job声明了镜像中不存在的可执行文件。
+  resolution: 删除不可变Job并使用存在且返回0的命令重建。
+  prevention: 在相同镜像中预检入口命令并固定镜像版本。
