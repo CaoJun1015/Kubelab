@@ -23,7 +23,7 @@ from kubernetes.client.exceptions import ApiException
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from urllib3.exceptions import ConnectTimeoutError, ReadTimeoutError
 
-from kubelab.lab_registry import LoadedLab
+from kubelab.lab_registry import ExecutableLab
 from kubelab.lab_schema import HttpTarget
 from kubelab.manifest_security import ALLOWED_RESOURCES, ManifestDocument
 
@@ -212,6 +212,17 @@ class ProbeSpec(GatewayModel):
         return value
 
 
+class DnsProbeSpec(GatewayModel):
+    name: str = Field(max_length=63, pattern=r"^kubelab-probe-[a-z0-9-]+$")
+    image: Literal["busybox:1.36.1"] = "busybox:1.36.1"
+    fqdn: str = Field(
+        min_length=1,
+        max_length=253,
+        pattern=r"^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.svc\.cluster\.local$",
+    )
+    timeout_seconds: int = Field(default=15, ge=1, le=60)
+
+
 class ConfigMatchResult(GatewayModel):
     resource_exists: bool
     key_exists: bool
@@ -226,6 +237,13 @@ class HttpProbeResult(GatewayModel):
     infrastructure_error: bool = False
     timed_out: bool = False
     reason: str | None = None
+    cleanup_warning: str | None = None
+
+
+class DnsProbeResult(GatewayModel):
+    resolved: bool = False
+    infrastructure_error: bool = False
+    timed_out: bool = False
     cleanup_warning: str | None = None
 
 
@@ -323,7 +341,7 @@ class MaterializedManifests(Protocol):
 class ManifestMaterializer(Protocol):
     """TOCTOU-resistant LabRegistry boundary used immediately before apply."""
 
-    def materialize_for_gateway(self, loaded: LoadedLab) -> MaterializedManifests: ...
+    def materialize_for_gateway(self, loaded: ExecutableLab) -> MaterializedManifests: ...
 
 
 class OfficialKubernetesApi:  # pragma: no cover - exercised by opt-in WSL integration tests
@@ -630,7 +648,7 @@ class KubernetesGateway:
         )
 
     def apply_lab(
-        self, scope: SessionScope, loaded: LoadedLab, registry: ManifestMaterializer
+        self, scope: SessionScope, loaded: ExecutableLab, registry: ManifestMaterializer
     ) -> None:
         """Materialize through LabRegistry, dry-run all objects, then apply in safe order."""
         self._guard_scope(scope)
@@ -1016,6 +1034,69 @@ class KubernetesGateway:
                     if exc.code is not GatewayErrorCode.NOT_FOUND:
                         cleanup_warning = "Probe cleanup failed; Namespace cleanup will retry."
         if result is None:  # pragma: no cover - defensive assignment
+            raise KubernetesGatewayError(
+                GatewayErrorCode.API_ERROR, "Probe execution produced no result."
+            )
+        return result.model_copy(update={"cleanup_warning": cleanup_warning})
+
+    def run_dns_probe(
+        self,
+        scope: SessionScope,
+        *,
+        service: str,
+        pod: str | None,
+        deadline: float,
+    ) -> DnsProbeResult:
+        """Resolve only a server-constructed Kubernetes Service or stable Pod FQDN."""
+        self.assert_namespace_owned(scope)
+        prefix = f"{pod}." if pod is not None else ""
+        fqdn = f"{prefix}{service}.{scope.namespace}.svc.cluster.local"
+        remaining = max(1, min(60, int(deadline - self._monotonic())))
+        name = f"kubelab-probe-{uuid4().hex[:8]}"
+        spec = DnsProbeSpec(name=name, fqdn=fqdn, timeout_seconds=remaining)
+        created = False
+        result: DnsProbeResult | None = None
+        cleanup_warning: str | None = None
+        try:
+            body = _dns_probe_manifest(scope, spec)
+            self._call(
+                lambda: self._api.create_probe(scope.namespace, body, timeout=self._request_timeout)
+            )
+            created = True
+            while self._monotonic() < deadline:
+                document = self._call(
+                    lambda: self._api.read_pod(scope.namespace, name, timeout=self._request_timeout)
+                )
+                phase = _optional_string(_as_mapping(document.get("status")).get("phase"))
+                if phase in {"Succeeded", "Failed"}:
+                    exit_code, reason = _probe_termination(document)
+                    pod_reason = _optional_string(_as_mapping(document.get("status")).get("reason"))
+                    infrastructure_error = (
+                        exit_code is None
+                        or pod_reason == "Evicted"
+                        or reason in {"OOMKilled", "ContainerCannotRun", "StartError"}
+                    )
+                    result = DnsProbeResult(
+                        resolved=exit_code == 0,
+                        infrastructure_error=infrastructure_error,
+                        timed_out=pod_reason == "DeadlineExceeded",
+                    )
+                    break
+                self._sleep(min(0.5, max(0.0, deadline - self._monotonic())))
+            if result is None:
+                result = DnsProbeResult(infrastructure_error=True, timed_out=True)
+        finally:
+            if created:
+                try:
+                    self._call(
+                        lambda: self._api.delete_probe(
+                            scope.namespace, name, timeout=self._request_timeout
+                        )
+                    )
+                except KubernetesGatewayError as exc:
+                    if exc.code is not GatewayErrorCode.NOT_FOUND:
+                        cleanup_warning = "Probe cleanup failed; Namespace cleanup will retry."
+        if result is None:  # pragma: no cover
             raise KubernetesGatewayError(
                 GatewayErrorCode.API_ERROR, "Probe execution produced no result."
             )
@@ -1449,6 +1530,50 @@ def _probe_manifest(scope: SessionScope, spec: ProbeSpec) -> Mapping[str, Any]:
     }
 
 
+def _dns_probe_manifest(scope: SessionScope, spec: DnsProbeSpec) -> Mapping[str, Any]:
+    return {
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {
+            "name": spec.name,
+            "namespace": scope.namespace,
+            "labels": {
+                MANAGED_BY_LABEL: "kubelab",
+                PROBE_LABEL: "true",
+                LAB_ID_LABEL: scope.lab_id,
+            },
+            "annotations": {SESSION_ID_ANNOTATION: scope.session_id},
+        },
+        "spec": {
+            "automountServiceAccountToken": False,
+            "restartPolicy": "Never",
+            "activeDeadlineSeconds": spec.timeout_seconds,
+            "securityContext": {
+                "runAsNonRoot": True,
+                "runAsUser": 65534,
+                "runAsGroup": 65534,
+                "seccompProfile": {"type": "RuntimeDefault"},
+            },
+            "containers": [
+                {
+                    "name": "dns",
+                    "image": spec.image,
+                    "args": ["nslookup", spec.fqdn],
+                    "resources": {
+                        "requests": {"cpu": "10m", "memory": "16Mi"},
+                        "limits": {"cpu": "50m", "memory": "64Mi"},
+                    },
+                    "securityContext": {
+                        "allowPrivilegeEscalation": False,
+                        "capabilities": {"drop": ["ALL"]},
+                        "readOnlyRootFilesystem": True,
+                    },
+                }
+            ],
+        },
+    }
+
+
 def _apply_sort_key(document: Mapping[str, Any]) -> tuple[int, str, str]:
     metadata = _as_mapping(document.get("metadata"))
     kind = str(document.get("kind", ""))
@@ -1688,6 +1813,8 @@ def _optional_string(value: Any) -> str | None:
 __all__ = [
     "ContainerSummary",
     "ConfigMatchResult",
+    "DnsProbeResult",
+    "DnsProbeSpec",
     "EventSummary",
     "GatewayErrorCode",
     "KubernetesGateway",

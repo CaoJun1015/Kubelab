@@ -12,17 +12,19 @@ from pydantic import BaseModel, ConfigDict
 
 from kubelab.kubernetes_gateway import (
     ConfigMatchResult,
+    DnsProbeResult,
     HttpProbeResult,
     KubernetesGatewayError,
     PodSummary,
     SessionScope,
 )
-from kubelab.lab_registry import LoadedLab
+from kubelab.lab_registry import ExecutableLab
 from kubelab.lab_schema import (
     CheckDefinition,
     ConfigValueCheck,
     ContainerImageCheck,
     DeploymentAvailableCheck,
+    DnsResolutionCheck,
     HttpResponseCheck,
     HttpTarget,
     PodStatusCheck,
@@ -107,6 +109,15 @@ class ValidationGateway(Protocol):
         self, scope: SessionScope, target: HttpTarget, *, deadline: float
     ) -> HttpProbeResult: ...
 
+    def run_dns_probe(
+        self,
+        scope: SessionScope,
+        *,
+        service: str,
+        pod: str | None,
+        deadline: float,
+    ) -> DnsProbeResult: ...
+
 
 class _Observation(ValidationModel):
     satisfied: bool
@@ -147,7 +158,7 @@ class ValidationEngine:
     def validate_initial_contract(
         self,
         scope: SessionScope,
-        lab: LoadedLab,
+        lab: ExecutableLab,
         gateway: ValidationGateway,
         reset_sequence: int,
     ) -> InitialContractResult:
@@ -187,7 +198,7 @@ class ValidationEngine:
     def validate_success_contract(
         self,
         scope: SessionScope,
-        lab: LoadedLab,
+        lab: ExecutableLab,
         gateway: ValidationGateway,
         reset_sequence: int,
         purpose: VerificationPurpose = VerificationPurpose.MANUAL,
@@ -462,8 +473,16 @@ class ValidationEngine:
                 actual={"phase": phase},
             )
         if isinstance(check, HttpResponseCheck):
-            probe_result = gateway.run_http_probe(scope, check.target, deadline=deadline)
-            return _http_observation(check, probe_result)
+            http_result = gateway.run_http_probe(scope, check.target, deadline=deadline)
+            return _http_observation(check, http_result)
+        if isinstance(check, DnsResolutionCheck):
+            dns_result = gateway.run_dns_probe(
+                scope,
+                service=check.service,
+                pod=check.pod,
+                deadline=deadline,
+            )
+            return _dns_observation(check, dns_result)
         return _Observation(
             satisfied=False,
             expected={},
@@ -576,6 +595,17 @@ def _http_observation(check: HttpResponseCheck, result: HttpProbeResult) -> _Obs
         },
         actual=actual,
         error_code="HTTP_PROBE_ERROR" if result.infrastructure_error else None,
+        retryable=True,
+        warning=result.cleanup_warning,
+    )
+
+
+def _dns_observation(check: DnsResolutionCheck, result: DnsProbeResult) -> _Observation:
+    return _Observation(
+        satisfied=(not result.infrastructure_error and result.resolved is check.expected_resolved),
+        expected={"resolved": check.expected_resolved},
+        actual={"resolved": result.resolved, "timed_out": result.timed_out},
+        error_code="DNS_PROBE_ERROR" if result.infrastructure_error else None,
         retryable=True,
         warning=result.cleanup_warning,
     )

@@ -15,6 +15,7 @@ from kubelab.db_models import CheckResultRecord, VerificationRunRecord
 from kubelab.kubernetes_gateway import (
     ConfigMatchResult,
     ContainerSummary,
+    DnsProbeResult,
     GatewayErrorCode,
     HttpProbeResult,
     KubernetesGatewayError,
@@ -26,6 +27,7 @@ from kubelab.lab_schema import (
     ConfigValueCheck,
     ContainerImageCheck,
     DeploymentAvailableCheck,
+    DnsResolutionCheck,
     HttpResponseCheck,
     HttpTarget,
     PodStatusCheck,
@@ -75,6 +77,7 @@ class FakeValidationGateway:
         ]
         self.pvc: list[str | None] = ["Bound"]
         self.http: list[HttpProbeResult] = [HttpProbeResult(status_code=200, exit_code=0)]
+        self.dns: list[DnsProbeResult] = [DnsProbeResult(resolved=True)]
         self.failure: Exception | None = None
         self.failures: dict[str, Exception] = {}
         self.calls: list[str] = []
@@ -139,6 +142,17 @@ class FakeValidationGateway:
         del scope, target, deadline
         return self._value("http", self.http)
 
+    def run_dns_probe(
+        self,
+        scope: SessionScope,
+        *,
+        service: str,
+        pod: str | None,
+        deadline: float,
+    ) -> DnsProbeResult:
+        del scope, service, pod, deadline
+        return self._value("dns", self.dns)
+
 
 @pytest.fixture
 def database(tmp_path: Path) -> Database:
@@ -177,6 +191,65 @@ def scope() -> SessionScope:
 def with_checks(loaded: LoadedLab, *checks: Any) -> LoadedLab:
     definition = loaded.definition.model_copy(update={"success_checks": tuple(checks)})
     return loaded.model_copy(update={"definition": definition})
+
+
+def test_dns_resolution_check_uses_only_public_boolean_outcome(
+    database: Database, loaded_lab: LoadedLab
+) -> None:
+    check = DnsResolutionCheck(
+        id="stable-dns",
+        type="dns_resolution",
+        service="web-headless",
+        pod="web-0",
+        expectedResolved=True,
+        timeoutSeconds=10,
+        unmetMessage="Stable DNS is unavailable.",
+    )
+    gateway = FakeValidationGateway()
+    gateway.dns = [DnsProbeResult(resolved=True)]
+    clock = FakeClock()
+    engine = ValidationEngine(
+        database.unit_of_work,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    )
+
+    result = engine.validate_success_contract(
+        scope(), with_checks(loaded_lab, check), gateway, reset_sequence=0
+    )
+
+    assert result.status is ValidationStatus.PASSED
+    assert result.results[0].check_type == "dns_resolution"
+    assert "cluster.local" not in result.model_dump_json()
+
+
+def test_dns_probe_infrastructure_failure_is_unavailable(
+    database: Database, loaded_lab: LoadedLab
+) -> None:
+    check = DnsResolutionCheck(
+        id="stable-dns",
+        type="dns_resolution",
+        service="web-headless",
+        pod="web-0",
+        expectedResolved=True,
+        timeoutSeconds=10,
+        unmetMessage="Stable DNS is unavailable.",
+    )
+    gateway = FakeValidationGateway()
+    gateway.dns = [DnsProbeResult(infrastructure_error=True, timed_out=True)]
+    clock = FakeClock()
+    engine = ValidationEngine(
+        database.unit_of_work,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    )
+
+    result = engine.validate_success_contract(
+        scope(), with_checks(loaded_lab, check), gateway, reset_sequence=0
+    )
+
+    assert result.status is ValidationStatus.ERROR
+    assert result.results[0].message == "Validation could not be completed."
 
 
 def engine(database: Database, clock: FakeClock) -> ValidationEngine:

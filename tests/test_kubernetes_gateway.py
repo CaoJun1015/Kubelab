@@ -16,6 +16,7 @@ from kubelab.kubernetes_gateway import (
     MANAGED_BY_LABEL,
     PROBE_LABEL,
     SESSION_ID_ANNOTATION,
+    DnsProbeSpec,
     GatewayErrorCode,
     KubernetesGateway,
     KubernetesGatewayError,
@@ -893,6 +894,35 @@ def test_service_http_probe_returns_status_and_cleans_pod() -> None:
         "runAsGroup": 102,
         "seccompProfile": {"type": "RuntimeDefault"},
     }
+
+
+def test_dns_probe_builds_only_stable_service_fqdn_and_cleans_pod() -> None:
+    api = FakeApi()
+    api.probe_reads = [completed_probe()]
+    clock = FakeClock()
+    gateway = KubernetesGateway(
+        api,
+        context_fingerprint=FINGERPRINT,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    )
+
+    result = gateway.run_dns_probe(scope(), service="web-headless", pod="web-0", deadline=5)
+
+    container = api.probes[0]["spec"]["containers"][0]
+    assert result.resolved is True
+    assert result.infrastructure_error is False
+    assert container["image"] == "busybox:1.36.1"
+    assert container["args"] == [
+        "nslookup",
+        "web-0.web-headless.kubelab-complete-lab.svc.cluster.local",
+    ]
+    assert api.deleted_probes
+
+
+def test_dns_probe_spec_rejects_external_or_user_supplied_hosts() -> None:
+    with pytest.raises(ValidationError):
+        DnsProbeSpec(name="kubelab-probe-external", fqdn="example.com")
 
 
 def test_probe_timeout_and_cleanup_failure_are_reported_safely() -> None:
