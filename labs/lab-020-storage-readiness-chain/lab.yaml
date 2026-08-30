@@ -1,0 +1,41 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-020-storage-readiness-chain
+  name: LAB-020 存储到就绪链路故障
+  description: 缺失PVC先使Pod Pending；存储恢复后，错误readiness path继续阻止Pod就绪。
+  difficulty: advanced
+  durationMinutes: 50
+  category: comprehensive
+  tags: [pvc, readiness, multi-cause]
+requirements: {kubernetes: ">=1.28", minimumCpu: 1, minimumMemoryMiB: 1024, addons: [default-storageclass]}
+environment:
+  namespace: kubelab-storage-readiness-chain
+  manifests: [manifests/resources.yaml]
+  provisionTimeoutSeconds: 240
+task:
+  description: 从Pod Pending开始恢复存储依赖，并继续调查为什么容器运行后仍未就绪。
+  completionDescription: app-data Bound、Pod稳定Ready且Service HTTP返回200。
+  successMessage: 存储与readiness链路的两个根因均已修复。
+initialChecks:
+  - {id: deployment-present, type: resource_exists, apiVersion: apps/v1, kind: Deployment, name: web, timeoutSeconds: 15, unmetMessage: Deployment不存在。}
+  - {id: web-pending, type: pod_status, selector: {app: storage-readiness-chain}, expectedPhase: Pending, minimumCount: 1, timeoutSeconds: 90, unmetMessage: Pod未呈现预期存储依赖故障。}
+successChecks:
+  - {id: app-data-bound, type: pvc_status, name: app-data, expectedPhase: Bound, timeoutSeconds: 120, unmetMessage: app-data PVC尚未Bound。}
+  - {id: web-ready, type: pod_status, selector: {app: storage-readiness-chain}, expectedPhase: Running, minimumCount: 1, minimumReady: 1, stableSeconds: 10, ready: true, timeoutSeconds: 120, unmetMessage: Web Pod尚未稳定Ready。}
+  - id: business-http-ok
+    type: http_response
+    target: {mode: service, name: web, port: 80, path: /}
+    expectedStatus: 200
+    timeoutSeconds: 60
+    unmetMessage: 最终业务HTTP检查仍未返回200。
+hints:
+  - {level: 1, content: 先处理Pod Events中的卷依赖；容器运行后再观察Ready条件。}
+  - {level: 2, content: "kubectl describe pods -l app=storage-readiness-chain && kubectl get deployment web -o yaml"}
+  - {level: 3, content: 创建受限app-data PVC，并把readinessProbe path恢复为/。}
+cleanup: {deleteNamespace: true}
+interview:
+  questions:
+    - PVC缺失和readiness失败分别影响Pod生命周期的哪个阶段？
+    - 为什么Running与Ready必须分别验证？
+    - 如何为存储依赖和健康检查设计分阶段告警？

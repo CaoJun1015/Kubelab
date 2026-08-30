@@ -17,11 +17,12 @@ from kubelab.db_models import CheckResultRecord, VerificationRunRecord
 from kubelab.kubernetes_gateway import (
     ConfigMatchResult,
     ContainerSummary,
+    DnsProbeResult,
     HttpProbeResult,
     PodSummary,
     SessionScope,
 )
-from kubelab.lab_registry import LabRegistry, LoadedLab
+from kubelab.lab_registry import EffectiveLab, LabRegistry, LoadedLab
 from kubelab.lab_schema import HttpTarget
 from kubelab.manifest_security import ManifestDocument, ManifestSecurityScanner
 from kubelab.session_state import NewLabSession, ValidationStatus
@@ -47,6 +48,9 @@ EXPECTED_IDS = (
     "lab-016-statefulset-headless",
     "lab-017-daemonset-node-selector",
     "lab-018-pvc-claim-missing",
+    "lab-019-configuration-service-chain",
+    "lab-020-storage-readiness-chain",
+    "lab-021-stateful-service-chain",
 )
 FINGERPRINT = "a" * 64
 
@@ -238,6 +242,37 @@ class ScenarioGateway:
                     container="consumer",
                 ),
             )
+        if self.lab_id == "lab-019-configuration-service-chain":
+            return (
+                _pod(
+                    name="web-abc",
+                    image="nginx:1.27-alpine",
+                    phase="Running" if self.fixed else "Pending",
+                    ready=self.fixed,
+                    reason=None if self.fixed else "CreateContainerConfigError",
+                    container="web",
+                ),
+            )
+        if self.lab_id == "lab-020-storage-readiness-chain":
+            return (
+                _pod(
+                    name="web-abc",
+                    image="nginx:1.27-alpine",
+                    phase="Running" if self.fixed else "Pending",
+                    ready=self.fixed,
+                    container="web",
+                ),
+            )
+        if self.lab_id == "lab-021-stateful-service-chain":
+            return (
+                _pod(
+                    name="web-0",
+                    image="nginx:1.27-alpine",
+                    phase="Running",
+                    ready=True,
+                    container="web",
+                ),
+            )
         return (
             _pod(
                 name="web-abc",
@@ -270,6 +305,7 @@ class ScenarioGateway:
             "lab-007-service-selector",
             "lab-009-readiness-path",
             "lab-016-statefulset-headless",
+            "lab-021-stateful-service-chain",
         }:
             return 1 if self.fixed else 0
         return 1
@@ -308,6 +344,12 @@ class ScenarioGateway:
                 key_exists=self.fixed,
                 matched=self.fixed and expected_value == "production",
             )
+        if self.lab_id == "lab-019-configuration-service-chain":
+            return ConfigMatchResult(
+                resource_exists=True,
+                key_exists=self.fixed,
+                matched=self.fixed and expected_value == "production",
+            )
         return ConfigMatchResult(resource_exists=True, key_exists=True, matched=matched)
 
     def pvc_phase(self, scope: SessionScope, name: str) -> str | None:
@@ -315,6 +357,8 @@ class ScenarioGateway:
         if self.lab_id == "lab-012-pvc-pending":
             return "Bound" if self.fixed else "Pending"
         if self.lab_id == "lab-018-pvc-claim-missing":
+            return "Bound" if self.fixed else None
+        if self.lab_id == "lab-020-storage-readiness-chain":
             return "Bound" if self.fixed else None
         return "Bound"
 
@@ -330,9 +374,159 @@ class ScenarioGateway:
                 "lab-011-ingress-backend-port",
                 "lab-013-service-target-port",
                 "lab-016-statefulset-headless",
+                "lab-019-configuration-service-chain",
+                "lab-020-storage-readiness-chain",
+                "lab-021-stateful-service-chain",
             }
             and not self.fixed
         ):
+            return HttpProbeResult(status_code=None, exit_code=6)
+        return HttpProbeResult(status_code=200, exit_code=0)
+
+    def run_dns_probe(
+        self,
+        scope: SessionScope,
+        *,
+        service: str,
+        pod: str | None,
+        deadline: float,
+    ) -> DnsProbeResult:
+        del scope, service, pod, deadline
+        return DnsProbeResult(resolved=self.fixed)
+
+
+class VariantScenarioGateway(ScenarioGateway):
+    """Deterministic observations for the twelve bundled fixed variants."""
+
+    def __init__(self, lab_id: str, variant_id: str) -> None:
+        super().__init__(lab_id)
+        self.variant_id = variant_id
+
+    def validation_pods(
+        self, scope: SessionScope, selector: Mapping[str, str]
+    ) -> tuple[PodSummary, ...]:
+        del scope, selector
+        if self.lab_id == "lab-013-service-target-port":
+            return (
+                _pod(
+                    name="web-abc",
+                    image="nginx:1.27-alpine",
+                    phase="Running",
+                    ready=True,
+                    container="web",
+                ),
+            )
+        if self.lab_id == "lab-014-configmap-key-missing":
+            return (
+                _pod(
+                    name="worker-abc",
+                    image="busybox:1.36.1",
+                    phase="Running" if self.fixed else "Pending",
+                    ready=self.fixed,
+                    reason=None if self.fixed else "CreateContainerConfigError",
+                    container="worker",
+                ),
+            )
+        if self.lab_id == "lab-015-job-command-failure":
+            return (
+                _pod(
+                    name="data-check-abc",
+                    image="busybox:1.36.1",
+                    phase="Succeeded" if self.fixed else "Failed",
+                    ready=False,
+                    container="checker",
+                ),
+            )
+        if self.lab_id == "lab-016-statefulset-headless":
+            return (
+                _pod(
+                    name="web-0",
+                    image="nginx:1.27-alpine",
+                    phase="Running",
+                    ready=True,
+                    container="web",
+                ),
+            )
+        if self.lab_id == "lab-017-daemonset-node-selector":
+            if self.fixed:
+                return (
+                    _pod(
+                        name="node-agent-abc",
+                        image="busybox:1.36.1",
+                        phase="Running",
+                        ready=True,
+                        container="agent",
+                    ),
+                )
+            if self.variant_id == "variant-c":
+                return (
+                    _pod(
+                        name="node-agent-abc",
+                        image="busybox:1.36.1",
+                        phase="Pending",
+                        ready=False,
+                        container="agent",
+                    ),
+                )
+            return ()
+        if self.lab_id == "lab-018-pvc-claim-missing":
+            if self.variant_id == "variant-c":
+                return (
+                    _pod(
+                        name="consumer-abc",
+                        image="busybox:1.36.1",
+                        phase="Running",
+                        ready=self.fixed,
+                        reason=None if self.fixed else "CrashLoopBackOff",
+                        restarts=0 if self.fixed else 2,
+                        container="consumer",
+                    ),
+                )
+            return (
+                _pod(
+                    name="consumer-abc",
+                    image="busybox:1.36.1",
+                    phase="Running" if self.fixed else "Pending",
+                    ready=self.fixed,
+                    container="consumer",
+                ),
+            )
+        raise AssertionError(f"unexpected variant lab: {self.lab_id}")
+
+    def config_value_matches(
+        self,
+        scope: SessionScope,
+        *,
+        source_kind: str,
+        source_name: str,
+        key: str,
+        expected_value: str,
+    ) -> ConfigMatchResult:
+        del scope, source_kind, source_name, key
+        return ConfigMatchResult(
+            resource_exists=True,
+            key_exists=True,
+            matched=expected_value == "production",
+        )
+
+    def pvc_phase(self, scope: SessionScope, name: str) -> str | None:
+        del scope, name
+        if self.lab_id == "lab-018-pvc-claim-missing":
+            if self.variant_id == "variant-c":
+                return "Bound"
+            return "Bound" if self.fixed else "Pending"
+        return "Bound"
+
+    def service_endpoint_count(self, scope: SessionScope, name: str) -> int | None:
+        if self.lab_id == "lab-016-statefulset-headless":
+            return 1
+        return super().service_endpoint_count(scope, name)
+
+    def run_http_probe(
+        self, scope: SessionScope, target: HttpTarget, *, deadline: float
+    ) -> HttpProbeResult:
+        del scope, target, deadline
+        if self.lab_id == "lab-013-service-target-port" and not self.fixed:
             return HttpProbeResult(status_code=None, exit_code=6)
         return HttpProbeResult(status_code=200, exit_code=0)
 
@@ -372,6 +566,19 @@ def _snapshot() -> tuple[LoadedLab, ...]:
     return snapshot.labs
 
 
+def _variant_scenarios() -> tuple[tuple[LoadedLab, EffectiveLab], ...]:
+    registry = LabRegistry(LABS_ROOT)
+    return tuple(
+        (parent, effective)
+        for parent in registry.scan().labs
+        for variant in parent.variants
+        if isinstance(
+            effective := registry.resolve_variant(parent, variant.definition.metadata.id),
+            EffectiveLab,
+        )
+    )
+
+
 def _yaml_documents(path: Path) -> tuple[dict[str, Any], ...]:
     values = tuple(yaml.safe_load_all(path.read_text(encoding="utf-8")))
     assert all(isinstance(value, dict) for value in values)
@@ -402,8 +609,89 @@ def test_default_registry_loads_expected_labs() -> None:
     assert all(
         lab.definition.metadata.difficulty == "intermediate"
         for lab in labs
-        if lab.definition.metadata.id >= "lab-013"
+        if "lab-013" <= lab.definition.metadata.id <= "lab-018-pvc-claim-missing"
     )
+    assert all(
+        lab.definition.metadata.difficulty == "advanced"
+        for lab in labs
+        if lab.definition.metadata.id >= "lab-019"
+    )
+
+
+def test_bundled_variant_catalog_has_twelve_safe_fixed_scenarios() -> None:
+    scenarios = _variant_scenarios()
+
+    assert len(scenarios) == 12
+    assert all(len(effective.variant.definition.hints) == 3 for _, effective in scenarios)
+    assert all(
+        effective.variant.definition.hints[1].content.startswith("kubectl ")
+        for _, effective in scenarios
+    )
+    assert all(
+        effective.variant.definition.metadata.id in {"variant-b", "variant-c"}
+        for _, effective in scenarios
+    )
+
+
+@pytest.mark.parametrize(
+    ("parent", "effective"),
+    _variant_scenarios(),
+    ids=lambda value: (
+        value.definition.metadata.id
+        if isinstance(value, LoadedLab)
+        else value.variant.definition.metadata.id
+    ),
+)
+def test_variant_fault_repair_reset_contract_is_proven(
+    tmp_path: Path, parent: LoadedLab, effective: EffectiveLab
+) -> None:
+    session_id = str(uuid4())
+    database = Database(
+        tmp_path
+        / f"{parent.definition.metadata.id}-{effective.variant.definition.metadata.id}"
+        / "kubelab.db"
+    )
+    database.initialize()
+    with database.unit_of_work() as uow:
+        uow.sessions.create(
+            NewLabSession(
+                id=session_id,
+                lab_id=parent.definition.metadata.id,
+                variant_id=effective.variant.definition.metadata.id,
+                namespace=parent.definition.environment.namespace,
+                context_name="minikube",
+                context_fingerprint=FINGERPRINT,
+            )
+        )
+        uow.commit()
+    scope = SessionScope(
+        lab_id=parent.definition.metadata.id,
+        session_id=session_id,
+        namespace=parent.definition.environment.namespace,
+        context_fingerprint=FINGERPRINT,
+    )
+    gateway = VariantScenarioGateway(
+        parent.definition.metadata.id, effective.variant.definition.metadata.id
+    )
+    clock = FakeClock()
+    engine = ValidationEngine(
+        database.unit_of_work,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+        now=lambda: datetime(2026, 8, 30, tzinfo=UTC),
+    )
+    try:
+        initial = engine.validate_initial_contract(scope, effective, gateway, reset_sequence=0)
+        gateway.fixed = True
+        repaired = engine.validate_success_contract(scope, effective, gateway, reset_sequence=0)
+        gateway.fixed = False
+        reset = engine.validate_initial_contract(scope, effective, gateway, reset_sequence=1)
+
+        assert initial.status is ValidationStatus.PASSED
+        assert repaired.status is ValidationStatus.PASSED
+        assert reset.status is ValidationStatus.PASSED
+    finally:
+        database.dispose()
 
 
 @pytest.mark.parametrize("lab", _snapshot(), ids=lambda lab: lab.definition.metadata.id)

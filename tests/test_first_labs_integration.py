@@ -19,7 +19,7 @@ from kubelab.kubernetes_gateway import KubernetesGateway, SessionScope
 from kubelab.lab_manager import LabManager
 from kubelab.lab_registry import LabRegistry
 from kubelab.operation_lock import OperationLock
-from kubelab.session_state import SessionStatus, ValidationStatus
+from kubelab.session_state import NewLabSession, SessionStatus, ValidationStatus
 from kubelab.validation_engine import ValidationEngine
 from kubelab.workspace import workspace_environment
 
@@ -27,6 +27,13 @@ pytestmark = pytest.mark.integration
 
 LABS_ROOT = Path(__file__).resolve().parents[1] / "labs"
 LAB_DIRECTORIES = tuple(path.name for path in sorted(LABS_ROOT.iterdir()) if path.is_dir())
+VARIANT_SCENARIOS = tuple(
+    (lab_dir.name, variant_dir.name)
+    for lab_dir in sorted(LABS_ROOT.iterdir())
+    for variant_dir in sorted((lab_dir / "variants").glob("variant-*"))
+    if variant_dir.is_dir()
+)
+SCENARIOS = tuple((directory, "baseline") for directory in LAB_DIRECTORIES) + VARIANT_SCENARIOS
 REQUIRED_IMAGES = {
     "lab-001-deployment-scaling": ("nginx:1.27-alpine",),
     "lab-002-rolling-update": ("nginx:1.26-alpine", "nginx:1.27-alpine"),
@@ -43,23 +50,44 @@ REQUIRED_IMAGES = {
     "lab-013-service-target-port": ("nginx:1.27-alpine", "curlimages/curl:8.12.1"),
     "lab-014-configmap-key-missing": ("busybox:1.36.1",),
     "lab-015-job-command-failure": ("busybox:1.36.1",),
-    "lab-016-statefulset-headless": ("nginx:1.27-alpine", "curlimages/curl:8.12.1"),
+    "lab-016-statefulset-headless": (
+        "nginx:1.27-alpine",
+        "curlimages/curl:8.12.1",
+        "busybox:1.36.1",
+    ),
     "lab-017-daemonset-node-selector": ("busybox:1.36.1",),
     "lab-018-pvc-claim-missing": ("busybox:1.36.1",),
+    "lab-019-configuration-service-chain": ("nginx:1.27-alpine", "curlimages/curl:8.12.1"),
+    "lab-020-storage-readiness-chain": ("nginx:1.27-alpine", "curlimages/curl:8.12.1"),
+    "lab-021-stateful-service-chain": (
+        "nginx:1.27-alpine",
+        "curlimages/curl:8.12.1",
+        "busybox:1.36.1",
+    ),
 }
 
 
-@pytest.mark.parametrize("directory", LAB_DIRECTORIES)
-def test_real_fault_repair_reset_cleanup_contract(tmp_path: Path, directory: str) -> None:
+@pytest.mark.parametrize(
+    ("directory", "variant_id"),
+    SCENARIOS,
+    ids=lambda value: value,
+)
+def test_real_fault_repair_reset_cleanup_contract(
+    tmp_path: Path, directory: str, variant_id: str
+) -> None:
     _require_integration_environment()
     _require_cached_images(directory)
     _require_lab_prerequisites(directory)
     identifier = uuid4()
     namespace = f"kubelab-test-{identifier.hex[:12]}"
     fault_root = tmp_path / "fault-labs"
-    fault_registry = _copy_lab(directory, fault_root, namespace, solution=False)
+    fault_registry = _copy_lab(
+        directory, fault_root, namespace, solution=False, variant_id=variant_id
+    )
     solution_root = tmp_path / "solution-labs"
-    solution_registry = _copy_lab(directory, solution_root, namespace, solution=True)
+    solution_registry = _copy_lab(
+        directory, solution_root, namespace, solution=True, variant_id=variant_id
+    )
     fault_snapshot = fault_registry.scan()
     solution_snapshot = solution_registry.scan()
     assert fault_snapshot.errors == ()
@@ -81,6 +109,14 @@ def test_real_fault_repair_reset_cleanup_contract(tmp_path: Path, directory: str
 
     database = Database(tmp_path / "state" / "kubelab.db")
     database.initialize()
+    _seed_completed_prerequisites(
+        database,
+        lab_id=lab.definition.metadata.id,
+        variant_id=variant_id,
+        namespace=namespace,
+        context_name=record.name,
+        context_fingerprint=fingerprint,
+    )
     manager = LabManager(
         registry=fault_registry,
         unit_of_work=database.unit_of_work,
@@ -93,6 +129,7 @@ def test_real_fault_repair_reset_cleanup_contract(tmp_path: Path, directory: str
     try:
         session = manager.start(lab.definition.metadata.id)
         assert session.status is SessionStatus.READY
+        assert session.variant_id == variant_id
         with workspace_environment(
             manager,
             kubeconfig,
@@ -119,6 +156,38 @@ def test_real_fault_repair_reset_cleanup_contract(tmp_path: Path, directory: str
                     "--wait=true",
                     "--timeout=60s",
                 )
+            if directory == "lab-016-statefulset-headless" and variant_id == "variant-b":
+                _run_workspace_kubectl(
+                    workspace.kubeconfig_path,
+                    "delete",
+                    "statefulset",
+                    "web",
+                    "--wait=true",
+                    "--timeout=60s",
+                )
+            if directory == "lab-016-statefulset-headless" and variant_id == "variant-c":
+                _run_workspace_kubectl(
+                    workspace.kubeconfig_path,
+                    "delete",
+                    "service",
+                    "web-headless",
+                    "--wait=true",
+                    "--timeout=60s",
+                )
+            if directory == "lab-018-pvc-claim-missing" and variant_id == "variant-b":
+                _run_workspace_kubectl(
+                    workspace.kubeconfig_path,
+                    "delete",
+                    "persistentvolumeclaim",
+                    "app-data",
+                    "--wait=true",
+                    "--timeout=60s",
+                )
+            solution_path = (
+                solution_root / directory / "solutions" / "fix.yaml"
+                if variant_id == "baseline"
+                else solution_root / directory / "variants" / variant_id / "solutions" / "fix.yaml"
+            )
             _run_workspace_kubectl(
                 workspace.kubeconfig_path,
                 "apply",
@@ -126,7 +195,7 @@ def test_real_fault_repair_reset_cleanup_contract(tmp_path: Path, directory: str
                 "--force-conflicts",
                 "--field-manager=kubelab-learner",
                 "-f",
-                str(solution_root / directory / "solutions" / "fix.yaml"),
+                str(solution_path),
             )
 
         verified = manager.verify(session.id)
@@ -202,7 +271,11 @@ def _require_lab_prerequisites(directory: str) -> None:
             ("-n", "ingress-nginx", "get", "deployment", "ingress-nginx-controller"),
             "Ingress controller is unavailable",
         )
-    if directory in {"lab-012-pvc-pending", "lab-018-pvc-claim-missing"}:
+    if directory in {
+        "lab-012-pvc-pending",
+        "lab-018-pvc-claim-missing",
+        "lab-020-storage-readiness-chain",
+    }:
         _require_kubectl_value(
             ("get", "storageclass", "standard"),
             "The standard StorageClass is unavailable",
@@ -248,18 +321,77 @@ def _workspace_can_i(kubeconfig: Path, verb: str, resource: str) -> bool:
     return result.stdout.strip() == "yes"
 
 
-def _copy_lab(directory: str, root: Path, namespace: str, *, solution: bool) -> LabRegistry:
+def _copy_lab(
+    directory: str,
+    root: Path,
+    namespace: str,
+    *,
+    solution: bool,
+    variant_id: str,
+) -> LabRegistry:
     destination = root / directory
     shutil.copytree(LABS_ROOT / directory, destination)
     lab_file = destination / "lab.yaml"
     lab = yaml.safe_load(lab_file.read_text(encoding="utf-8"))
     lab["environment"]["namespace"] = namespace
-    if solution:
+    if solution and variant_id == "baseline":
         lab["environment"]["manifests"] = ["solutions/fix.yaml"]
     lab_file.write_text(yaml.safe_dump(lab, sort_keys=False), encoding="utf-8")
-    for path in (*destination.glob("manifests/*.yaml"), *destination.glob("solutions/*.yaml")):
+    if solution and variant_id != "baseline":
+        variant_file = destination / "variants" / variant_id / "variant.yaml"
+        variant = yaml.safe_load(variant_file.read_text(encoding="utf-8"))
+        variant["environment"]["manifests"] = ["solutions/fix.yaml"]
+        variant_file.write_text(yaml.safe_dump(variant, sort_keys=False), encoding="utf-8")
+    resource_files = tuple(
+        path
+        for path in destination.rglob("*.yaml")
+        if "manifests" in path.parts or "solutions" in path.parts
+    )
+    for path in resource_files:
         documents = tuple(yaml.safe_load_all(path.read_text(encoding="utf-8")))
         for document in documents:
             document.setdefault("metadata", {})["namespace"] = namespace
         path.write_text(yaml.safe_dump_all(documents, sort_keys=False), encoding="utf-8")
     return LabRegistry(root)
+
+
+def _seed_completed_prerequisites(
+    database: Database,
+    *,
+    lab_id: str,
+    variant_id: str,
+    namespace: str,
+    context_name: str,
+    context_fingerprint: str,
+) -> None:
+    prerequisite_variants = {
+        "baseline": (),
+        "variant-b": ("baseline",),
+        "variant-c": ("baseline", "variant-b"),
+    }[variant_id]
+    with database.unit_of_work() as uow:
+        for completed_variant in prerequisite_variants:
+            session = uow.sessions.create(
+                NewLabSession(
+                    id=str(uuid4()),
+                    lab_id=lab_id,
+                    variant_id=completed_variant,
+                    namespace=namespace,
+                    context_name=context_name,
+                    context_fingerprint=context_fingerprint,
+                )
+            )
+            uow.sessions.transition(session.id, SessionStatus.READY, event_type="environment_ready")
+            uow.sessions.transition(
+                session.id, SessionStatus.IN_PROGRESS, event_type="workspace_entered"
+            )
+            uow.sessions.transition(
+                session.id, SessionStatus.PASSED, event_type="success_contract_passed"
+            )
+            uow.sessions.transition(
+                session.id, SessionStatus.CLEANING, event_type="cleanup_started"
+            )
+            uow.sessions.transition(
+                session.id, SessionStatus.COMPLETED, event_type="cleanup_completed"
+            )
+        uow.commit()

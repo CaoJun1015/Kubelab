@@ -1,0 +1,41 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-021-stateful-service-chain
+  name: LAB-021 有状态服务发现链路故障
+  description: Headless Service选择器错误先隐藏Endpoint；选择器恢复后，错误targetPort继续阻断HTTP。
+  difficulty: advanced
+  durationMinutes: 55
+  category: comprehensive
+  tags: [statefulset, dns, service, multi-cause]
+requirements: {kubernetes: ">=1.28", minimumCpu: 1, minimumMemoryMiB: 1024, addons: []}
+environment:
+  namespace: kubelab-stateful-service-chain
+  manifests: [manifests/resources.yaml]
+  provisionTimeoutSeconds: 240
+task:
+  description: StatefulSet Pod已经Ready，但服务发现和业务访问都异常。逐层恢复完整链路。
+  completionDescription: Headless Service有Endpoint、稳定Pod DNS可解析且HTTP返回200。
+  successMessage: 有状态服务发现与转发链路的两个根因均已修复。
+initialChecks:
+  - {id: stateful-pod-ready, type: pod_status, selector: {app: stateful-service-chain}, expectedPhase: Running, minimumCount: 1, minimumReady: 1, ready: true, timeoutSeconds: 120, unmetMessage: StatefulSet Pod尚未Ready。}
+  - {id: endpoints-empty, type: service_endpoint_count, name: web-headless, exactly: 0, timeoutSeconds: 30, unmetMessage: Headless Service未呈现预期Endpoint为空。}
+successChecks:
+  - {id: endpoints-restored, type: service_endpoint_count, name: web-headless, minimum: 1, timeoutSeconds: 45, unmetMessage: Headless Service仍无Endpoint。}
+  - {id: stable-dns-restored, type: dns_resolution, service: web-headless, pod: web-0, expectedResolved: true, timeoutSeconds: 45, unmetMessage: 稳定Pod DNS仍不可解析。}
+  - id: business-http-ok
+    type: http_response
+    target: {mode: service, name: web-headless, port: 80, path: /}
+    expectedStatus: 200
+    timeoutSeconds: 60
+    unmetMessage: 最终HTTP检查仍未返回200。
+hints:
+  - {level: 1, content: 先恢复Endpoint；Endpoint出现后继续验证稳定DNS和实际HTTP。}
+  - {level: 2, content: "kubectl get endpointslice -l kubernetes.io/service-name=web-headless && kubectl get service web-headless -o yaml"}
+  - {level: 3, content: 让Selector匹配Pod标签，并把targetPort恢复为http。}
+cleanup: {deleteNamespace: true}
+interview:
+  questions:
+    - StatefulSet Pod Ready为何不能证明服务发现链路可用？
+    - Selector错误和targetPort错误分别在哪个证据层暴露？
+    - 如何设计覆盖Endpoint、DNS和HTTP的分层成功契约？

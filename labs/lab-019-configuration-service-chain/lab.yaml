@@ -1,0 +1,42 @@
+apiVersion: kubelab.io/v1alpha1
+kind: Lab
+metadata:
+  id: lab-019-configuration-service-chain
+  name: LAB-019 配置到服务链路故障
+  description: 配置键缺失先阻止Pod启动；配置恢复后，错误Service端口映射继续阻断业务访问。
+  difficulty: advanced
+  durationMinutes: 50
+  category: comprehensive
+  tags: [configmap, service, multi-cause]
+requirements: {kubernetes: ">=1.28", minimumCpu: 1, minimumMemoryMiB: 1024, addons: []}
+environment:
+  namespace: kubelab-configuration-service-chain
+  manifests: [manifests/resources.yaml]
+  provisionTimeoutSeconds: 240
+task:
+  description: 从Pod无法启动开始调查；每次修复后重新观察，直到配置与HTTP链路同时恢复。
+  completionDescription: APP_MODE正确、Pod稳定Ready、Service有Endpoint且HTTP返回200。
+  successMessage: 配置与Service转发链路的两个根因均已修复。
+initialChecks:
+  - {id: configmap-present, type: resource_exists, apiVersion: v1, kind: ConfigMap, name: app-settings, timeoutSeconds: 15, unmetMessage: ConfigMap不存在。}
+  - {id: pod-config-error, type: pod_status, selector: {app: configuration-service-chain}, expectedPhase: Pending, containerName: web, expectedWaitingReasons: [CreateContainerConfigError], minimumCount: 1, timeoutSeconds: 90, unmetMessage: Pod未呈现预期配置故障。}
+successChecks:
+  - {id: app-mode-correct, type: config_value, sourceKind: ConfigMap, sourceName: app-settings, key: APP_MODE, expectedValue: production, timeoutSeconds: 30, unmetMessage: APP_MODE尚未恢复。}
+  - {id: web-ready, type: pod_status, selector: {app: configuration-service-chain}, expectedPhase: Running, minimumCount: 1, minimumReady: 1, stableSeconds: 5, ready: true, timeoutSeconds: 120, unmetMessage: Web Pod尚未稳定Ready。}
+  - {id: endpoints-present, type: service_endpoint_count, name: web, minimum: 1, timeoutSeconds: 30, unmetMessage: Service没有Ready Endpoint。}
+  - id: business-http-ok
+    type: http_response
+    target: {mode: service, name: web, port: 80, path: /}
+    expectedStatus: 200
+    timeoutSeconds: 60
+    unmetMessage: 最终业务HTTP检查仍未返回200。
+hints:
+  - {level: 1, content: 先让Pod能够创建；Pod恢复后不要停止，继续验证Service业务访问。}
+  - {level: 2, content: "kubectl describe pods -l app=configuration-service-chain && kubectl get service web -o yaml"}
+  - {level: 3, content: 补齐APP_MODE=production，并把Service targetPort恢复为http。}
+cleanup: {deleteNamespace: true}
+interview:
+  questions:
+    - 为什么修复Pod启动不等于业务链路恢复？
+    - 如何用证据区分配置阶段与Service转发阶段？
+    - 多根因事故中每次变更后为什么必须重新验证？
