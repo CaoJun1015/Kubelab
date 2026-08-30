@@ -12,6 +12,8 @@ expected_version=$2
 kubeconfig=$3
 label=$4
 source_home=$HOME
+server_pid=""
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 if [[ ! -f "$artifact" || ! -f "$kubeconfig" ]]; then
     echo "artifact and kubeconfig must be existing files" >&2
@@ -24,6 +26,19 @@ fi
 
 release_root=$(mktemp -d "/tmp/kubelab-release-${label}.XXXXXX")
 chmod 700 "$release_root"
+stop_server() {
+    if [[ -n "$server_pid" ]] && kill -0 "$server_pid" 2>/dev/null; then
+        kill "$server_pid"
+        wait "$server_pid" || true
+    fi
+}
+finish() {
+    status=$?
+    stop_server
+    printf 'release_root=%s\n' "$release_root"
+    exit "$status"
+}
+trap finish EXIT
 mkdir -p \
     "$release_root/home" \
     "$release_root/config" \
@@ -54,31 +69,43 @@ if [[ "$version_output" != "KubeLab $expected_version" ]]; then
     exit 1
 fi
 
+set +e
 $kubelab_bin doctor --json > "$release_root/doctor.json"
-$kubelab_bin list --json > "$release_root/labs.json"
-lab_count=$(grep -c '"id":' "$release_root/labs.json")
-if [[ "$lab_count" -ne 21 ]] || ! grep -q '"errors": \[\]' "$release_root/labs.json"; then
-    echo "installed registry did not load exactly 21 valid package labs" >&2
+doctor_exit=$?
+set -e
+if [[ "$doctor_exit" -ne 0 && "$doctor_exit" -ne 3 ]]; then
+    echo "Doctor returned an unexpected exit code: $doctor_exit" >&2
     exit 1
 fi
+$kubelab_bin list --json > "$release_root/labs.json"
+read -r doctor_status lab_count variant_count scenario_count < <(
+    python3 "$script_dir/validate_release_smoke.py" \
+        --doctor "$release_root/doctor.json" \
+        --catalog "$release_root/labs.json" \
+        --doctor-exit "$doctor_exit"
+)
 
-$kubelab_bin context inspect --json > "$release_root/context-before.json"
-$kubelab_bin context trust > "$release_root/context-trust.txt"
-$kubelab_bin context inspect --json > "$release_root/context-after.json"
-if ! grep -q '"trust_state": "trusted"' "$release_root/context-after.json"; then
-    echo "isolated context trust was not persisted" >&2
-    exit 1
+if [[ "$doctor_exit" -eq 0 ]]; then
+    $kubelab_bin context inspect --json > "$release_root/context-before.json"
+    $kubelab_bin context trust > "$release_root/context-trust.txt"
+    $kubelab_bin context inspect --json > "$release_root/context-after.json"
+    context_status=$(python3 - "$release_root/context-after.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if report.get("trust_state") != "trusted":
+    raise SystemExit("Isolated Context trust was not persisted")
+print("trusted")
+PY
+    )
+else
+    context_status="skipped-not-ready"
 fi
 
 $kubelab_bin serve > "$release_root/server.log" 2>&1 &
 server_pid=$!
-stop_server() {
-    if kill -0 "$server_pid" 2>/dev/null; then
-        kill "$server_pid"
-        wait "$server_pid" || true
-    fi
-}
-trap stop_server EXIT
 
 for _ in {1..30}; do
     if curl --fail --silent http://127.0.0.1:8765/health \
@@ -97,14 +124,16 @@ if ! ss -ltnp | grep -q '127.0.0.1:8765'; then
 fi
 
 stop_server
-trap - EXIT
 if kill -0 "$server_pid" 2>/dev/null; then
     echo "Web server process did not stop" >&2
     exit 1
 fi
 
-printf 'release_root=%s\n' "$release_root"
 printf 'artifact=%s\n' "$artifact"
 printf 'version=%s\n' "$version_output"
 printf 'labs=%s\n' "$lab_count"
+printf 'variants=%s\n' "$variant_count"
+printf 'scenarios=%s\n' "$scenario_count"
+printf 'doctor=%s (exit=%s)\n' "$doctor_status" "$doctor_exit"
+printf 'context=%s\n' "$context_status"
 printf 'web=127.0.0.1:8765 stopped-cleanly\n'
