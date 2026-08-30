@@ -128,6 +128,10 @@ def test_acceptance_profile_and_context_fail_closed() -> None:
     profile["valid"][0]["Status"] = "OK"
     assert validator.validate_profile(profile) == ("Running", "docker")
     assert validator.validate_context(context) is None
+    assert validator.validate_doctor({"status": "healthy"}) == "healthy"
+    assert validator.validate_doctor({"status": "degraded"}) == "degraded"
+    with pytest.raises(ValueError, match="usable environment"):
+        validator.validate_doctor({"status": "unhealthy"})
     context["trust_state"] = "drifted"
     with pytest.raises(ValueError, match="not already trusted"):
         validator.validate_context(context)

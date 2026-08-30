@@ -69,6 +69,14 @@ def validate_context(report: dict[str, Any]) -> None:
         raise ValueError("The current minikube Context is not already trusted.")
 
 
+def validate_doctor(report: dict[str, Any]) -> str:
+    """Accept usable environments while leaving required lab capabilities to hard gates."""
+    status = report.get("status")
+    if status not in {"healthy", "degraded"}:
+        raise ValueError("Doctor must report a usable environment before real acceptance.")
+    return str(status)
+
+
 def residue_from_reports(
     namespaces: dict[str, Any],
     namespaced: dict[str, Any],
@@ -171,6 +179,8 @@ def main() -> int:
     profile.add_argument("--path", required=True, type=Path)
     context = subparsers.add_parser("context")
     context.add_argument("--path", required=True, type=Path)
+    doctor = subparsers.add_parser("doctor")
+    doctor.add_argument("--path", required=True, type=Path)
     subparsers.add_parser("audit")
     args = parser.parse_args()
 
@@ -182,6 +192,8 @@ def main() -> int:
         elif args.command == "context":
             validate_context(_load_object(args.path))
             print("trusted")
+        elif args.command == "doctor":
+            print(validate_doctor(_load_object(args.path)))
         else:
             residue = audit_cluster()
             print(json.dumps({"residue_count": len(residue), "residue": residue}, sort_keys=True))

@@ -76,15 +76,8 @@ if [[ "$(kubelab --version)" != "KubeLab 0.3.0rc1" ]]; then
     exit 1
 fi
 kubelab doctor --json > "$results_root/doctor.json"
-python3 - "$results_root/doctor.json" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-if report.get("status") != "healthy":
-    raise SystemExit("Doctor must be healthy before real acceptance")
-PY
+python3 "$validator" doctor --path "$results_root/doctor.json" \
+    > "$results_root/doctor-status.txt"
 
 minikube image ls --profile minikube > "$results_root/images.txt"
 for image in nginx:1.26-alpine nginx:1.27-alpine busybox:1.36.1 curlimages/curl:8.12.1; do
