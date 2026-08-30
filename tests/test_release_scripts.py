@@ -198,3 +198,17 @@ def test_wsl_acceptance_runner_uses_fixed_batches_and_never_mutates_trust() -> N
     assert '"$validator" audit' in script
     assert "context trust" not in script
     assert "kubectl delete" not in script
+
+
+def test_wsl_quality_gate_is_isolated_and_keeps_real_integration_disabled() -> None:
+    script = (Path(__file__).parents[1] / "scripts" / "wsl_m6_1_quality.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'mktemp -d "/tmp/kubelab-m6-1-quality.' in script
+    assert "uv venv" in script
+    assert "--python 3.11" in script
+    assert "KUBELAB_RUN_INTEGRATION=0" in script
+    assert "KUBELAB_RUN_LAB_INTEGRATION=0" in script
+    assert "python -m pytest" in script
+    assert "0.3.0rc1" in script
