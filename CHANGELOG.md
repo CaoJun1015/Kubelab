@@ -19,6 +19,7 @@
 
 ### Changed
 
+- 准备KubeLab 0.3.0rc1，并以M6.1双平台、安装产物和33场景真实验收作为候选门禁。
 - 开始开发KubeLab 0.3.0a0的M6可复现故障变体与综合排障场景。
 - 开始开发KubeLab 0.2.0a0的M5引导式排障学习闭环。
 - 活动Session GET改为纯SQLite读取；资源、Events和Logs读取不再推进学习状态，集群协调改为显式写API。
