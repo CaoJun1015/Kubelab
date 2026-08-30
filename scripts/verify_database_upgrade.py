@@ -43,19 +43,18 @@ def _table_counts(connection: sqlite3.Connection) -> dict[str, int]:
     }
 
 
-def _signature(path: Path) -> tuple[int, int, str] | None:
+def _signature(path: Path) -> tuple[int, str] | None:
     if not path.exists():
         return None
-    stat = path.stat()
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    return stat.st_size, stat.st_mtime_ns, digest
+    return path.stat().st_size, digest
 
 
-def _source_signatures(path: Path) -> dict[str, tuple[int, int, str] | None]:
+def _source_signatures(path: Path) -> dict[str, tuple[int, str] | None]:
+    """Hash durable SQLite content; the shared-memory lock file is intentionally transient."""
     return {
         "database": _signature(path),
         "wal": _signature(path.with_name(f"{path.name}-wal")),
-        "shm": _signature(path.with_name(f"{path.name}-shm")),
     }
 
 

@@ -370,6 +370,20 @@ def test_upgrade_verifier_uses_copy_and_reports_only_safe_metadata(tmp_path: Pat
     assert path.with_name("kubelab.db.bak").exists() is False
 
 
+def test_upgrade_verifier_ignores_transient_sqlite_shared_memory(tmp_path: Path) -> None:
+    from scripts.verify_database_upgrade import _source_signatures
+
+    path = tmp_path / "kubelab.db"
+    path.write_bytes(b"durable database")
+    shared_memory = path.with_name("kubelab.db-shm")
+    shared_memory.write_bytes(b"lock state one")
+
+    before = _source_signatures(path)
+    shared_memory.write_bytes(b"lock state two")
+
+    assert _source_signatures(path) == before
+
+
 def test_backup_failure_is_reported_without_deleting_original(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
