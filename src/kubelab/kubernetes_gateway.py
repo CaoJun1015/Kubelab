@@ -6,6 +6,7 @@ import base64
 import binascii
 import copy
 import hmac
+import ipaddress
 import re
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -1051,6 +1052,11 @@ class KubernetesGateway:
         self.assert_namespace_owned(scope)
         prefix = f"{pod}." if pod is not None else ""
         fqdn = f"{prefix}{service}.{scope.namespace}.svc.cluster.local"
+        pod_address: str | None = None
+        if pod is not None:
+            pod_document = self._get_validation_resource(scope, "v1", "Pod", pod)
+            if pod_document is not None:
+                pod_address = _optional_string(_as_mapping(pod_document.get("status")).get("podIP"))
         remaining = max(1, min(60, int(deadline - self._monotonic())))
         name = f"kubelab-probe-{uuid4().hex[:8]}"
         spec = DnsProbeSpec(name=name, fqdn=fqdn, timeout_seconds=remaining)
@@ -1076,8 +1082,23 @@ class KubernetesGateway:
                         or pod_reason == "Evicted"
                         or reason in {"OOMKilled", "ContainerCannotRun", "StartError"}
                     )
+                    resolved = exit_code == 0
+                    if resolved and pod is not None:
+                        raw = self._call(
+                            lambda: self._api.read_logs(
+                                scope.namespace,
+                                name,
+                                container="dns",
+                                previous=False,
+                                tail_lines=20,
+                                timeout=self._request_timeout,
+                            )
+                        )
+                        resolved = pod_address is not None and _dns_output_contains_address(
+                            raw, pod_address
+                        )
                     result = DnsProbeResult(
-                        resolved=exit_code == 0,
+                        resolved=resolved,
                         infrastructure_error=infrastructure_error,
                         timed_out=pod_reason == "DeadlineExceeded",
                     )
@@ -1778,6 +1799,27 @@ def _probe_termination(
 def _parse_http_status(value: str) -> int | None:
     candidate = value.strip().splitlines()[-1] if value.strip() else ""
     return int(candidate) if re.fullmatch(r"[1-5][0-9]{2}", candidate) else None
+
+
+def _dns_output_contains_address(value: str, expected: str) -> bool:
+    """Compare bounded probe output internally without returning DNS data."""
+    try:
+        expected_address = ipaddress.ip_address(expected)
+    except ValueError:
+        return False
+    bounded, _ = _truncate_log(value, tail_lines=20, max_bytes=4096)
+    for token in re.findall(r"[0-9A-Fa-f:.#]+", bounded):
+        candidate = token.strip("[](),;")
+        if "#" in candidate:
+            candidate = candidate.split("#", maxsplit=1)[0]
+        if expected_address.version == 4 and candidate.count(":") == 1:
+            candidate = candidate.rsplit(":", maxsplit=1)[0]
+        try:
+            if ipaddress.ip_address(candidate) == expected_address:
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def _truncate_log(content: str, *, tail_lines: int, max_bytes: int) -> tuple[str, bool]:
