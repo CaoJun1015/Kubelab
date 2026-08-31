@@ -875,6 +875,26 @@ def test_service_port_contract_variant_recreates_only_the_service_port() -> None
     assert "kubectl delete service web" in readme
 
 
+@pytest.mark.parametrize("variant_id", ["variant-b", "variant-c"])
+def test_daemonset_affinity_variants_recreate_only_the_fault_constraint(
+    variant_id: str,
+) -> None:
+    variant_root = LABS_ROOT / "lab-017-daemonset-node-selector" / "variants" / variant_id
+    initial = _yaml_documents(variant_root / "manifests" / "daemonset.yaml")[0]
+    fixed = _yaml_documents(variant_root / "solutions" / "fix.yaml")[0]
+    readme = (variant_root / "README.md").read_text(encoding="utf-8")
+
+    initial_template = initial["spec"]["template"]
+    fixed_template = fixed["spec"]["template"]
+    assert initial["metadata"] == fixed["metadata"]
+    assert initial["spec"]["selector"] == fixed["spec"]["selector"]
+    assert initial_template["metadata"] == fixed_template["metadata"]
+    assert initial_template["spec"]["containers"] == fixed_template["spec"]["containers"]
+    assert initial_template["spec"]["affinity"] is not None
+    assert fixed_template["spec"]["affinity"] is None
+    assert "kubectl delete daemonset node-agent" in readme
+
+
 def test_intermediate_controller_and_storage_repairs_are_narrow() -> None:
     stateful_initial = _yaml_documents(
         LABS_ROOT / "lab-016-statefulset-headless" / "manifests" / "resources.yaml"
