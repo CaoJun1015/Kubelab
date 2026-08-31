@@ -42,7 +42,10 @@ def test_wsl_startup_restricts_cluster_start_to_local_docker_profile() -> None:
 def test_windows_launcher_only_delegates_runtime_to_wsl() -> None:
     script = (ROOT / "scripts" / "start-kubelab.ps1").read_text(encoding="utf-8")
 
-    assert "wsl.exe -d $Distribution -- wslpath" in script
+    assert "wsl.exe -d $Distribution --cd $PSScriptRoot -- pwd" in script
+    assert "wslpath" not in script
+    assert "Select-Object -Last 1" in script
+    assert "IsNullOrWhiteSpace([string]$wslDirectory)" in script
     assert '$wslArguments = @("-d", $Distribution, "--", "bash", $wslScript)' in script
     assert "Start-Process $webUrl" in script
     assert "kubelab serve" not in script

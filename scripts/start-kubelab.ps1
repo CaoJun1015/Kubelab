@@ -19,10 +19,13 @@ if ($Action -ne "Start" -and $WebOnly) {
     throw "-WebOnly can only be used with -Action Start."
 }
 
-$wslScript = (& wsl.exe -d $Distribution -- wslpath -a $bashScript).Trim()
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($wslScript)) {
-    throw "Could not resolve the startup script inside WSL distribution '$Distribution'."
+$wslDirectoryOutput = & wsl.exe -d $Distribution --cd $PSScriptRoot -- pwd
+$wslExitCode = $LASTEXITCODE
+$wslDirectory = $wslDirectoryOutput | Select-Object -Last 1
+if ($wslExitCode -ne 0 -or [string]::IsNullOrWhiteSpace([string]$wslDirectory)) {
+    throw "Could not resolve the script directory inside WSL distribution '$Distribution'."
 }
+$wslScript = ([string]$wslDirectory).TrimEnd("/") + "/start_kubelab.sh"
 
 $wslArguments = @("-d", $Distribution, "--", "bash", $wslScript)
 switch ($Action) {
