@@ -26,6 +26,8 @@ def test_tutorial_preserves_blind_repeat_and_workspace_boundaries() -> None:
     assert "kubelab workspace enter" in content
     assert "不要信任远程、公司或生产Context" in content
     assert "不要手动删除Namespace" in content
+    assert "/mnt/" not in content
+    assert ":\\" not in content
 
 
 def test_readme_links_tutorial_and_distribution_requires_it() -> None:

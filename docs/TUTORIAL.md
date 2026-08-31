@@ -11,7 +11,7 @@
 在WSL2 Ubuntu中启动本机环境：
 
 ```bash
-cd /mnt/d/ChatGPT/jdhunter
+cd /path/to/KubeLab
 minikube start --profile minikube
 uv run kubelab doctor
 uv run kubelab context inspect
