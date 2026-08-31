@@ -6,6 +6,7 @@ import base64
 import binascii
 import copy
 import hmac
+import ipaddress
 import re
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -974,7 +975,7 @@ class KubernetesGateway:
                 )
                 phase = _optional_string(_as_mapping(document.get("status")).get("phase"))
                 if phase in {"Succeeded", "Failed"}:
-                    exit_code, reason = _probe_termination(document)
+                    exit_code, reason = _probe_termination(document, container_name="curl")
                     pod_reason = _optional_string(_as_mapping(document.get("status")).get("reason"))
                     curl_completed = exit_code is not None and 0 <= exit_code <= 99
                     if (
@@ -1051,6 +1052,16 @@ class KubernetesGateway:
         self.assert_namespace_owned(scope)
         prefix = f"{pod}." if pod is not None else ""
         fqdn = f"{prefix}{service}.{scope.namespace}.svc.cluster.local"
+        pod_address: str | None = None
+        headless_service = True
+        if pod is not None:
+            service_document = self._get_validation_resource(scope, "v1", "Service", service)
+            headless_service = service_document is not None and (
+                _as_mapping(service_document.get("spec")).get("clusterIP") == "None"
+            )
+            pod_document = self._get_validation_resource(scope, "v1", "Pod", pod)
+            if pod_document is not None:
+                pod_address = _optional_string(_as_mapping(pod_document.get("status")).get("podIP"))
         remaining = max(1, min(60, int(deadline - self._monotonic())))
         name = f"kubelab-probe-{uuid4().hex[:8]}"
         spec = DnsProbeSpec(name=name, fqdn=fqdn, timeout_seconds=remaining)
@@ -1069,15 +1080,32 @@ class KubernetesGateway:
                 )
                 phase = _optional_string(_as_mapping(document.get("status")).get("phase"))
                 if phase in {"Succeeded", "Failed"}:
-                    exit_code, reason = _probe_termination(document)
+                    exit_code, reason = _probe_termination(document, container_name="dns")
                     pod_reason = _optional_string(_as_mapping(document.get("status")).get("reason"))
                     infrastructure_error = (
                         exit_code is None
                         or pod_reason == "Evicted"
                         or reason in {"OOMKilled", "ContainerCannotRun", "StartError"}
                     )
+                    resolved = exit_code == 0
+                    if resolved and pod is not None:
+                        raw = self._call(
+                            lambda: self._api.read_logs(
+                                scope.namespace,
+                                name,
+                                container="dns",
+                                previous=False,
+                                tail_lines=20,
+                                timeout=self._request_timeout,
+                            )
+                        )
+                        resolved = (
+                            headless_service
+                            and pod_address is not None
+                            and _dns_output_contains_address(raw, pod_address)
+                        )
                     result = DnsProbeResult(
-                        resolved=exit_code == 0,
+                        resolved=resolved,
                         infrastructure_error=infrastructure_error,
                         timed_out=pod_reason == "DeadlineExceeded",
                     )
@@ -1759,10 +1787,12 @@ def _ingress_host_for_target(document: Mapping[str, Any], target: HttpTarget) ->
     return None
 
 
-def _probe_termination(document: Mapping[str, Any]) -> tuple[int | None, str | None]:
+def _probe_termination(
+    document: Mapping[str, Any], *, container_name: Literal["curl", "dns"]
+) -> tuple[int | None, str | None]:
     status = _as_mapping(document.get("status"))
     for container in _sequence_of_mappings(status.get("containerStatuses")):
-        if container.get("name") != "curl":
+        if container.get("name") != container_name:
             continue
         terminated = _as_mapping(_as_mapping(container.get("state")).get("terminated"))
         exit_code = terminated.get("exitCode")
@@ -1776,6 +1806,27 @@ def _probe_termination(document: Mapping[str, Any]) -> tuple[int | None, str | N
 def _parse_http_status(value: str) -> int | None:
     candidate = value.strip().splitlines()[-1] if value.strip() else ""
     return int(candidate) if re.fullmatch(r"[1-5][0-9]{2}", candidate) else None
+
+
+def _dns_output_contains_address(value: str, expected: str) -> bool:
+    """Compare bounded probe output internally without returning DNS data."""
+    try:
+        expected_address = ipaddress.ip_address(expected)
+    except ValueError:
+        return False
+    bounded, _ = _truncate_log(value, tail_lines=20, max_bytes=4096)
+    for token in re.findall(r"[0-9A-Fa-f:.#]+", bounded):
+        candidate = token.strip("[](),;")
+        if "#" in candidate:
+            candidate = candidate.split("#", maxsplit=1)[0]
+        if expected_address.version == 4 and candidate.count(":") == 1:
+            candidate = candidate.rsplit(":", maxsplit=1)[0]
+        try:
+            if ipaddress.ip_address(candidate) == expected_address:
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def _truncate_log(content: str, *, tail_lines: int, max_bytes: int) -> tuple[str, bool]:

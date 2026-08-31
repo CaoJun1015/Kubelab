@@ -848,14 +848,16 @@ def test_secret_invalid_base64_and_pvc_phase_are_structured() -> None:
     assert gateway.pvc_phase(scope(), "data") == "Bound"
 
 
-def completed_probe(*, exit_code: int = 0, phase: str = "Succeeded") -> dict[str, Any]:
+def completed_probe(
+    *, exit_code: int = 0, phase: str = "Succeeded", container_name: str = "curl"
+) -> dict[str, Any]:
     return {
         "metadata": {"name": "probe"},
         "status": {
             "phase": phase,
             "containerStatuses": [
                 {
-                    "name": "curl",
+                    "name": container_name,
                     "state": {"terminated": {"exitCode": exit_code, "reason": "Completed"}},
                 }
             ],
@@ -898,7 +900,12 @@ def test_service_http_probe_returns_status_and_cleans_pod() -> None:
 
 def test_dns_probe_builds_only_stable_service_fqdn_and_cleans_pod() -> None:
     api = FakeApi()
-    api.probe_reads = [completed_probe()]
+    api.probe_reads = [completed_probe(container_name="dns")]
+    api.generic[("v1", "Service", scope().namespace, "web-headless")] = {
+        "spec": {"clusterIP": "None"}
+    }
+    api.generic[("v1", "Pod", scope().namespace, "web-0")] = {"status": {"podIP": "10.244.0.7"}}
+    api.logs = "Server: 10.96.0.10\nAddress: 10.96.0.10#53\n\nName: stable\nAddress: 10.244.0.7\n"
     clock = FakeClock()
     gateway = KubernetesGateway(
         api,
@@ -918,6 +925,31 @@ def test_dns_probe_builds_only_stable_service_fqdn_and_cleans_pod() -> None:
         "web-0.web-headless.kubelab-complete-lab.svc.cluster.local",
     ]
     assert api.deleted_probes
+
+
+def test_stable_pod_dns_rejects_service_address_without_exposing_output() -> None:
+    api = FakeApi()
+    api.probe_reads = [completed_probe(container_name="dns")]
+    api.generic[("v1", "Service", scope().namespace, "web-headless")] = {
+        "spec": {"clusterIP": "10.96.0.42"}
+    }
+    api.generic[("v1", "Pod", scope().namespace, "web-0")] = {"status": {"podIP": "10.244.0.7"}}
+    api.logs = "TOKEN secret\nName: stable\nAddress 1: 10.244.0.7\n"
+    clock = FakeClock()
+    gateway = KubernetesGateway(
+        api,
+        context_fingerprint=FINGERPRINT,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    )
+
+    result = gateway.run_dns_probe(scope(), service="web-headless", pod="web-0", deadline=5)
+
+    assert result.resolved is False
+    assert result.infrastructure_error is False
+    assert "secret" not in result.model_dump_json()
+    assert "10.244.0.7" not in result.model_dump_json()
+    assert api.last_log_request == ("dns", False, 20)
 
 
 def test_dns_probe_spec_rejects_external_or_user_supplied_hosts() -> None:

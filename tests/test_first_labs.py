@@ -856,6 +856,45 @@ def test_intermediate_service_config_and_job_repairs_are_narrow() -> None:
     assert "exit 0" in _workload_container(job_fix)["command"][-1]
 
 
+def test_service_port_contract_variant_recreates_only_the_service_port() -> None:
+    variant_root = LABS_ROOT / "lab-013-service-target-port" / "variants" / "variant-c"
+    initial = _yaml_documents(variant_root / "manifests" / "resources.yaml")[-1]
+    fixed = _yaml_documents(variant_root / "solutions" / "fix.yaml")[0]
+    readme = (variant_root / "README.md").read_text(encoding="utf-8")
+
+    assert initial["metadata"] == fixed["metadata"]
+    assert initial["spec"]["selector"] == fixed["spec"]["selector"]
+    assert initial["spec"]["ports"][0]["name"] == fixed["spec"]["ports"][0]["name"] == "http"
+    assert (
+        initial["spec"]["ports"][0]["targetPort"]
+        == fixed["spec"]["ports"][0]["targetPort"]
+        == "http"
+    )
+    assert initial["spec"]["ports"][0]["port"] == 8080
+    assert fixed["spec"]["ports"][0]["port"] == 80
+    assert "kubectl delete service web" in readme
+
+
+@pytest.mark.parametrize("variant_id", ["variant-b", "variant-c"])
+def test_daemonset_affinity_variants_recreate_only_the_fault_constraint(
+    variant_id: str,
+) -> None:
+    variant_root = LABS_ROOT / "lab-017-daemonset-node-selector" / "variants" / variant_id
+    initial = _yaml_documents(variant_root / "manifests" / "daemonset.yaml")[0]
+    fixed = _yaml_documents(variant_root / "solutions" / "fix.yaml")[0]
+    readme = (variant_root / "README.md").read_text(encoding="utf-8")
+
+    initial_template = initial["spec"]["template"]
+    fixed_template = fixed["spec"]["template"]
+    assert initial["metadata"] == fixed["metadata"]
+    assert initial["spec"]["selector"] == fixed["spec"]["selector"]
+    assert initial_template["metadata"] == fixed_template["metadata"]
+    assert initial_template["spec"]["containers"] == fixed_template["spec"]["containers"]
+    assert initial_template["spec"]["affinity"] is not None
+    assert fixed_template["spec"]["affinity"] is None
+    assert "kubectl delete daemonset node-agent" in readme
+
+
 def test_intermediate_controller_and_storage_repairs_are_narrow() -> None:
     stateful_initial = _yaml_documents(
         LABS_ROOT / "lab-016-statefulset-headless" / "manifests" / "resources.yaml"

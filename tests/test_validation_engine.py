@@ -787,6 +787,41 @@ def test_initial_contract_preserves_success_preflight_error_retryability(
     assert result.retryable is False
 
 
+def test_initial_contract_accepts_definitive_failure_with_later_unavailable_check(
+    database: Database, loaded_lab: LoadedLab
+) -> None:
+    clock = FakeClock()
+    gateway = FakeValidationGateway()
+    gateway.deployment = [1]
+    gateway.endpoints = [0]
+    gateway.dns = [DnsProbeResult(infrastructure_error=True, timed_out=True)]
+    endpoint_check = ServiceEndpointCountCheck(
+        **common("service-endpoints"),
+        type="service_endpoint_count",
+        name="web-headless",
+        minimum=1,
+    )
+    dns_check = DnsResolutionCheck(
+        **common("stable-dns"),
+        type="dns_resolution",
+        service="web-headless",
+        pod="web-0",
+        expectedResolved=True,
+    )
+
+    result = engine(database, clock).validate_initial_contract(
+        scope(), with_checks(loaded_lab, endpoint_check, dns_check), gateway, reset_sequence=0
+    )
+
+    assert result.status is ValidationStatus.PASSED
+    with database.session_factory() as session:
+        runs = session.scalars(select(VerificationRunRecord)).all()
+    assert {run.purpose: run.status for run in runs} == {
+        "initial": "passed",
+        "success_contract": "error",
+    }
+
+
 @pytest.mark.parametrize(
     ("failure", "expected_status", "expected_code", "expected_retryable"),
     [

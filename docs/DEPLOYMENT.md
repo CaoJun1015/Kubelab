@@ -501,7 +501,7 @@ KUBELAB_RUN_LAB_INTEGRATION=1 \
   uv run pytest --no-cov -q tests/test_first_labs_integration.py
 ```
 
-测试入口参数化覆盖21个基线和12个变体，执行`start → 受限workspace修复 → verify → reset → cleanup`，并验证工作区不能读取Secret或集群级Namespace。M6开发过程不会启用该变量；LAB-001至018在M5时期完成的真实验收记录仍有效。测试默认关闭；禁止在远程或生产集群设置该变量。
+测试入口参数化覆盖21个基线和12个变体，执行`start → 受限workspace修复 → verify → reset → cleanup`，并验证工作区不能读取Secret或集群级Namespace。M6.1维护者验收已在本机Docker驱动minikube中按固定四批连续通过全部33个场景，并在每批后确认零残留；普通测试仍默认关闭该变量。禁止在远程或生产集群设置该变量，执行细节见[M6.1验收记录](environment-snapshots/2026-08-31-m6-1-acceptance.md)。
 
 ## 15. 升级KubeLab
 

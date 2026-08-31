@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
+import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
@@ -55,6 +58,104 @@ def new_session(session_id: str = "00000000-0000-4000-8000-000000000001") -> New
         context_fingerprint="a" * 64,
         created_at=datetime(2026, 8, 26, 8, 0, tzinfo=UTC),
     )
+
+
+def create_rich_0002_database(path: Path) -> Database:
+    """Create a realistic M5 database containing every persisted Session child."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    database = Database(path, lock_path=path.parent / "operations.lock", lock_timeout_seconds=0)
+    command.upgrade(database._alembic_config(), "0002_guided_learning")
+    session_id = new_session().id
+    run_id = "00000000-0000-4000-8000-000000000101"
+    timestamp = "2026-08-29 08:00:00.000000"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "INSERT INTO lab_session "
+            "(id, lab_id, namespace, status, context_name, context_fingerprint, created_at, "
+            "started_at, completed_at, reset_count, last_error_code, last_error_context) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                session_id,
+                "lab-013-service-target-port",
+                "kubelab-lab-013",
+                "completed",
+                "minikube",
+                "a" * 64,
+                timestamp,
+                timestamp,
+                timestamp,
+                2,
+                "SAFE_ERROR",
+                json.dumps({"operation": "verify"}),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO session_event "
+            "(session_id, event_type, from_status, to_status, context, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                session_id,
+                "success_contract_passed",
+                "in_progress",
+                "passed",
+                json.dumps({"public": True}),
+                timestamp,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO verification_run "
+            "(id, session_id, purpose, status, reset_sequence, checked_at, duration_ms) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (run_id, session_id, "manual", "passed", 2, timestamp, 42),
+        )
+        connection.execute(
+            "INSERT INTO check_result "
+            "(run_id, check_id, check_type, status, expected, actual, message, retryable, "
+            "duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                run_id,
+                "endpoint-ready",
+                "endpoint_count",
+                "passed",
+                json.dumps({"minimum": 1}),
+                json.dumps({"count": 1}),
+                "public result",
+                False,
+                12,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO hint_usage (session_id, level, used_at, request_count) "
+            "VALUES (?, ?, ?, ?)",
+            (session_id, 2, timestamp, 3),
+        )
+        connection.execute(
+            "INSERT INTO retrospective "
+            "(session_id, symptom, impact, investigation, root_cause, resolution, prevention, "
+            "interview_summary, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                session_id,
+                "symptom",
+                "impact",
+                "investigation",
+                "root cause",
+                "resolution",
+                "prevention",
+                "summary",
+                timestamp,
+            ),
+        )
+        connection.execute(
+            "UPDATE guided_learning_state SET onboarding_completed_at = ?, last_checked_at = ?, "
+            "last_environment_status = ?, last_environment_report = ? WHERE id = 1",
+            (timestamp, timestamp, "ready", json.dumps({"status": "ready"})),
+        )
+        connection.execute(
+            "INSERT INTO session_evidence_snapshot "
+            "(session_id, trigger, capture_status, summary, captured_at) VALUES (?, ?, ?, ?, ?)",
+            (session_id, "verify", "captured", json.dumps({"pods": 1}), timestamp),
+        )
+    return database
 
 
 def test_initialize_creates_all_tables_and_required_pragmas(tmp_path: Path) -> None:
@@ -146,6 +247,141 @@ def test_v010_database_upgrades_without_losing_session_history(tmp_path: Path) -
         assert connection.execute("SELECT variant_id FROM lab_session").fetchone() == ("baseline",)
     assert database.backup_path.is_file()
     database.dispose()
+
+
+def test_m5_database_upgrade_preserves_all_guided_learning_records(tmp_path: Path) -> None:
+    path = tmp_path / "state" / "kubelab.db"
+    database = create_rich_0002_database(path)
+
+    database.initialize()
+
+    expected_counts = {
+        "lab_session": 1,
+        "session_event": 1,
+        "verification_run": 1,
+        "check_result": 1,
+        "hint_usage": 1,
+        "retrospective": 1,
+        "session_evidence_snapshot": 1,
+        "guided_learning_state": 1,
+    }
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            "0003_lab_variants",
+        )
+        assert {
+            table: connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+            for table in expected_counts
+        } == expected_counts
+        assert connection.execute(
+            "SELECT variant_id, reset_count, last_error_code FROM lab_session"
+        ).fetchone() == ("baseline", 2, "SAFE_ERROR")
+        assert connection.execute("SELECT level, request_count FROM hint_usage").fetchone() == (
+            2,
+            3,
+        )
+        assert connection.execute(
+            "SELECT trigger, capture_status FROM session_evidence_snapshot"
+        ).fetchone() == ("verify", "captured")
+        assert connection.execute("SELECT symptom, root_cause FROM retrospective").fetchone() == (
+            "symptom",
+            "root cause",
+        )
+        indexes = {row[1] for row in connection.execute("PRAGMA index_list('lab_session')")}
+        assert "ix_lab_session_lab_variant_created" in indexes
+
+    assert database.backup_path.is_file()
+    with sqlite3.connect(database.backup_path) as backup:
+        assert backup.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            "0002_guided_learning",
+        )
+        assert "variant_id" not in {
+            row[1] for row in backup.execute("PRAGMA table_info('lab_session')")
+        }
+        assert {
+            table: backup.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+            for table in expected_counts
+        } == expected_counts
+    database.dispose()
+
+
+def test_failed_m5_upgrade_keeps_original_and_checkpointed_backup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "state" / "kubelab.db"
+    database = create_rich_0002_database(path)
+
+    def fail_after_partial_schema(config: Any, revision: str) -> None:
+        assert revision == "head"
+        connection = config.attributes["connection"]
+        connection.exec_driver_sql("CREATE TABLE partial_migration (id INTEGER)")
+        raise RuntimeError("simulated migration failure")
+
+    monkeypatch.setattr(command, "upgrade", fail_after_partial_schema)
+
+    with pytest.raises(DatabaseError, match="initialize"):
+        database.initialize()
+
+    for candidate in (path, database.backup_path):
+        assert candidate.is_file()
+        with sqlite3.connect(candidate) as connection:
+            assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+                "0002_guided_learning",
+            )
+            assert connection.execute("SELECT COUNT(*) FROM lab_session").fetchone() == (1,)
+            assert "partial_migration" not in {
+                row[0]
+                for row in connection.execute("SELECT name FROM sqlite_schema WHERE type = 'table'")
+            }
+    database.dispose()
+
+
+def test_upgrade_verifier_uses_copy_and_reports_only_safe_metadata(tmp_path: Path) -> None:
+    path = tmp_path / "private-user" / "kubelab.db"
+    database = create_rich_0002_database(path)
+    database.dispose()
+    source_bytes = path.read_bytes()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).parents[1] / "scripts" / "verify_database_upgrade.py"),
+            "--source",
+            str(path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert report == {
+        "backup_created": True,
+        "preserved_table_count": 8,
+        "session_count": 1,
+        "source_revision": "0002_guided_learning",
+        "source_unchanged": True,
+        "target_revision": "0003_lab_variants",
+    }
+    assert path.read_bytes() == source_bytes
+    assert str(path) not in result.stdout
+    assert "root cause" not in result.stdout
+    assert path.with_name("kubelab.db.bak").exists() is False
+
+
+def test_upgrade_verifier_ignores_transient_sqlite_shared_memory(tmp_path: Path) -> None:
+    from scripts.verify_database_upgrade import _source_signatures
+
+    path = tmp_path / "kubelab.db"
+    path.write_bytes(b"durable database")
+    shared_memory = path.with_name("kubelab.db-shm")
+    shared_memory.write_bytes(b"lock state one")
+
+    before = _source_signatures(path)
+    shared_memory.write_bytes(b"lock state two")
+
+    assert _source_signatures(path) == before
 
 
 def test_backup_failure_is_reported_without_deleting_original(

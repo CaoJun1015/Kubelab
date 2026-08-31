@@ -34,6 +34,28 @@ VARIANT_SCENARIOS = tuple(
     if variant_dir.is_dir()
 )
 SCENARIOS = tuple((directory, "baseline") for directory in LAB_DIRECTORIES) + VARIANT_SCENARIOS
+SCENARIO_BATCHES = {
+    "baseline-001-012": tuple(
+        scenario
+        for scenario in SCENARIOS
+        if scenario[1] == "baseline" and 1 <= int(scenario[0][4:7]) <= 12
+    ),
+    "baseline-013-021": tuple(
+        scenario
+        for scenario in SCENARIOS
+        if scenario[1] == "baseline" and 13 <= int(scenario[0][4:7]) <= 21
+    ),
+    "variants-013-015": tuple(
+        scenario
+        for scenario in SCENARIOS
+        if scenario[1] != "baseline" and 13 <= int(scenario[0][4:7]) <= 15
+    ),
+    "variants-016-018": tuple(
+        scenario
+        for scenario in SCENARIOS
+        if scenario[1] != "baseline" and 16 <= int(scenario[0][4:7]) <= 18
+    ),
+}
 REQUIRED_IMAGES = {
     "lab-001-deployment-scaling": ("nginx:1.27-alpine",),
     "lab-002-rolling-update": ("nginx:1.26-alpine", "nginx:1.27-alpine"),
@@ -67,9 +89,37 @@ REQUIRED_IMAGES = {
 }
 
 
+def selected_scenarios(batch: str | None = None) -> tuple[tuple[str, str], ...]:
+    """Resolve one fixed acceptance batch, or all scenarios for ordinary collection."""
+    selected = os.environ.get("KUBELAB_LAB_INTEGRATION_BATCH") if batch is None else batch
+    if selected is None or selected == "":
+        return SCENARIOS
+    try:
+        return SCENARIO_BATCHES[selected]
+    except KeyError as exc:
+        choices = ", ".join(SCENARIO_BATCHES)
+        raise pytest.UsageError(
+            f"Unknown KUBELAB_LAB_INTEGRATION_BATCH {selected!r}; choose one of: {choices}"
+        ) from exc
+
+
+def test_scenario_batches_partition_all_scenarios() -> None:
+    flattened = tuple(scenario for batch in SCENARIO_BATCHES.values() for scenario in batch)
+
+    assert tuple(map(len, SCENARIO_BATCHES.values())) == (12, 9, 6, 6)
+    assert len(flattened) == len(set(flattened)) == 33
+    assert set(flattened) == set(SCENARIOS)
+
+
+def test_scenario_batch_selection_rejects_unknown_name() -> None:
+    assert selected_scenarios("variants-013-015") == SCENARIO_BATCHES["variants-013-015"]
+    with pytest.raises(pytest.UsageError, match="Unknown KUBELAB_LAB_INTEGRATION_BATCH"):
+        selected_scenarios("arbitrary-selection")
+
+
 @pytest.mark.parametrize(
     ("directory", "variant_id"),
-    SCENARIOS,
+    selected_scenarios(),
     ids=lambda value: value,
 )
 def test_real_fault_repair_reset_cleanup_contract(
@@ -171,6 +221,24 @@ def test_real_fault_repair_reset_cleanup_contract(
                     "delete",
                     "service",
                     "web-headless",
+                    "--wait=true",
+                    "--timeout=60s",
+                )
+            if directory == "lab-013-service-target-port" and variant_id == "variant-c":
+                _run_workspace_kubectl(
+                    workspace.kubeconfig_path,
+                    "delete",
+                    "service",
+                    "web",
+                    "--wait=true",
+                    "--timeout=60s",
+                )
+            if directory == "lab-017-daemonset-node-selector" and variant_id != "baseline":
+                _run_workspace_kubectl(
+                    workspace.kubeconfig_path,
+                    "delete",
+                    "daemonset",
+                    "node-agent",
                     "--wait=true",
                     "--timeout=60s",
                 )
