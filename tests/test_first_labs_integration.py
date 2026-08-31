@@ -224,6 +224,15 @@ def test_real_fault_repair_reset_cleanup_contract(
                     "--wait=true",
                     "--timeout=60s",
                 )
+            if directory == "lab-013-service-target-port" and variant_id == "variant-c":
+                _run_workspace_kubectl(
+                    workspace.kubeconfig_path,
+                    "delete",
+                    "service",
+                    "web",
+                    "--wait=true",
+                    "--timeout=60s",
+                )
             if directory == "lab-018-pvc-claim-missing" and variant_id == "variant-b":
                 _run_workspace_kubectl(
                     workspace.kubeconfig_path,
