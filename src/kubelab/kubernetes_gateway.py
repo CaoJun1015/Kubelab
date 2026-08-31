@@ -974,7 +974,7 @@ class KubernetesGateway:
                 )
                 phase = _optional_string(_as_mapping(document.get("status")).get("phase"))
                 if phase in {"Succeeded", "Failed"}:
-                    exit_code, reason = _probe_termination(document)
+                    exit_code, reason = _probe_termination(document, container_name="curl")
                     pod_reason = _optional_string(_as_mapping(document.get("status")).get("reason"))
                     curl_completed = exit_code is not None and 0 <= exit_code <= 99
                     if (
@@ -1069,7 +1069,7 @@ class KubernetesGateway:
                 )
                 phase = _optional_string(_as_mapping(document.get("status")).get("phase"))
                 if phase in {"Succeeded", "Failed"}:
-                    exit_code, reason = _probe_termination(document)
+                    exit_code, reason = _probe_termination(document, container_name="dns")
                     pod_reason = _optional_string(_as_mapping(document.get("status")).get("reason"))
                     infrastructure_error = (
                         exit_code is None
@@ -1759,10 +1759,12 @@ def _ingress_host_for_target(document: Mapping[str, Any], target: HttpTarget) ->
     return None
 
 
-def _probe_termination(document: Mapping[str, Any]) -> tuple[int | None, str | None]:
+def _probe_termination(
+    document: Mapping[str, Any], *, container_name: Literal["curl", "dns"]
+) -> tuple[int | None, str | None]:
     status = _as_mapping(document.get("status"))
     for container in _sequence_of_mappings(status.get("containerStatuses")):
-        if container.get("name") != "curl":
+        if container.get("name") != container_name:
             continue
         terminated = _as_mapping(_as_mapping(container.get("state")).get("terminated"))
         exit_code = terminated.get("exitCode")

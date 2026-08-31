@@ -848,14 +848,16 @@ def test_secret_invalid_base64_and_pvc_phase_are_structured() -> None:
     assert gateway.pvc_phase(scope(), "data") == "Bound"
 
 
-def completed_probe(*, exit_code: int = 0, phase: str = "Succeeded") -> dict[str, Any]:
+def completed_probe(
+    *, exit_code: int = 0, phase: str = "Succeeded", container_name: str = "curl"
+) -> dict[str, Any]:
     return {
         "metadata": {"name": "probe"},
         "status": {
             "phase": phase,
             "containerStatuses": [
                 {
-                    "name": "curl",
+                    "name": container_name,
                     "state": {"terminated": {"exitCode": exit_code, "reason": "Completed"}},
                 }
             ],
@@ -898,7 +900,7 @@ def test_service_http_probe_returns_status_and_cleans_pod() -> None:
 
 def test_dns_probe_builds_only_stable_service_fqdn_and_cleans_pod() -> None:
     api = FakeApi()
-    api.probe_reads = [completed_probe()]
+    api.probe_reads = [completed_probe(container_name="dns")]
     clock = FakeClock()
     gateway = KubernetesGateway(
         api,
