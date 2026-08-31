@@ -202,6 +202,8 @@ def test_wsl_acceptance_runner_uses_fixed_batches_and_never_mutates_trust() -> N
     assert "KUBELAB_LAB_INTEGRATION_BATCH" in script
     assert "minikube stop --profile minikube" in script
     assert '"$validator" audit' in script
+    assert "preflight-audit.json" in script
+    assert "Pre-existing KubeLab residue must be reviewed" in script
     assert 'uv venv "$results_root/venv" --python 3.11' in script
     assert "uv sync --active --locked --dev" in script
     assert "uv run" not in script

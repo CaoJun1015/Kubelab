@@ -110,6 +110,12 @@ if not any(
     raise SystemExit("The minikube storage provisioner is not Running")
 PY
 
+if ! python3 "$validator" audit > "$results_root/preflight-audit.json"; then
+    echo "Pre-existing KubeLab residue must be reviewed before acceptance." >&2
+    cat "$results_root/preflight-audit.json" >&2
+    exit 1
+fi
+
 export KUBELAB_RUN_LAB_INTEGRATION=1
 unset KUBELAB_LABS_DIR KUBELAB_RUN_INTEGRATION
 batches=(baseline-001-012 baseline-013-021 variants-013-015 variants-016-018)
