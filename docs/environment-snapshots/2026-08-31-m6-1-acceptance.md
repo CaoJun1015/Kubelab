@@ -7,9 +7,9 @@
 
 ## 结论
 
-M6.1本地发布候选门禁通过。Windows与独立WSL质量门、wheel/sdist统一验证、minikube Stopped安装烟测和本机minikube四批33场景真实闭环均成功。验收没有访问远程或生产集群，没有修改`v0.1.0`标签或Release。
+M6.1发布候选门禁通过。Windows与独立WSL质量门、wheel/sdist统一验证、minikube Stopped安装烟测、本机minikube四批33场景真实闭环及Draft PR双平台CI均成功。验收没有访问远程或生产集群，没有修改`v0.1.0`标签或Release。
 
-Draft PR的GitHub Windows/Ubuntu CI是进入后续发布决策前的剩余门禁；本记录不代表已经合并、打标签或发布。
+[Draft PR #5](https://github.com/CaoJun1015/Kubelab/pull/5)保持Draft；本记录不代表已经合并、打标签或发布。
 
 ## 脱敏环境
 
@@ -40,6 +40,8 @@ Context重新信任只发生在本机minikube停止再启动导致loopback API�
 | 统一产物检查 | 通过 | 通过 |
 
 统一产物检查确认候选包为`0.3.0rc1`，包含21个实验族、12个固定变体、33个场景、9个Web资源和`0001`至`0003`迁移，并通过机器路径、凭证与禁止文件扫描。
+
+Draft PR的GitHub Actions同样通过：Ubuntu `Python 3.11`作业耗时1分13秒，Windows `Python 3.11`作业耗时1分53秒。
 
 ## 四批真实场景
 
