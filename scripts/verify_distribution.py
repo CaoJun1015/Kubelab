@@ -50,6 +50,10 @@ EXPECTED_SCREENSHOTS = {
     "docs/assets/progress.jpg",
     "docs/assets/session.jpg",
 }
+EXPECTED_SOURCE_SCRIPTS = {
+    "scripts/start-kubelab.ps1",
+    "scripts/start_kubelab.sh",
+}
 FORBIDDEN_PART_PREFIXES = (
     ".cache",
     ".mypy_cache",
@@ -151,6 +155,8 @@ def _assert_no_sensitive_content(reader: ArchiveReader, names: list[str], label:
         ".md",
         ".mako",
         ".py",
+        ".ps1",
+        ".sh",
         ".toml",
         ".txt",
         ".yaml",
@@ -262,6 +268,9 @@ def verify_sdist(path: Path, expected_version: str) -> None:
         missing_docs = (EXPECTED_PROJECT_DOCS | EXPECTED_SCREENSHOTS).difference(relative)
         if missing_docs:
             raise ValueError(f"sdist is missing documentation: {sorted(missing_docs)}")
+        missing_scripts = EXPECTED_SOURCE_SCRIPTS.difference(relative)
+        if missing_scripts:
+            raise ValueError(f"sdist is missing startup scripts: {sorted(missing_scripts)}")
         _assert_metadata(_metadata(reader, names, "/PKG-INFO"), expected_version, "sdist")
 
 

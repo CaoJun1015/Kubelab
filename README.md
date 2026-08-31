@@ -190,6 +190,28 @@ exit
 kubelab serve
 ```
 
+也可以使用仓库提供的一键脚本。它会在WSL中检查Docker驱动的本机`minikube` profile、按需启动集群、运行Doctor并把Web服务放到后台；它不会自动信任Context：
+
+```bash
+bash scripts/start_kubelab.sh
+```
+
+从Windows PowerShell一键启动并打开浏览器：
+
+```powershell
+.\scripts\start-kubelab.ps1
+```
+
+仅启动Web、查看状态或停止脚本管理的Web进程：
+
+```powershell
+.\scripts\start-kubelab.ps1 -WebOnly
+.\scripts\start-kubelab.ps1 -Action Status -NoBrowser
+.\scripts\start-kubelab.ps1 -Action Stop -NoBrowser
+```
+
+停止操作不会停止minikube。Docker daemon不可用、现有`minikube` profile不是Docker驱动或环境身份漂移时，脚本会失败关闭或让Web显示明确引导，不会调用`sudo`、自动修改Context信任或连接远程集群。
+
 在Windows浏览器打开`http://127.0.0.1:8765/`即可使用本地控制台。首次使用先打开“环境”页面并点击“重新检查”；页面只展示固定建议，不会执行修复命令。健康检查为`GET /health`，REST API位于`/api/v1/`。Session工作台提供“复制Namespace”和常用调查命令，但不提供浏览器终端。服务不启用CORS，并拒绝跨站Origin。所有写请求（包括环境重新检查和显式Session协调）使用HttpOnly、SameSite=Strict Cookie与同值`X-CSRF-Token`双提交校验；reset与cleanup还必须提交当前活动Session的精确Namespace确认值。
 
 ### Doctor状态和退出码

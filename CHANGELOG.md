@@ -26,6 +26,7 @@
 - LAB-012和LAB-018把默认StorageClass纳入实验级readiness强制门禁；wheel、sdist和Web目录契约扩展为18个实验。
 - LabRegistry、Application Service、CLI和Web统一消费“基线或已选变体”的有效实验对象；客户端不能指定变体。
 - 稳定Pod DNS验证同时确认Headless Service语义、目标Pod地址与受限探针结果；Service端口键和DaemonSet亲和性删除场景使用安全重建流程。
+- 增加WSL与Windows一键启动脚本：只允许本机Docker驱动minikube，幂等管理loopback Web进程，且不自动修改Context信任。
 
 ### Security
 

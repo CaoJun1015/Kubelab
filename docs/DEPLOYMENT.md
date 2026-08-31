@@ -384,6 +384,27 @@ API进程必须在WSL2 Ubuntu内启动：
 kubelab serve
 ```
 
+源码仓库还提供幂等的一键启动脚本。WSL入口会验证当前系统是Ubuntu、只接受名为`minikube`的Docker驱动本机profile、按需启动它、运行Doctor并在`~/.local/state/kubelab/`保存权限受限的PID和日志：
+
+```bash
+bash scripts/start_kubelab.sh
+bash scripts/start_kubelab.sh --status
+bash scripts/start_kubelab.sh --stop
+```
+
+`--web-only`可以只启动Web而不启动minikube。`--stop`只停止由脚本记录且命令行仍匹配`kubelab serve`的进程，不停止minikube，也不会向PID复用后的其他进程发送信号。
+
+Windows PowerShell入口只负责委托给WSL，不会在Windows运行KubeLab、Docker或kubectl。默认发行版名为`Ubuntu`，成功后打开固定loopback页面：
+
+```powershell
+.\scripts\start-kubelab.ps1
+.\scripts\start-kubelab.ps1 -Distribution Ubuntu -WebOnly
+.\scripts\start-kubelab.ps1 -Action Status -NoBrowser
+.\scripts\start-kubelab.ps1 -Action Stop -NoBrowser
+```
+
+脚本不会运行`kubelab context trust`。如果启动minikube后身份检查显示drift，必须先人工执行`kubelab context inspect`，确认仍是自己的本机Docker profile后再显式信任。Docker daemon不可用时脚本只给出提示，不调用`sudo`或修改系统服务。
+
 服务固定监听`127.0.0.1:8765`，不接受host或port覆盖。Windows浏览器或本地客户端可通过WSL localhost转发访问：
 
 ```text
