@@ -19,12 +19,13 @@
 
 ### Changed
 
-- 准备KubeLab 0.3.0rc1，并以M6.1双平台、安装产物和33场景真实验收作为候选门禁。
+- 完成KubeLab 0.3.0rc1的M6.1双平台质量门、停止态安装烟测和四批33场景真实验收。
 - 开始开发KubeLab 0.3.0a0的M6可复现故障变体与综合排障场景。
 - 开始开发KubeLab 0.2.0a0的M5引导式排障学习闭环。
 - 活动Session GET改为纯SQLite读取；资源、Events和Logs读取不再推进学习状态，集群协调改为显式写API。
 - LAB-012和LAB-018把默认StorageClass纳入实验级readiness强制门禁；wheel、sdist和Web目录契约扩展为18个实验。
 - LabRegistry、Application Service、CLI和Web统一消费“基线或已选变体”的有效实验对象；客户端不能指定变体。
+- 稳定Pod DNS验证同时确认Headless Service语义、目标Pod地址与受限探针结果；Service端口键和DaemonSet亲和性删除场景使用安全重建流程。
 
 ### Security
 

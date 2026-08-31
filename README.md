@@ -2,7 +2,7 @@
 
 KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 运维练习平台。它以本机 Docker Engine 和 minikube 为实验环境，目标是把云原生运维面试知识转化为可以反复操作、验证和复盘的故障实验。
 
-> 当前候选版本：`0.3.0rc1`。稳定发布版仍为`v0.1.0`；本分支正在执行M6.1稳定验收。
+> 当前候选版本：`0.3.0rc1`。稳定发布版仍为`v0.1.0`；M6.1本地发布候选验收已经完成，Draft PR的双平台CI是剩余发布门禁。
 
 ## 界面预览
 
@@ -256,7 +256,7 @@ KUBELAB_RUN_INTEGRATION=1 uv run pytest --no-cov -q tests/test_kubernetes_gatewa
 KUBELAB_RUN_LAB_INTEGRATION=1 uv run pytest --no-cov -q tests/test_first_labs_integration.py
 ```
 
-全部21个基线和12个变体默认使用Fake Gateway证明`initial → success预检失败 → fix → reset`契约，不接触集群。真实测试入口已参数化为33个场景，但M6开发期保持关闭；此前完成的18个M5基线真实验收记录仍保留。测试只允许创建随机`kubelab-test-*` Namespace，并验证Secret、集群级Namespace和残留资源安全边界。执行前要求固定版本镜像已进入minikube缓存，LAB-011要求Ingress Controller可用，LAB-012、LAB-018和LAB-020要求默认`standard` StorageClass及storage-provisioner可用。不要在远程或生产Context运行。
+全部21个基线和12个变体默认使用Fake Gateway证明`initial → success预检失败 → fix → reset`契约，不接触集群。M6.1已在受信任的本机Docker驱动minikube中把33个场景分为四批连续验收通过；入口仍默认关闭。测试只允许创建随机`kubelab-test-*` Namespace，并验证Secret、集群级Namespace和残留资源安全边界。执行前要求固定版本镜像已进入minikube缓存，LAB-011要求Ingress Controller可用，LAB-012、LAB-018和LAB-020要求默认`standard` StorageClass及storage-provisioner可用。不要在远程或生产Context运行。脱敏结果见[M6.1验收记录](docs/environment-snapshots/2026-08-31-m6-1-acceptance.md)。
 
 ## 安全边界
 
@@ -305,6 +305,7 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 - [x] M5 引导式排障学习闭环。
 - [x] LAB-013至018 六个中级排障实验与18实验真实验收。
 - [x] M6 可复现故障变体、盲练揭示和三个双根因高级场景。
+- [x] M6.1 `0.3.0rc1`双平台质量门、停止态wheel烟测与33场景真实验收。
 
 详细设计见[PRD](PRD-KubeLab.md)、[TDD](TDD-KubeLab.md)、[架构说明](docs/ARCHITECTURE.md)、[实验开发指南](docs/LAB_DEVELOPMENT.md)、[贡献指南](CONTRIBUTING.md)和[安全策略](SECURITY.md)。
 

@@ -1469,7 +1469,7 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - LAB-013至018各提供`variant-b`与`variant-c`；LAB-019至021分别覆盖配置到Service、存储到Readiness、StatefulSet到Service的双根因故障链。目录共21个实验族、33个可执行场景。
 - M6明确不实现随机练习入口、限时面试、评分、排名、浏览器终端或用户选择变体路由。盲练是教学呈现边界，不是本地源码保密机制。
 
-实际实现状态（0.3.0a0）：
+实际实现状态（0.3.0rc1）：
 
 - [x] 严格变体Schema、Registry原子校验、摘要复核与有效实验解析；
 - [x] 迁移、确定性选择、Session恢复与丢失变体稳定错误；
@@ -1477,6 +1477,16 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - [x] 受限稳定DNS验证器及异常脱敏；
 - [x] 12个固定变体、3个双根因高级实验和33场景Fake Gateway契约；
 - [x] Web目录、详情、Session与进度页支持基线/盲练呈现，不接受变体输入。
+
+### M6.1 发布候选稳定验收
+
+- [x] `0002_guided_learning → 0003_lab_variants`复制升级、备份结构、Session回填、索引和失败事务保护；
+- [x] WSL停止态wheel安装允许Doctor退出0或3，并继续校验版本、21个实验族、12个变体、33个场景和loopback Web；
+- [x] 33个真实场景按`12 + 9 + 6 + 6`固定四批连续通过，每批零失败、零错误、零跳过、零残留；
+- [x] Windows与独立WSL的完整pytest覆盖率均高于90%，静态检查和统一产物验证全部通过；
+- [x] 验收后minikube恢复Stopped，`127.0.0.1:8765`关闭，用户数据库仅升级SQLite备份API创建的临时副本。
+
+脱敏证据见`docs/environment-snapshots/2026-08-31-m6-1-acceptance.md`。
 
 ---
 
@@ -1669,3 +1679,11 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - Fake Gateway逐项证明21个基线与12个变体的初始故障、成功条件预检失败、标准修复通过和reset恢复；三个综合实验还证明修复第一根因后第二根因仍可观测；
 - WSL隔离wheel安装成功，包内Registry无错误加载21个实验族和12个变体，`127.0.0.1:8765`的health、总览和实验目录均返回200并正常停止；完整Doctor流程因M5验收后按记录停止了本机minikube而返回`unhealthy`，未为验收重新启动集群；
 - `KUBELAB_RUN_INTEGRATION`与`KUBELAB_RUN_LAB_INTEGRATION`保持关闭，未执行真实start、reset或cleanup，未访问远程或生产集群；`v0.1.0`标签与Release保持不变。
+
+2026-08-31，M6.1 `0.3.0rc1`完成本地发布候选验收：
+
+- Windows收集581项测试，544项通过、37项按预期跳过，覆盖率91.75%；WSL2 Ubuntu Python 3.11.16收集581项，546项通过、35项按预期跳过，覆盖率91.88%；
+- 两端Ruff、Ruff format、strict mypy、JavaScript语法、`git diff --check`、wheel/sdist构建和统一产物检查全部通过；
+- 本机Docker驱动minikube连续通过四批33个真实场景，批次为12/12、9/9、6/6、6/6，每批零失败、零错误、零跳过并通过残留审计；
+- 最终wheel在minikube Stopped时完成隔离安装，Doctor按预期返回`unhealthy`和退出码3，Registry仍验证21个实验族、12个变体、33个场景，loopback Web启停干净；
+- WSL用户数据库仅通过SQLite备份API复制临时副本，副本从`0001`升级到`0003`且原库不变；验收后minikube恢复Stopped，8765端口关闭。
