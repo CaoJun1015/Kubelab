@@ -41,6 +41,7 @@ EXPECTED_PROJECT_DOCS = {
     "SECURITY.md",
     "docs/ARCHITECTURE.md",
     "docs/LAB_DEVELOPMENT.md",
+    "docs/TUTORIAL.md",
     "docs/example-retrospective.md",
 }
 EXPECTED_SCREENSHOTS = {

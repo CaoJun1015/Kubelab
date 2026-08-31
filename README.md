@@ -109,6 +109,21 @@ Trust state: trusted
 
 从一台全新Windows电脑开始安装，请阅读[完整部署手册](docs/DEPLOYMENT.md)。
 
+## 21个实验操作教程
+
+[《KubeLab 21个实验操作教程》](docs/TUTORIAL.md)按“是什么、为什么、怎么做”讲解全部基线场景，并为每个实验提供观察顺序、根因判断、最小修复和完成条件。
+
+建议先独立练习，再把教程作为复盘材料。教程会公开21个基线场景的修复方法，但不会提前泄露LAB-013至018盲练变体的场景名和答案。
+
+推荐顺序：
+
+| 专题 | 建议实验 |
+|---|---|
+| 工作负载基础 | LAB-001、002、004、005、006、010 |
+| 配置管理 | LAB-003、008、014、019 |
+| 服务与流量 | LAB-007、009、011、013、016、021 |
+| 存储与调度 | LAB-012、017、018、020 |
+
 ## 日常使用
 
 打开Windows Terminal中的Ubuntu：
@@ -329,7 +344,7 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 - [x] M6 可复现故障变体、盲练揭示和三个双根因高级场景。
 - [x] M6.1 `0.3.0rc1`双平台质量门、停止态wheel烟测与33场景真实验收。
 
-详细设计见[PRD](PRD-KubeLab.md)、[TDD](TDD-KubeLab.md)、[架构说明](docs/ARCHITECTURE.md)、[实验开发指南](docs/LAB_DEVELOPMENT.md)、[贡献指南](CONTRIBUTING.md)和[安全策略](SECURITY.md)。
+详细资料见[21个实验操作教程](docs/TUTORIAL.md)、[PRD](PRD-KubeLab.md)、[TDD](TDD-KubeLab.md)、[架构说明](docs/ARCHITECTURE.md)、[实验开发指南](docs/LAB_DEVELOPMENT.md)、[贡献指南](CONTRIBUTING.md)和[安全策略](SECURITY.md)。
 
 ## 常见问题
 
