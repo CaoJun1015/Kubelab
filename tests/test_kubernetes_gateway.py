@@ -901,6 +901,9 @@ def test_service_http_probe_returns_status_and_cleans_pod() -> None:
 def test_dns_probe_builds_only_stable_service_fqdn_and_cleans_pod() -> None:
     api = FakeApi()
     api.probe_reads = [completed_probe(container_name="dns")]
+    api.generic[("v1", "Service", scope().namespace, "web-headless")] = {
+        "spec": {"clusterIP": "None"}
+    }
     api.generic[("v1", "Pod", scope().namespace, "web-0")] = {"status": {"podIP": "10.244.0.7"}}
     api.logs = "Server: 10.96.0.10\nAddress: 10.96.0.10#53\n\nName: stable\nAddress: 10.244.0.7\n"
     clock = FakeClock()
@@ -927,8 +930,11 @@ def test_dns_probe_builds_only_stable_service_fqdn_and_cleans_pod() -> None:
 def test_stable_pod_dns_rejects_service_address_without_exposing_output() -> None:
     api = FakeApi()
     api.probe_reads = [completed_probe(container_name="dns")]
+    api.generic[("v1", "Service", scope().namespace, "web-headless")] = {
+        "spec": {"clusterIP": "10.96.0.42"}
+    }
     api.generic[("v1", "Pod", scope().namespace, "web-0")] = {"status": {"podIP": "10.244.0.7"}}
-    api.logs = "TOKEN secret\nName: stable\nAddress 1: 10.96.0.42\n"
+    api.logs = "TOKEN secret\nName: stable\nAddress 1: 10.244.0.7\n"
     clock = FakeClock()
     gateway = KubernetesGateway(
         api,
@@ -942,7 +948,7 @@ def test_stable_pod_dns_rejects_service_address_without_exposing_output() -> Non
     assert result.resolved is False
     assert result.infrastructure_error is False
     assert "secret" not in result.model_dump_json()
-    assert "10.96.0.42" not in result.model_dump_json()
+    assert "10.244.0.7" not in result.model_dump_json()
     assert api.last_log_request == ("dns", False, 20)
 
 

@@ -1053,7 +1053,12 @@ class KubernetesGateway:
         prefix = f"{pod}." if pod is not None else ""
         fqdn = f"{prefix}{service}.{scope.namespace}.svc.cluster.local"
         pod_address: str | None = None
+        headless_service = True
         if pod is not None:
+            service_document = self._get_validation_resource(scope, "v1", "Service", service)
+            headless_service = service_document is not None and (
+                _as_mapping(service_document.get("spec")).get("clusterIP") == "None"
+            )
             pod_document = self._get_validation_resource(scope, "v1", "Pod", pod)
             if pod_document is not None:
                 pod_address = _optional_string(_as_mapping(pod_document.get("status")).get("podIP"))
@@ -1094,8 +1099,10 @@ class KubernetesGateway:
                                 timeout=self._request_timeout,
                             )
                         )
-                        resolved = pod_address is not None and _dns_output_contains_address(
-                            raw, pod_address
+                        resolved = (
+                            headless_service
+                            and pod_address is not None
+                            and _dns_output_contains_address(raw, pod_address)
                         )
                     result = DnsProbeResult(
                         resolved=resolved,
