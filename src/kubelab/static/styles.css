@@ -523,6 +523,163 @@ button.button {
   font-size: 0.78rem;
 }
 
+.path-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.path-card,
+.symptom-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 230px;
+  padding: 1.3rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.path-card:hover {
+  border-color: #91b9a0;
+  box-shadow: var(--shadow);
+}
+
+.path-card h3,
+.symptom-card h2 {
+  margin: 0 0 0.45rem;
+}
+
+.path-card > p:not(.eyebrow),
+.symptom-card > p {
+  color: var(--muted);
+}
+
+.path-card .progress-track {
+  margin-top: auto;
+}
+
+.path-card .card-meta {
+  margin-top: 0.6rem;
+}
+
+.recommendation-panel,
+.recommendation-card {
+  margin-bottom: 1rem;
+  border-left: 4px solid var(--green);
+}
+
+.recommendation-panel h3,
+.recommendation-card h3 {
+  margin: 0;
+}
+
+.recommendation-panel p:not(.eyebrow),
+.recommendation-card p:not(.eyebrow) {
+  color: var(--muted);
+}
+
+.learning-map {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.learning-node {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+}
+
+.learning-node.locked {
+  background: #f0f2ef;
+}
+
+.learning-node.active {
+  border-color: #79aeca;
+  background: var(--blue-soft);
+}
+
+.learning-node.review_recommended {
+  border-color: #d6b66f;
+  background: var(--amber-soft);
+}
+
+.node-index {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--green-soft);
+  color: var(--green-dark);
+  font-weight: 800;
+}
+
+.node-body header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.node-body h3,
+.node-body > p {
+  margin: 0;
+}
+
+.node-body > p {
+  margin-top: 0.35rem;
+  color: var(--muted);
+}
+
+.node-body > .button {
+  margin-top: 0.8rem;
+}
+
+.lock-reasons {
+  margin: 0.7rem 0;
+  color: var(--red);
+}
+
+.knowledge-summary,
+.knowledge-card {
+  margin-top: 0.9rem;
+  padding: 0.85rem;
+  border: 1px solid #c9ded0;
+  border-radius: 9px;
+  background: #f1f7f3;
+}
+
+.knowledge-summary.revealed,
+.knowledge-card.revealed {
+  border-color: #c5d8e4;
+  background: var(--blue-soft);
+}
+
+.knowledge-summary summary {
+  cursor: pointer;
+  color: var(--green-dark);
+  font-weight: 750;
+}
+
+.knowledge-summary .detail-list,
+.knowledge-card .detail-list {
+  margin-top: 0.8rem;
+}
+
+.symptom-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.symptom-card h3 {
+  margin-bottom: 0.3rem;
+  font-size: 0.92rem;
+}
+
 .filter-bar,
 .log-controls {
   display: flex;

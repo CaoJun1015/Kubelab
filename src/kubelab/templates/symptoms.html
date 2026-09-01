@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-heading">
+  <div><p class="eyebrow">SYMPTOM INDEX</p><h1>从症状开始排障</h1><p>先选择证据入口，再进入相关实验；这里不会读取集群或自动诊断。</p></div>
+  <a class="button secondary" href="/paths">查看专题路径</a>
+</header>
+<div id="page-error" class="alert error hidden" role="alert"></div>
+<section id="symptom-grid" class="card-grid symptom-grid" aria-live="polite"></section>
+{% endblock %}

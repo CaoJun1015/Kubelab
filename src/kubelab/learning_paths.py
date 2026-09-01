@@ -238,6 +238,12 @@ class LearningPathRegistry:
                 field_path=field_path,
             )
 
+        if _catalog_contains_forbidden_content(catalog):
+            return _registry_failure(
+                LearningPathErrorCode.CATALOG_INVALID,
+                "The learning path catalog contains unsafe public content.",
+            )
+
         reference_error = _validate_catalog_references(catalog, lab_ids)
         if reference_error is not None:
             return LearningPathRegistrySnapshot(catalog=None, errors=(reference_error,))
@@ -555,9 +561,7 @@ def derive_outcome(
 
 def render_outcome_markdown(outcome: LearningPathOutcome) -> str:
     """Render a bounded, sanitized topic outcome without validation internals."""
-    first_completed = (
-        outcome.first_completed_at.isoformat() if outcome.first_completed_at else "—"
-    )
+    first_completed = outcome.first_completed_at.isoformat() if outcome.first_completed_at else "—"
     last_practiced = outcome.last_practiced_at.isoformat() if outcome.last_practiced_at else "—"
     lines = [
         "# KubeLab 专题学习成果",
@@ -664,6 +668,23 @@ def _validation_field_path(error: Exception) -> str | None:
     if isinstance(error, ValidationError) and error.errors():
         return ".".join(str(item) for item in error.errors()[0]["loc"])
     return None
+
+
+def _catalog_contains_forbidden_content(catalog: LearningPathCatalogDefinition) -> bool:
+    forbidden = ("traceback", "kind: secret", "kind:secret", "-----begin")
+
+    def unsafe(value: object) -> bool:
+        if isinstance(value, str):
+            return redact_json(value) != value or any(
+                marker in value.casefold() for marker in forbidden
+            )
+        if isinstance(value, Mapping):
+            return any(unsafe(item) for item in value.values())
+        if isinstance(value, (tuple, list)):
+            return any(unsafe(item) for item in value)
+        return False
+
+    return unsafe(catalog.model_dump(mode="python"))
 
 
 def _node_completed(node: LearningPathNodeDefinition, fact: LabLearningFacts | None) -> bool:

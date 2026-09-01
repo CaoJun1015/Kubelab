@@ -103,6 +103,23 @@ def test_registry_rejects_duplicate_yaml_keys(tmp_path: Path) -> None:
     assert "duplicate" not in result.errors[0].message.lower()
 
 
+def test_registry_rejects_secret_manifest_and_stack_content(tmp_path: Path) -> None:
+    for unsafe in (
+        "Bearer private-token",
+        "apiVersion: v1 kind: Secret",
+        "Traceback File /private/path",
+    ):
+        raw = _raw_catalog()
+        raw["paths"][0]["metadata"]["description"] = unsafe
+
+        result = LearningPathRegistry(_write_catalog(tmp_path, raw)).scan(LAB_IDS)
+
+        assert result.catalog is None
+        assert result.errors[0].code is LearningPathErrorCode.CATALOG_INVALID
+        assert "private-token" not in result.errors[0].model_dump_json()
+        assert "/private/path" not in result.errors[0].model_dump_json()
+
+
 def test_path_state_and_recommendation_are_derived_from_session_facts() -> None:
     catalog = _catalog()
     cards = {card.lab_id: card for card in catalog.knowledge_cards}

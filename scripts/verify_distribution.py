@@ -22,10 +22,15 @@ EXPECTED_WEB_ASSETS = {
     "templates/lab_detail.html",
     "templates/labs.html",
     "templates/onboarding.html",
+    "templates/path_detail.html",
+    "templates/path_outcome.html",
+    "templates/paths.html",
     "templates/progress.html",
     "templates/session.html",
+    "templates/symptoms.html",
 }
 EXPECTED_PACKAGE_FILES = {
+    "content/learning-paths.yaml",
     "migrations/env.py",
     "migrations/script.py.mako",
     "migrations/versions/0001_initial_persistence.py",
