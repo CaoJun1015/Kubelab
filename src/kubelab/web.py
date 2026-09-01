@@ -49,6 +49,13 @@ from kubelab.lab_manager import (
     SessionStatusResult,
     SessionTimeline,
 )
+from kubelab.learning_paths import (
+    LearningPathCatalogReport,
+    LearningPathDetail,
+    LearningPathOutcome,
+    LearningRecommendation,
+    SymptomCatalog,
+)
 from kubelab.operation_lock import OperationLockError
 from kubelab.redaction import redact_json
 from kubelab.repositories import ActiveSessionConflict
@@ -103,6 +110,7 @@ _PUBLIC_CONTEXT_KEYS = frozenset(
         "code",
         "field",
         "field_path",
+        "error_count",
         "lab_id",
         "namespace",
         "operation",
@@ -245,6 +253,18 @@ class WebApplicationService(Protocol):
 
     def progress(self) -> LearningProgressReport: ...
 
+    def learning_paths(self) -> LearningPathCatalogReport: ...
+
+    def learning_path(self, path_id: str) -> LearningPathDetail: ...
+
+    def learning_recommendation(self) -> LearningRecommendation: ...
+
+    def symptoms(self) -> SymptomCatalog: ...
+
+    def learning_path_outcome(self, path_id: str) -> LearningPathOutcome: ...
+
+    def export_learning_path_outcome(self, path_id: str) -> str: ...
+
     def start(self, lab_id: str) -> LabSessionSnapshot: ...
 
     def resources(self) -> SessionResources: ...
@@ -322,6 +342,24 @@ class KubeLabApplicationService:
 
     def progress(self) -> LearningProgressReport:
         return self._manager.progress()
+
+    def learning_paths(self) -> LearningPathCatalogReport:
+        return self._manager.learning_paths()
+
+    def learning_path(self, path_id: str) -> LearningPathDetail:
+        return self._manager.learning_path(path_id)
+
+    def learning_recommendation(self) -> LearningRecommendation:
+        return self._manager.learning_recommendation()
+
+    def symptoms(self) -> SymptomCatalog:
+        return self._manager.symptoms()
+
+    def learning_path_outcome(self, path_id: str) -> LearningPathOutcome:
+        return self._manager.learning_path_outcome(path_id)
+
+    def export_learning_path_outcome(self, path_id: str) -> str:
+        return self._manager.export_learning_path_outcome(path_id)
 
     def start(self, lab_id: str) -> LabSessionSnapshot:
         return self._manager.start(lab_id)
@@ -512,6 +550,7 @@ def create_app(
         page: str,
         lab_id: str | None = None,
         session_id: str | None = None,
+        path_id: str | None = None,
     ) -> Response:
         return templates.TemplateResponse(
             request,
@@ -521,6 +560,7 @@ def create_app(
                 "page": page,
                 "lab_id": lab_id,
                 "session_id": session_id,
+                "path_id": path_id,
                 "version": __version__,
             },
         )
@@ -565,6 +605,34 @@ def create_app(
     def progress_page(request: Request) -> Response:
         return render_page(request, "progress.html", title="学习进度", page="progress")
 
+    @app.get("/paths", response_class=HTMLResponse, include_in_schema=False)
+    def learning_paths_page(request: Request) -> Response:
+        return render_page(request, "paths.html", title="专题路径", page="paths")
+
+    @app.get("/symptoms", response_class=HTMLResponse, include_in_schema=False)
+    def symptoms_page(request: Request) -> Response:
+        return render_page(request, "symptoms.html", title="症状索引", page="symptoms")
+
+    @app.get("/paths/{path_id}/outcome", response_class=HTMLResponse, include_in_schema=False)
+    def learning_path_outcome_page(request: Request, path_id: str) -> Response:
+        return render_page(
+            request,
+            "path_outcome.html",
+            title="专题成果",
+            page="path-outcome",
+            path_id=path_id,
+        )
+
+    @app.get("/paths/{path_id}", response_class=HTMLResponse, include_in_schema=False)
+    def learning_path_page(request: Request, path_id: str) -> Response:
+        return render_page(
+            request,
+            "path_detail.html",
+            title="专题路径",
+            page="path-detail",
+            path_id=path_id,
+        )
+
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
         return HealthResponse(version=__version__)
@@ -594,7 +662,55 @@ def create_app(
     def progress(request: Request) -> LearningProgressReport:
         return _service(request).progress()
 
-    @app.get("/api/v1/labs/{lab_id}", response_model=LabDetailResult)
+    @app.get(
+        "/api/v1/learning-paths",
+        response_model=LearningPathCatalogReport,
+        response_model_by_alias=False,
+    )
+    def learning_paths(request: Request) -> LearningPathCatalogReport:
+        return _service(request).learning_paths()
+
+    @app.get(
+        "/api/v1/learning-paths/recommendation",
+        response_model=LearningRecommendation,
+        response_model_by_alias=False,
+    )
+    def learning_recommendation(request: Request) -> LearningRecommendation:
+        return _service(request).learning_recommendation()
+
+    @app.get(
+        "/api/v1/learning-paths/{path_id}",
+        response_model=LearningPathDetail,
+        response_model_by_alias=False,
+    )
+    def learning_path(request: Request, path_id: str) -> LearningPathDetail:
+        return _service(request).learning_path(path_id)
+
+    @app.get("/api/v1/symptoms", response_model=SymptomCatalog, response_model_by_alias=False)
+    def symptoms(request: Request) -> SymptomCatalog:
+        return _service(request).symptoms()
+
+    @app.get(
+        "/api/v1/learning-paths/{path_id}/outcome",
+        response_model=LearningPathOutcome,
+        response_model_by_alias=False,
+    )
+    def learning_path_outcome(request: Request, path_id: str) -> LearningPathOutcome:
+        return _service(request).learning_path_outcome(path_id)
+
+    @app.get("/api/v1/learning-paths/{path_id}/outcome/export")
+    def export_learning_path_outcome(request: Request, path_id: str) -> Response:
+        return Response(
+            content=_service(request).export_learning_path_outcome(path_id),
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="kubelab-path-outcome.md"'},
+        )
+
+    @app.get(
+        "/api/v1/labs/{lab_id}",
+        response_model=LabDetailResult,
+        response_model_by_alias=False,
+    )
     def lab_detail(request: Request, lab_id: str) -> LabDetailResult:
         return _service(request).show_lab(lab_id)
 
@@ -901,7 +1017,12 @@ def _safe_context(value: object) -> dict[str, JsonValue]:
 
 
 def _status_for_error(code: str) -> int:
-    if code in {"LAB_NOT_FOUND", "SESSION_NOT_FOUND", "KUBERNETES_NOT_FOUND"}:
+    if code in {
+        "LAB_NOT_FOUND",
+        "LEARNING_PATH_NOT_FOUND",
+        "SESSION_NOT_FOUND",
+        "KUBERNETES_NOT_FOUND",
+    }:
         return 404
     if code in {
         "CONTEXT_DRIFT",
@@ -931,6 +1052,7 @@ def _status_for_error(code: str) -> int:
         "KUBERNETES_TIMEOUT",
         "RUNTIME_PLATFORM_UNSUPPORTED",
         "ENVIRONMENT_NOT_READY",
+        "LEARNING_PATH_INVALID",
     }:
         return 503
     return 500

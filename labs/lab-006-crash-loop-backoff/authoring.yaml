@@ -1,0 +1,86 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabAuthoringContract
+scenarioType: baseline
+states:
+  faulted:
+    observations:
+      deployment-created:
+        type: resource_exists
+        exists: true
+      crash-loop-observed:
+        type: pod_status
+        pods:
+        - name: worker-abc
+          phase: Running
+          ready: false
+          restartCount: 2
+          containers:
+          - name: worker
+            image: busybox:1.36.1
+            ready: false
+            restartCount: 2
+            state: waiting
+            reason: CrashLoopBackOff
+      deployment-available:
+        type: deployment_available
+        availableReplicas: 0
+      worker-stable:
+        type: pod_status
+        pods:
+        - name: worker-abc
+          phase: Running
+          ready: false
+          restartCount: 2
+          containers:
+          - name: worker
+            image: busybox:1.36.1
+            ready: false
+            restartCount: 2
+            state: waiting
+            reason: CrashLoopBackOff
+  repaired:
+    observations:
+      deployment-created:
+        type: resource_exists
+        exists: true
+      crash-loop-observed:
+        type: pod_status
+        pods:
+        - name: worker-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: worker
+            image: busybox:1.36.1
+            ready: true
+            restartCount: 0
+            state: running
+      deployment-available:
+        type: deployment_available
+        availableReplicas: 1
+      worker-stable:
+        type: pod_status
+        pods:
+        - name: worker-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: worker
+            image: busybox:1.36.1
+            ready: true
+            restartCount: 0
+            state: running
+  reset: faulted
+repairs:
+  full:
+    manifest: solutions/fix.yaml
+    allowedChanges:
+    - resource:
+        apiVersion: apps/v1
+        kind: Deployment
+        name: worker
+      operation: modify
+      paths:
+      - /spec/template/spec/containers

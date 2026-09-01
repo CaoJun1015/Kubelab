@@ -15,6 +15,7 @@ from kubelab.guided_learning import EnvironmentReadinessService
 from kubelab.kubernetes_gateway import KubernetesGateway
 from kubelab.lab_manager import ClusterGateway, LabManager
 from kubelab.lab_registry import LabRegistry
+from kubelab.learning_paths import LearningPathRegistry
 from kubelab.operation_lock import OperationLock
 from kubelab.validation_engine import ValidationEngine
 
@@ -89,6 +90,7 @@ def build_application_runtime() -> ApplicationRuntime:  # pragma: no cover - com
             gateway_factory=gateway_factory,
             validation=validation,
             readiness=readiness,
+            learning_paths=LearningPathRegistry(),
         )
         return ApplicationRuntime(database, manager, kubeconfig_path, readiness)
     except Exception:

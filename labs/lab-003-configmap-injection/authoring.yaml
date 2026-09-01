@@ -1,0 +1,103 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabAuthoringContract
+scenarioType: baseline
+states:
+  faulted:
+    observations:
+      old-config-value:
+        type: config_value
+        resourceExists: true
+        keyExists: true
+        matched: true
+        validEncoding: true
+      initial-pod-ready:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+      production-config-value:
+        type: config_value
+        resourceExists: true
+        keyExists: true
+        matched: false
+        validEncoding: true
+      reloaded-pod-ready:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+  repaired:
+    observations:
+      old-config-value:
+        type: config_value
+        resourceExists: true
+        keyExists: true
+        matched: false
+        validEncoding: true
+      initial-pod-ready:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+      production-config-value:
+        type: config_value
+        resourceExists: true
+        keyExists: true
+        matched: true
+        validEncoding: true
+      reloaded-pod-ready:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+  reset: faulted
+repairs:
+  full:
+    manifest: solutions/fix.yaml
+    allowedChanges:
+    - resource:
+        apiVersion: v1
+        kind: ConfigMap
+        name: app-settings
+      operation: modify
+      paths:
+      - /data/APP_MODE
+    - resource:
+        apiVersion: apps/v1
+        kind: Deployment
+        name: worker
+      operation: modify
+      paths:
+      - /spec/template/metadata/annotations/kubelab.io~1config-revision

@@ -21,6 +21,7 @@
       <nav aria-label="主导航">
         <a href="/"{% if page == "dashboard" %} aria-current="page"{% endif %}>总览</a>
         <a href="/onboarding"{% if page == "onboarding" %} aria-current="page"{% endif %}>环境</a>
+        <a href="/paths"{% if page in ("paths", "path-detail", "path-outcome", "symptoms") %} aria-current="page"{% endif %}>路径</a>
         <a href="/labs"{% if page in ("labs", "lab-detail") %} aria-current="page"{% endif %}>实验</a>
         <a href="/progress"{% if page == "progress" %} aria-current="page"{% endif %}>进度</a>
       </nav>
@@ -33,6 +34,7 @@
       data-page="{{ page }}"
       {% if lab_id %}data-lab-id="{{ lab_id }}"{% endif %}
       {% if session_id %}data-session-id="{{ session_id }}"{% endif %}
+      {% if path_id %}data-path-id="{{ path_id }}"{% endif %}
     >
       {% block content %}{% endblock %}
     </main>

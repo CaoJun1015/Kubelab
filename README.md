@@ -2,7 +2,7 @@
 
 KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 运维练习平台。它以本机 Docker Engine 和 minikube 为实验环境，目标是把云原生运维面试知识转化为可以反复操作、验证和复盘的故障实验。
 
-> 当前候选版本：`0.3.0rc1`。稳定发布版仍为`v0.1.0`；M6.1本地发布候选验收及[Draft PR #5](https://github.com/CaoJun1015/Kubelab/pull/5)双平台CI均已通过，PR保持Draft且尚未合并、打标签或发布。
+> 当前开发版本：`0.5.0a0`（M8实验作者工具链）。稳定发布版仍为`v0.1.0`；M6.1的`0.3.0rc1`本地发布候选验收及[Draft PR #5](https://github.com/CaoJun1015/Kubelab/pull/5)双平台CI均已通过。
 
 ## 界面预览
 
@@ -26,6 +26,12 @@ KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 
 - `LabRegistry`：确定性扫描本地实验，隔离损坏实验并拒绝危险Manifest、路径逃逸和集群级资源；
 - 二十一个声明式实验：18个单根因基线、12个固定复练变体和3个双根因高级场景，共33个可执行场景；
 - 首次练习固定使用基线；基线首次成功后按确定性规则轮换两个固定变体，中断时继续原场景，不提供随机抽题、计时、评分或排名；
+- M7四条专题学习路径：工作负载生命周期、配置与应用依赖、服务发现与流量链路、存储与调度；路径把基线、固定变体和综合实验组织为可解释的能力地图；
+- Dashboard提供唯一且可解释的下一步建议，活动Session始终优先；综合实验按既有成功事实解锁，路径进度不建立第二套业务状态；
+- 21张实验前/后知识卡和9类症状索引；通过前只展示概念、成功目标和证据清单，通过后展示根因、最小修复、误区和预防措施；
+- M8本地实验作者工具链：`lab init/lint/test/inspect/package`复用运行时Schema、Registry、安全扫描和验证引擎，默认不访问数据库或Kubernetes；
+- 33个场景均带严格`authoring.yaml`，声明故障、第一阶段修复（综合场景）、完整修复、reset观测以及修复允许的资源与JSON Pointer；
+- 专题成果从Session、提示和验证记录派生，可导出有界、脱敏的Markdown，不提供隐藏评分或排名；
 - wheel内置全部21个实验目录、12个变体、Jinja模板和静态资源，安装后不依赖源码仓库中的`labs/`；
 - 可重复生成的实验与变体JSON Schema及错误脱敏；
 - SQLAlchemy 2与Alembic持久化：保存Session、状态事件、验证记录、提示和复盘；
@@ -195,6 +201,26 @@ exit
 
 工作区只能访问活动实验Namespace中的非敏感资源，不能读取Secret、修改RBAC或访问集群级Namespace。不要在另一个普通管理员终端执行实验修复；回到Web点击“验证”，通过后保存复盘并清理。
 
+## 实验作者工具
+
+作者命令可在Windows或WSL运行，默认只读取本地文件，不创建学习Session，也不连接集群：
+
+```bash
+# 生成安全的实验骨架；先预览文件清单也不会写文件
+kubelab lab init labs/lab-022-sample --type baseline \
+  --id lab-022-sample --title "样例故障" --category workload \
+  --difficulty intermediate --description "用于演示作者工作流" --dry-run
+
+kubelab lab lint labs/lab-022-sample
+kubelab lab test labs/lab-022-sample
+kubelab lab inspect labs/lab-022-sample
+kubelab lab package labs/lab-022-sample
+```
+
+五个命令都支持`--json`。`inspect`分别展示通过前和通过后的公开投影，只输出摘要、差异路径和相对路径；`package`在lint、Fake生命周期和泄漏检查通过后生成确定性的`.kubelab-lab.tar.gz`，不会安装产物。完整契约、退出码和综合实验写法见[实验开发指南](docs/LAB_DEVELOPMENT.md)。
+
+真实测试入口默认关闭，只有维护者在明确授权的本机WSL2 Ubuntu环境中才可设置`KUBELAB_RUN_LAB_INTEGRATION=1`。它不接受远程Context，不执行Shell修复；日常开发和CI不得设置该变量。
+
 所有目录、状态和验证命令均支持稳定的`--json`输出。`verify`未通过时退出码为1；参数或实验定义错误为2；环境或Context问题为3；活动Session冲突或非法状态为4；Kubernetes、数据库或内部故障为5。
 
 ### 启动本地Web界面与REST API
@@ -227,7 +253,7 @@ bash scripts/start_kubelab.sh
 
 停止操作不会停止minikube。Docker daemon不可用、现有`minikube` profile不是Docker驱动或环境身份漂移时，脚本会失败关闭或让Web显示明确引导，不会调用`sudo`、自动修改Context信任或连接远程集群。
 
-在Windows浏览器打开`http://127.0.0.1:8765/`即可使用本地控制台。首次使用先打开“环境”页面并点击“重新检查”；页面只展示固定建议，不会执行修复命令。健康检查为`GET /health`，REST API位于`/api/v1/`。Session工作台提供“复制Namespace”和常用调查命令，但不提供浏览器终端。服务不启用CORS，并拒绝跨站Origin。所有写请求（包括环境重新检查和显式Session协调）使用HttpOnly、SameSite=Strict Cookie与同值`X-CSRF-Token`双提交校验；reset与cleanup还必须提交当前活动Session的精确Namespace确认值。
+在Windows浏览器打开`http://127.0.0.1:8765/`即可使用本地控制台。首次使用先打开“环境”页面并点击“重新检查”；环境就绪后从“路径”进入推荐专题，也可以从“症状索引”反查相关实验。页面只展示固定建议，不会执行修复命令。健康检查为`GET /health`，REST API位于`/api/v1/`。Session工作台提供“复制Namespace”和常用调查命令，但不提供浏览器终端。服务不启用CORS，并拒绝跨站Origin。所有写请求（包括环境重新检查和显式Session协调）使用HttpOnly、SameSite=Strict Cookie与同值`X-CSRF-Token`双提交校验；reset与cleanup还必须提交当前活动Session的精确Namespace确认值。
 
 ### Doctor状态和退出码
 
@@ -343,8 +369,10 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 - [x] LAB-013至018 六个中级排障实验与18实验真实验收。
 - [x] M6 可复现故障变体、盲练揭示和三个双根因高级场景。
 - [x] M6.1 `0.3.0rc1`双平台质量门、停止态wheel烟测与33场景真实验收。
+- [x] M7 `0.4.0a0`专题学习路径、确定性推荐、症状索引和专题成果。
+- [x] M8 `0.5.0a0`声明式作者契约、安全脚手架、统一lint/Fake测试、公开边界检查和确定性实验包。
 
-详细资料见[21个实验操作教程](docs/TUTORIAL.md)、[PRD](PRD-KubeLab.md)、[TDD](TDD-KubeLab.md)、[架构说明](docs/ARCHITECTURE.md)、[实验开发指南](docs/LAB_DEVELOPMENT.md)、[贡献指南](CONTRIBUTING.md)和[安全策略](SECURITY.md)。
+详细资料见[21个实验操作教程](docs/TUTORIAL.md)、[M7专题学习路径PRD](docs/PRD-M7-LEARNING-PATHS.md)、[M8作者工具PRD](docs/PRD-M8-AUTHOR-TOOLCHAIN.md)、[PRD](PRD-KubeLab.md)、[TDD](TDD-KubeLab.md)、[架构说明](docs/ARCHITECTURE.md)、[实验开发指南](docs/LAB_DEVELOPMENT.md)、[贡献指南](CONTRIBUTING.md)和[安全策略](SECURITY.md)。
 
 ## 常见问题
 

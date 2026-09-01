@@ -1029,6 +1029,12 @@ MVP只有一个活动Session，因此status/verify/reset/cleanup默认作用于�
 | GET | `/api/v1/environment` | 当前安全运行时快照，不访问集群 |
 | GET | `/api/v1/labs` | 实验目录和筛选 |
 | GET | `/api/v1/labs/{lab_id}` | 实验公开详情 |
+| GET | `/api/v1/learning-paths` | 四条路径及派生进度 |
+| GET | `/api/v1/learning-paths/recommendation` | 唯一、确定性下一步建议 |
+| GET | `/api/v1/learning-paths/{path_id}` | 节点地图、知识卡和解锁原因 |
+| GET | `/api/v1/learning-paths/{path_id}/outcome` | 派生专题成果 |
+| GET | `/api/v1/learning-paths/{path_id}/outcome/export` | 脱敏Markdown专题成果 |
+| GET | `/api/v1/symptoms` | 静态症状索引，不检查集群 |
 | POST | `/api/v1/labs/{lab_id}/start` | 创建活动Session |
 | GET | `/api/v1/sessions/active` | 当前活动Session |
 | GET | `/api/v1/sessions/active/resources` | 脱敏资源摘要 |
@@ -1081,6 +1087,10 @@ M2-02使用Jinja2渲染安全页面壳，所有动态业务数据由原生JavaSc
 - `/labs/{id}`：实验说明和开始入口；
 - `/sessions/{id}`：任务、资源、Events、Logs、提示、验证、重置和复盘；
 - `/progress`：历史完成记录和分类统计。
+- `/paths`：四条专题路径及下一步建议；
+- `/paths/{id}`：能力地图、锁定原因和两阶段知识卡；
+- `/paths/{id}/outcome`：专题学习成果与Markdown导出；
+- `/symptoms`：九类常见症状、证据顺序和相关实验。
 
 页面每2秒轮询活动Session资源摘要；不可见标签页暂停轮询；Events和Logs由用户主动刷新，避免高频读取。
 
@@ -1488,6 +1498,45 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 
 脱敏证据见`docs/environment-snapshots/2026-08-31-m6-1-acceptance.md`。
 
+### M7 专题学习路径
+
+- `LearningPathCatalog`继续使用`kubelab.io/v1alpha1`，由Pydantic严格模型生成确定性JSON Schema。包内目录定义4条路径、21张知识卡和9类症状。
+- `LearningPathRegistry`执行重复键、Schema、实验引用、节点引用、依赖环和公开内容安全校验；无效路径目录失败关闭，但`LabRegistry`及原有实验CLI不受影响。
+- 路径节点类型固定为`concept/baseline/variant/composite/retrospective`。实验节点完成事实分别来自基线或固定变体的`success_contract_passed`事件；内容节点不创建Session。
+- 节点状态`available/active/completed/locked/review_recommended`只在读取时派生，不增加数据库表、迁移或Session字段。同一实验跨路径复用同一完成事实。
+- 综合实验前置条件是明确的基线和固定变体事实。锁定响应返回固定的人类可读原因，不使用隐藏分数，也不允许客户端提交完成状态或变体ID。
+- 推荐器固定优先活动Session、当前路径可用节点、跨路径解锁前置和确定性复习。复习规则只使用基线/变体完成、最近Session结果、提示层数和手动验证次数。
+- 实验前知识卡公开概念、价值、成功目标、关注对象和证据清单；实验后知识卡只有节点完成后公开根因、最小修复、常见误区和预防。变体特定揭示继续遵守M6边界。
+- Dashboard、路径页、症状页和专题成果页只调用`WebApplicationService`。所有动态内容使用DOM `textContent`，页面GET不运行Doctor、kubectl、minikube或其他系统命令。
+- 专题成果和Markdown从既有Session、事件、提示和验证记录派生，导出执行凭证脱敏、HTML中和、单项与总长度限制，不包含Manifest、expected/actual或异常堆栈。
+
+实际实现状态（0.4.0a0）：
+
+- [x] 4条路径、21张前后知识卡、9类症状及严格Registry；
+- [x] 跨路径综合实验解锁、派生节点状态、确定性推荐和复习建议；
+- [x] Dashboard路径优先入口、能力地图、症状索引、知识卡和专题成果页面；
+- [x] 只读REST API、脱敏Markdown导出和Fake Application Service测试；
+- [x] 不增加迁移、随机练习、限时面试、评分、浏览器终端或在线YAML编辑器。
+
+### M8 实验作者工具链
+
+- `LabAuthoringContract`使用独立Pydantic严格Schema，描述场景类型、faulted/firstRepair/repaired/reset状态、声明式修复计划、资源身份、操作类型、JSON Pointer白名单和最小Fake观测。学习运行时Registry忽略该文件。
+- `AuthoringService`不依赖`ApplicationRuntime`。`init/lint/test/inspect/package`默认只处理本地文件，不创建Session、不访问学习数据库、不连接Kubernetes。
+- lint复用Lab/Variant Schema、LabRegistry和ManifestSecurityScanner，并对故障与修复资源做结构diff；未声明资源、字段或不安全recreate失败关闭。
+- 声明式Fake Gateway复用正式ValidationEngine，证明普通场景的初始、成功预检、修复、reset闭环；综合实验额外证明第一阶段修复后第二根因仍存在。
+- inspect复用Application Service公开投影规则，将盲练通过前和通过后预览分离，只输出相对路径、摘要、检查类型和允许变化路径。
+- package先执行lint、Fake测试和泄漏检查，再生成路径排序、LF统一、固定权限/所有者/时间戳的tar.gz；`index.json`记录场景、Schema、文件大小和SHA-256，构建后重新验证。
+- 可选integration入口需要显式环境变量、WSL2 Ubuntu、本机Docker驱动minikube、可信Context和固定镜像缓存。它使用临时SQLite与唯一Namespace，通过受限Solution Applier应用精确声明的修复并生成脱敏JUnit；普通测试不启用。
+
+实际实现状态（0.5.0a0）：
+
+- [x] 三种安全模板及五个作者命令；
+- [x] 33份作者契约和LAB-019～021第一阶段修复；
+- [x] 统一lint、九类Fake观测、综合阶段生命周期与共享查询一致性检查；
+- [x] 盲练公开投影、高风险泄漏扫描和确定性实验包；
+- [x] 真实集成门禁、声明式修复应用及Namespace/PV残留审计；本轮未授权、未执行真实集群测试；
+- [x] 不新增学习Web、数据库迁移、远程包安装、新实验、Shell修复或插件执行。
+
 ---
 
 ## 21. PRD待确认项结论
@@ -1687,3 +1736,12 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - 本机Docker驱动minikube连续通过四批33个真实场景，批次为12/12、9/9、6/6、6/6，每批零失败、零错误、零跳过并通过残留审计；
 - 最终wheel在minikube Stopped时完成隔离安装，Doctor按预期返回`unhealthy`和退出码3，Registry仍验证21个实验族、12个变体、33个场景，loopback Web启停干净；
 - WSL用户数据库仅通过SQLite备份API复制临时副本，副本从`0001`升级到`0003`且原库不变；验收后minikube恢复Stopped，8765端口关闭。
+
+2026-09-01，M7 `0.4.0a0`专题学习路径完成双环境无集群验收：
+
+- 包内严格加载4条专题路径、21张知识卡和9类症状；综合实验解锁、节点状态、推荐和成果全部从既有Session事实派生；
+- Windows收集608项测试，571项通过、37项按设计跳过，覆盖率91.53%；
+- WSL2 Ubuntu收集608项测试，573项通过、35项按设计跳过，覆盖率91.65%；
+- 两端Ruff、Ruff format、strict mypy、JavaScript语法、`git diff --check`、wheel/sdist构建和统一产物检查全部通过；
+- 产物包含21个实验族、12个固定变体、33个场景、M7路径目录、13个Web资源和`0001`至`0003`迁移；
+- 真实集成变量保持关闭，未访问或修改minikube、远程集群或生产集群。脱敏记录见`docs/environment-snapshots/2026-09-01-m7-acceptance.md`。

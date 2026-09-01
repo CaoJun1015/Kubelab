@@ -1,0 +1,88 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabAuthoringContract
+scenarioType: baseline
+states:
+  faulted:
+    observations:
+      deployment-created:
+        type: resource_exists
+        exists: true
+      image-pull-failure:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Pending
+          ready: false
+          restartCount: 0
+          containers:
+          - name: web
+            image: registry.invalid/kubelab/does-not-exist:v1
+            ready: false
+            restartCount: 0
+            state: waiting
+            reason: ImagePullBackOff
+      expected-image:
+        type: container_image
+        image: registry.invalid/kubelab/does-not-exist:v1
+      pod-ready:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Pending
+          ready: false
+          restartCount: 0
+          containers:
+          - name: web
+            image: registry.invalid/kubelab/does-not-exist:v1
+            ready: false
+            restartCount: 0
+            state: waiting
+            reason: ImagePullBackOff
+  repaired:
+    observations:
+      deployment-created:
+        type: resource_exists
+        exists: true
+      image-pull-failure:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+      expected-image:
+        type: container_image
+        image: nginx:1.27-alpine
+      pod-ready:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+  reset: faulted
+repairs:
+  full:
+    manifest: solutions/fix.yaml
+    allowedChanges:
+    - resource:
+        apiVersion: apps/v1
+        kind: Deployment
+        name: web
+      operation: modify
+      paths:
+      - /spec/template/spec/containers
+      - /spec/template/spec/securityContext
+      - /spec/template/spec/volumes

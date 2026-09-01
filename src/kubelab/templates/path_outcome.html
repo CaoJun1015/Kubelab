@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="面包屑"><a href="/paths">专题路径</a><span aria-hidden="true">/</span><span>专题成果</span></nav>
+<div id="page-error" class="alert error hidden" role="alert"></div>
+<header class="page-heading">
+  <div><p class="eyebrow">LEARNING OUTCOME</p><h1 id="outcome-name">正在读取成果…</h1><p>统计只来自现有Session、提示和验证事实，不使用隐藏评分。</p></div>
+  <a id="outcome-download" class="button secondary" href="/paths">下载 Markdown</a>
+</header>
+<section class="metric-grid" aria-label="专题成果概览">
+  <article class="metric-card"><span>基线完成</span><strong id="outcome-baselines">—</strong></article>
+  <article class="metric-card"><span>变体完成</span><strong id="outcome-variants">—</strong></article>
+  <article class="metric-card"><span>综合实验</span><strong id="outcome-composites">—</strong></article>
+  <article class="metric-card accent"><span>手动验证</span><strong id="outcome-verifications">—</strong></article>
+</section>
+<div class="dashboard-grid">
+  <section class="panel"><div class="panel-heading"><div><p class="eyebrow">REVEALED</p><h2>已揭示场景</h2></div></div><div id="outcome-scenarios" class="stack-list"></div></section>
+  <section class="panel"><div class="panel-heading"><div><p class="eyebrow">REVIEW</p><h2>建议复习</h2></div></div><div id="outcome-review" class="stack-list"></div></section>
+</div>
+{% endblock %}

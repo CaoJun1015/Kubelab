@@ -1,0 +1,673 @@
+{
+  "$defs": {
+    "AllowedChange": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "enum": [
+            "modify",
+            "create",
+            "recreate"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "paths": {
+          "default": [],
+          "items": {
+            "maxLength": 512,
+            "pattern": "^/(?:[^/~]|~[01])+(?:/(?:[^/~]|~[01])+)*$",
+            "type": "string"
+          },
+          "title": "Paths",
+          "type": "array"
+        },
+        "resource": {
+          "$ref": "#/$defs/AuthorResource"
+        }
+      },
+      "required": [
+        "resource",
+        "operation"
+      ],
+      "title": "AllowedChange",
+      "type": "object"
+    },
+    "AuthorResource": {
+      "additionalProperties": false,
+      "properties": {
+        "apiVersion": {
+          "minLength": 1,
+          "title": "Apiversion",
+          "type": "string"
+        },
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 253,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "name"
+      ],
+      "title": "AuthorResource",
+      "type": "object"
+    },
+    "AuthoringRepairs": {
+      "additionalProperties": false,
+      "properties": {
+        "first": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RepairPlan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "full": {
+          "$ref": "#/$defs/RepairPlan"
+        }
+      },
+      "required": [
+        "full"
+      ],
+      "title": "AuthoringRepairs",
+      "type": "object"
+    },
+    "AuthoringState": {
+      "additionalProperties": false,
+      "properties": {
+        "observations": {
+          "maxProperties": 100,
+          "minProperties": 1,
+          "patternProperties": {
+            "^[a-z][a-z0-9-]{1,62}$": {
+              "discriminator": {
+                "mapping": {
+                  "config_value": "#/$defs/ConfigValueObservation",
+                  "container_image": "#/$defs/ContainerImageObservation",
+                  "deployment_available": "#/$defs/DeploymentAvailableObservation",
+                  "dns_resolution": "#/$defs/DnsResolutionObservation",
+                  "http_response": "#/$defs/HttpResponseObservation",
+                  "pod_status": "#/$defs/PodStatusObservation",
+                  "pvc_status": "#/$defs/PvcStatusObservation",
+                  "resource_exists": "#/$defs/ResourceExistsObservation",
+                  "service_endpoint_count": "#/$defs/ServiceEndpointObservation"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/ResourceExistsObservation"
+                },
+                {
+                  "$ref": "#/$defs/PodStatusObservation"
+                },
+                {
+                  "$ref": "#/$defs/DeploymentAvailableObservation"
+                },
+                {
+                  "$ref": "#/$defs/ServiceEndpointObservation"
+                },
+                {
+                  "$ref": "#/$defs/ContainerImageObservation"
+                },
+                {
+                  "$ref": "#/$defs/ConfigValueObservation"
+                },
+                {
+                  "$ref": "#/$defs/PvcStatusObservation"
+                },
+                {
+                  "$ref": "#/$defs/HttpResponseObservation"
+                },
+                {
+                  "$ref": "#/$defs/DnsResolutionObservation"
+                }
+              ]
+            }
+          },
+          "propertyNames": {
+            "maxLength": 63,
+            "minLength": 2
+          },
+          "title": "Observations",
+          "type": "object"
+        }
+      },
+      "required": [
+        "observations"
+      ],
+      "title": "AuthoringState",
+      "type": "object"
+    },
+    "AuthoringStates": {
+      "additionalProperties": false,
+      "properties": {
+        "faulted": {
+          "$ref": "#/$defs/AuthoringState"
+        },
+        "firstRepair": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuthoringState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "repaired": {
+          "$ref": "#/$defs/AuthoringState"
+        },
+        "reset": {
+          "const": "faulted",
+          "title": "Reset",
+          "type": "string"
+        }
+      },
+      "required": [
+        "faulted",
+        "repaired",
+        "reset"
+      ],
+      "title": "AuthoringStates",
+      "type": "object"
+    },
+    "ConfigValueObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "keyExists": {
+          "title": "Keyexists",
+          "type": "boolean"
+        },
+        "matched": {
+          "title": "Matched",
+          "type": "boolean"
+        },
+        "resourceExists": {
+          "title": "Resourceexists",
+          "type": "boolean"
+        },
+        "type": {
+          "const": "config_value",
+          "title": "Type",
+          "type": "string"
+        },
+        "validEncoding": {
+          "default": true,
+          "title": "Validencoding",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type",
+        "resourceExists",
+        "keyExists",
+        "matched"
+      ],
+      "title": "ConfigValueObservation",
+      "type": "object"
+    },
+    "ContainerImageObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Image"
+        },
+        "type": {
+          "const": "container_image",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "image"
+      ],
+      "title": "ContainerImageObservation",
+      "type": "object"
+    },
+    "DeploymentAvailableObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "availableReplicas": {
+          "anyOf": [
+            {
+              "maximum": 20,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Availablereplicas"
+        },
+        "type": {
+          "const": "deployment_available",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "availableReplicas"
+      ],
+      "title": "DeploymentAvailableObservation",
+      "type": "object"
+    },
+    "DnsResolutionObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "cleanupWarning": {
+          "default": false,
+          "title": "Cleanupwarning",
+          "type": "boolean"
+        },
+        "infrastructureError": {
+          "default": false,
+          "title": "Infrastructureerror",
+          "type": "boolean"
+        },
+        "resolved": {
+          "title": "Resolved",
+          "type": "boolean"
+        },
+        "timedOut": {
+          "default": false,
+          "title": "Timedout",
+          "type": "boolean"
+        },
+        "type": {
+          "const": "dns_resolution",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "resolved"
+      ],
+      "title": "DnsResolutionObservation",
+      "type": "object"
+    },
+    "FakeContainer": {
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "minLength": 1,
+          "title": "Image",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 253,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "ready": {
+          "title": "Ready",
+          "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "restartCount": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Restartcount",
+          "type": "integer"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "enum": [
+                "running",
+                "waiting",
+                "terminated"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State"
+        }
+      },
+      "required": [
+        "name",
+        "image",
+        "ready",
+        "restartCount"
+      ],
+      "title": "FakeContainer",
+      "type": "object"
+    },
+    "FakePod": {
+      "additionalProperties": false,
+      "properties": {
+        "containers": {
+          "items": {
+            "$ref": "#/$defs/FakeContainer"
+          },
+          "maxItems": 10,
+          "minItems": 1,
+          "title": "Containers",
+          "type": "array"
+        },
+        "name": {
+          "maxLength": 253,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "phase": {
+          "anyOf": [
+            {
+              "enum": [
+                "Pending",
+                "Running",
+                "Succeeded",
+                "Failed",
+                "Unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Phase"
+        },
+        "ready": {
+          "title": "Ready",
+          "type": "boolean"
+        },
+        "restartCount": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Restartcount",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "phase",
+        "ready",
+        "restartCount",
+        "containers"
+      ],
+      "title": "FakePod",
+      "type": "object"
+    },
+    "HttpResponseObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "cleanupWarning": {
+          "default": false,
+          "title": "Cleanupwarning",
+          "type": "boolean"
+        },
+        "exitCode": {
+          "anyOf": [
+            {
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exitcode"
+        },
+        "infrastructureError": {
+          "default": false,
+          "title": "Infrastructureerror",
+          "type": "boolean"
+        },
+        "statusCode": {
+          "anyOf": [
+            {
+              "maximum": 599,
+              "minimum": 100,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Statuscode"
+        },
+        "targetAvailable": {
+          "default": true,
+          "title": "Targetavailable",
+          "type": "boolean"
+        },
+        "timedOut": {
+          "default": false,
+          "title": "Timedout",
+          "type": "boolean"
+        },
+        "type": {
+          "const": "http_response",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "HttpResponseObservation",
+      "type": "object"
+    },
+    "PodStatusObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "pods": {
+          "items": {
+            "$ref": "#/$defs/FakePod"
+          },
+          "maxItems": 20,
+          "title": "Pods",
+          "type": "array"
+        },
+        "type": {
+          "const": "pod_status",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "pods"
+      ],
+      "title": "PodStatusObservation",
+      "type": "object"
+    },
+    "PvcStatusObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "phase": {
+          "anyOf": [
+            {
+              "enum": [
+                "Pending",
+                "Bound",
+                "Lost"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Phase"
+        },
+        "type": {
+          "const": "pvc_status",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "phase"
+      ],
+      "title": "PvcStatusObservation",
+      "type": "object"
+    },
+    "RepairPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "allowedChanges": {
+          "items": {
+            "$ref": "#/$defs/AllowedChange"
+          },
+          "minItems": 1,
+          "title": "Allowedchanges",
+          "type": "array"
+        },
+        "manifest": {
+          "maxLength": 240,
+          "minLength": 1,
+          "pattern": "^[^\\\\\\x00]{1,240}$",
+          "title": "Manifest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "manifest",
+        "allowedChanges"
+      ],
+      "title": "RepairPlan",
+      "type": "object"
+    },
+    "ResourceExistsObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "exists": {
+          "title": "Exists",
+          "type": "boolean"
+        },
+        "type": {
+          "const": "resource_exists",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "exists"
+      ],
+      "title": "ResourceExistsObservation",
+      "type": "object"
+    },
+    "ServiceEndpointObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Count"
+        },
+        "type": {
+          "const": "service_endpoint_count",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "count"
+      ],
+      "title": "ServiceEndpointObservation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": {
+      "const": "kubelab.io/v1alpha1",
+      "title": "Apiversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "LabAuthoringContract",
+      "title": "Kind",
+      "type": "string"
+    },
+    "repairs": {
+      "$ref": "#/$defs/AuthoringRepairs"
+    },
+    "scenarioType": {
+      "enum": [
+        "baseline",
+        "variant",
+        "composite"
+      ],
+      "title": "Scenariotype",
+      "type": "string"
+    },
+    "states": {
+      "$ref": "#/$defs/AuthoringStates"
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "scenarioType",
+    "states",
+    "repairs"
+  ],
+  "title": "LabAuthoringContract",
+  "type": "object"
+}

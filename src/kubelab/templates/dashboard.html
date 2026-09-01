@@ -6,7 +6,7 @@
     <h1>今天，从一个真实故障开始。</h1>
     <p>观察资源、形成假设、动手修复，再用声明式检查验证结果。</p>
   </div>
-  <a class="button primary" href="/labs">浏览实验目录</a>
+  <a class="button primary" href="/paths">开始专题学习</a>
 </section>
 
 <div id="page-error" class="alert error hidden" role="alert"></div>
@@ -37,11 +37,16 @@
   </section>
 </div>
 
-<section class="panel" aria-labelledby="next-labs-title">
+<section class="panel" aria-labelledby="next-learning-title">
   <div class="panel-heading">
-    <div><p class="eyebrow">NEXT PRACTICE</p><h2 id="next-labs-title">推荐继续</h2></div>
-    <a class="text-link" href="/labs">查看全部</a>
+    <div><p class="eyebrow">NEXT PRACTICE</p><h2 id="next-learning-title">推荐下一步</h2></div>
+    <a class="text-link" href="/paths">查看路径</a>
   </div>
-  <div id="recommended-labs" class="card-grid" aria-live="polite"></div>
+  <div id="learning-recommendation" class="recommendation-card" aria-live="polite"></div>
+</section>
+
+<section class="panel" aria-labelledby="path-summary-title">
+  <div class="panel-heading"><div><p class="eyebrow">LEARNING PATHS</p><h2 id="path-summary-title">专题进度</h2></div><a class="text-link" href="/symptoms">症状索引</a></div>
+  <div id="dashboard-paths" class="card-grid path-grid" aria-live="polite"></div>
 </section>
 {% endblock %}

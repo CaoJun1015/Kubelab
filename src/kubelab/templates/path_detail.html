@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="面包屑"><a href="/paths">专题路径</a><span aria-hidden="true">/</span><span>路径详情</span></nav>
+<div id="page-error" class="alert error hidden" role="alert"></div>
+<header class="page-heading">
+  <div><p class="eyebrow">LEARNING PATH</p><h1 id="path-name">正在读取路径…</h1><p id="path-description"></p></div>
+  <a id="path-outcome-link" class="button secondary" href="/paths">专题成果</a>
+</header>
+<section class="panel" aria-labelledby="path-objective-title">
+  <div class="panel-heading"><div><p class="eyebrow">OBJECTIVE</p><h2 id="path-objective-title">学习目标</h2></div><span id="path-progress" class="status-badge neutral">读取中</span></div>
+  <p id="path-objective" class="lead"></p>
+</section>
+<section class="panel" aria-labelledby="path-map-title">
+  <div class="panel-heading"><div><p class="eyebrow">CAPABILITY MAP</p><h2 id="path-map-title">能力地图</h2></div></div>
+  <div id="path-nodes" class="learning-map" aria-live="polite"></div>
+</section>
+{% endblock %}

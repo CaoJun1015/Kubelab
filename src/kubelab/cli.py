@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -12,6 +13,7 @@ import typer
 import uvicorn
 
 from kubelab import __version__
+from kubelab.authoring import AuthoringService
 from kubelab.config import ConfigError, ToolName, get_config_path, set_tool_path
 from kubelab.context_trust import (
     ContextError,
@@ -52,10 +54,12 @@ context_app = typer.Typer(
 )
 retrospective_app = typer.Typer(help="Record the troubleshooting retrospective.")
 workspace_app = typer.Typer(help="Enter the active lab's restricted WSL workspace.")
+lab_app = typer.Typer(help="Create, lint, test, inspect, and package lab content.")
 app.add_typer(config_app, name="config")
 app.add_typer(context_app, name="context")
 app.add_typer(retrospective_app, name="retrospective")
 app.add_typer(workspace_app, name="workspace")
+app.add_typer(lab_app, name="lab")
 
 
 def _show_version(value: bool) -> None:
@@ -575,6 +579,156 @@ def _confirm_destructive(action: str, namespace: str, *, json_output: bool) -> b
         else:
             typer.echo("Cancelled; no cluster changes were made.")
     return confirmed
+
+
+@lab_app.command("init")
+def lab_init_command(
+    target: Annotated[Path, typer.Argument(help="New lab directory, or variant parent lab.")],
+    scenario_type: Annotated[str, typer.Option("--type", help="baseline, variant, or composite.")],
+    scenario_id: Annotated[str, typer.Option("--id", help="Explicit lab or variant ID.")],
+    title: Annotated[str | None, typer.Option("--title", help="Lab title or variant name.")] = None,
+    category: Annotated[str | None, typer.Option("--category")] = None,
+    difficulty: Annotated[str | None, typer.Option("--difficulty")] = None,
+    description: Annotated[str | None, typer.Option("--description")] = None,
+    workspace: Annotated[Path, typer.Option("--workspace")] = Path("."),
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Generate a complete safe sample without overwriting author files."""
+    title = _author_value(title, "Title", json_output=json_output)
+    description = _author_value(description, "Description", json_output=json_output)
+    if scenario_type == "variant":
+        category = category or "workload"
+        difficulty = difficulty or "intermediate"
+    else:
+        category = _author_value(category, "Category", json_output=json_output)
+        difficulty = _author_value(difficulty, "Difficulty", json_output=json_output)
+    service = _authoring_service(workspace, json_output=json_output)
+    report = service.init(
+        target,
+        scenario_type=scenario_type,
+        scenario_id=scenario_id,
+        title=title,
+        category=category,
+        difficulty=difficulty,
+        description=description,
+        dry_run=dry_run,
+    )
+    _emit_author_report(report, json_output=json_output)
+
+
+@lab_app.command("lint")
+def lab_lint_command(
+    target: Annotated[Path, typer.Argument(help="Lab, variant, or catalogue directory.")],
+    workspace: Annotated[Path, typer.Option("--workspace")] = Path("."),
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Run runtime-compatible schema, safety, teaching, and repair checks."""
+    report = _authoring_service(workspace, json_output=json_output).lint(target)
+    _emit_author_report(report, json_output=json_output)
+
+
+@lab_app.command("test")
+def lab_test_command(
+    target: Annotated[Path, typer.Argument(help="Lab, variant, or catalogue directory.")],
+    workspace: Annotated[Path, typer.Option("--workspace")] = Path("."),
+    integration: Annotated[
+        bool, typer.Option("--integration", help="Use the explicitly gated local minikube.")
+    ] = False,
+    junit: Annotated[Path | None, typer.Option("--junit")] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Prove scenario lifecycles with Fake observations by default."""
+    service = _authoring_service(workspace, json_output=json_output)
+    if integration:
+        report = service.test_integration(target, junit=junit)
+    else:
+        if junit is not None:
+            _emit_error(
+                code="AUTHOR_JUNIT_REQUIRES_INTEGRATION",
+                message="--junit is available only with --integration.",
+                context={},
+                retryable=False,
+                json_output=json_output,
+            )
+            raise typer.Exit(code=2)
+        report = service.test(target)
+    _emit_author_report(report, json_output=json_output)
+
+
+@lab_app.command("inspect")
+def lab_inspect_command(
+    target: Annotated[Path, typer.Argument(help="Lab, variant, or catalogue directory.")],
+    workspace: Annotated[Path, typer.Option("--workspace")] = Path("."),
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Preview bounded resources, repair paths, disclosures, and file hashes."""
+    report = _authoring_service(workspace, json_output=json_output).inspect(target)
+    _emit_author_report(report, json_output=json_output)
+
+
+@lab_app.command("package")
+def lab_package_command(
+    target: Annotated[Path, typer.Argument(help="One complete lab-family directory.")],
+    output: Annotated[Path | None, typer.Option("--output")] = None,
+    workspace: Annotated[Path, typer.Option("--workspace")] = Path("."),
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Build and verify a deterministic, non-installing author package."""
+    report = _authoring_service(workspace, json_output=json_output).package(target, output=output)
+    _emit_author_report(report, json_output=json_output)
+
+
+def _authoring_service(workspace: Path, *, json_output: bool) -> AuthoringService:
+    try:
+        return AuthoringService(workspace)
+    except Exception as exc:
+        _emit_error(
+            code="AUTHOR_WORKSPACE_INVALID",
+            message="The author workspace is not a readable local directory.",
+            context={},
+            retryable=False,
+            json_output=json_output,
+        )
+        raise typer.Exit(code=2) from exc
+
+
+def _author_value(value: str | None, label: str, *, json_output: bool) -> str:
+    if value is not None and value.strip():
+        return value.strip()
+    if sys.stdin.isatty() and not json_output:
+        entered = str(typer.prompt(label)).strip()
+        if entered:
+            return entered
+    _emit_error(
+        code="AUTHOR_INPUT_REQUIRED",
+        message=f"{label} is required in non-interactive mode.",
+        context={},
+        retryable=False,
+        json_output=json_output,
+    )
+    raise typer.Exit(code=2)
+
+
+def _emit_author_report(report: Any, *, json_output: bool) -> None:
+    if json_output:
+        typer.echo(report.model_dump_json(indent=2, by_alias=True, exclude_none=True))
+    else:
+        outcome = "passed" if report.passed else "failed"
+        typer.echo(f"Authoring {report.command}: {outcome}")
+        for issue in report.issues:
+            location = issue.relative_path
+            if issue.field_path:
+                location += f":{issue.field_path}"
+            typer.echo(f"[{issue.severity.value}] {issue.code} {location}: {issue.message}")
+        if hasattr(report, "files"):
+            for path in report.files:
+                typer.echo(f"  {path}")
+        if getattr(report, "output", None):
+            typer.echo(f"Output: {report.output}")
+            typer.echo(f"SHA256: {report.sha256}")
+    if report.exit_code:
+        raise typer.Exit(code=report.exit_code)
 
 
 @config_app.command("set-tool")

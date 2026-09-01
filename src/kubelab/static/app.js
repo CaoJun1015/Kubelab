@@ -68,6 +68,9 @@
       investigating: "调查中",
       preparing: "准备中",
       attention_required: "需要处理",
+      available: "可开始",
+      locked: "未解锁",
+      review_recommended: "建议复习",
     };
     return labels[value] || value || "未知";
   };
@@ -77,9 +80,10 @@
     if (["active", "in_progress", "provisioning", "resetting", "cleaning"].includes(value)) {
       return "info";
     }
-    if (["error", "failed", "blocked"].includes(value)) return "danger";
+    if (["error", "failed", "blocked", "locked"].includes(value)) return "danger";
     if (value === "unavailable") return "warning";
-    if (value === "degraded") return "warning";
+    if (["degraded", "review_recommended"].includes(value)) return "warning";
+    if (value === "available") return "info";
     if (value === "not_started") return "neutral";
     return "warning";
   };
@@ -195,12 +199,68 @@
     return card;
   };
 
+  const renderPathCard = (path) => {
+    const card = element("a", {
+      className: "path-card",
+      href: `/paths/${encodeURIComponent(path.id)}`,
+    });
+    card.append(element("p", { className: "eyebrow", text: "LEARNING PATH" }));
+    card.append(element("h3", { text: path.name }));
+    card.append(element("p", { text: path.description }));
+    const progress = element("progress", { className: "progress-track" });
+    progress.max = path.lab_node_count;
+    progress.value = path.completed_node_count;
+    progress.setAttribute("aria-label", `${path.name}完成进度`);
+    card.append(progress);
+    card.append(
+      element("span", {
+        className: "card-meta",
+        text: `${path.completed_node_count}/${path.lab_node_count} · ${path.progress_percent}%`,
+      }),
+    );
+    return card;
+  };
+
+  const recommendationHref = (recommendation, activeSession = null) => {
+    if (recommendation.action === "resume_session" && activeSession) {
+      return `/sessions/${encodeURIComponent(activeSession.id)}`;
+    }
+    if (recommendation.lab_id) return `/labs/${encodeURIComponent(recommendation.lab_id)}`;
+    if (recommendation.path_id) return `/paths/${encodeURIComponent(recommendation.path_id)}`;
+    return "/paths";
+  };
+
+  const renderRecommendation = (target, recommendation, activeSession = null) => {
+    clear(target);
+    target.append(element("p", { className: "eyebrow", text: recommendation.action }));
+    target.append(element("h3", { text: recommendation.title }));
+    target.append(element("p", { text: recommendation.reason }));
+    if (recommendation.action !== "complete") {
+      target.append(
+        element("a", {
+          className: "button primary",
+          href: recommendationHref(recommendation, activeSession),
+          text: recommendation.action === "resume_session" ? "继续Session" : "查看下一步",
+        }),
+      );
+    }
+  };
+
   const loadDashboard = async () => {
-    const [environmentResult, readinessResult, labsResult, activeResult] = await Promise.allSettled([
+    const [
+      environmentResult,
+      readinessResult,
+      labsResult,
+      activeResult,
+      pathsResult,
+      recommendationResult,
+    ] = await Promise.allSettled([
       api("/api/v1/environment"),
       api("/api/v1/onboarding"),
       api("/api/v1/labs"),
       api("/api/v1/sessions/active"),
+      api("/api/v1/learning-paths"),
+      api("/api/v1/learning-paths/recommendation"),
     ]);
 
     if (environmentResult.status === "fulfilled") {
@@ -238,14 +298,6 @@
       text("#metric-completed", completed);
       text("#metric-active", active);
       text("#metric-rate", labs.length ? `${Math.round((completed / labs.length) * 100)}%` : "0%");
-      const recommendations = document.querySelector("#recommended-labs");
-      clear(recommendations);
-      const candidates = labs.filter((lab) => lab.progress !== "completed").slice(0, 3);
-      if (!candidates.length) {
-        recommendations.append(element("p", { className: "quiet-text", text: "所有实验均已完成。" }));
-      } else {
-        candidates.forEach((lab) => recommendations.append(renderLabCard(lab)));
-      }
     } else {
       showPageError(labsResult.reason);
     }
@@ -272,6 +324,24 @@
       showPageError(activeResult.reason);
       activeTarget.className = "empty-state";
       activeTarget.append(element("p", { text: "无法读取活动 Session。" }));
+    }
+
+    if (pathsResult.status === "fulfilled") {
+      const target = document.querySelector("#dashboard-paths");
+      clear(target);
+      pathsResult.value.paths.forEach((path) => target.append(renderPathCard(path)));
+    } else {
+      showPageError(pathsResult.reason);
+    }
+
+    if (recommendationResult.status === "fulfilled") {
+      renderRecommendation(
+        document.querySelector("#learning-recommendation"),
+        recommendationResult.value,
+        activeResult.status === "fulfilled" ? activeResult.value.session : null,
+      );
+    } else {
+      showPageError(recommendationResult.reason);
     }
   };
 
@@ -378,6 +448,8 @@
       `${detail.lab.variant_completed}/${detail.lab.variant_total}`,
     );
 
+    renderKnowledgeCards(detail);
+
     renderFaultMap(detail);
 
     const tags = document.querySelector("#lab-tags");
@@ -425,6 +497,39 @@
         showPageError(error);
       }
     });
+  };
+
+  const renderKnowledgeCards = (detail) => {
+    const beforeSection = document.querySelector("#knowledge-before-section");
+    const afterSection = document.querySelector("#knowledge-after-section");
+    if (detail.knowledge_before) {
+      const before = document.querySelector("#knowledge-before");
+      clear(before);
+      appendTextPair(before, "是什么", detail.knowledge_before.what);
+      appendTextPair(before, "为什么", detail.knowledge_before.why);
+      appendTextPair(before, "成功目标", detail.knowledge_before.success_goal);
+      appendTextPair(before, "关注对象", detail.knowledge_before.objects.join("、"));
+      const evidence = document.querySelector("#knowledge-evidence");
+      clear(evidence);
+      detail.knowledge_before.evidence_checklist.forEach((value) =>
+        evidence.append(element("li", { text: value })),
+      );
+      beforeSection.classList.remove("hidden");
+    }
+    if (detail.knowledge_after) {
+      const after = document.querySelector("#knowledge-after");
+      clear(after);
+      appendTextPair(after, "关键证据", detail.knowledge_after.key_evidence);
+      appendTextPair(after, "根因", detail.knowledge_after.root_cause);
+      appendTextPair(after, "最小修复", detail.knowledge_after.minimal_fix);
+      appendTextPair(after, "预防", detail.knowledge_after.prevention);
+      const antiPatterns = document.querySelector("#knowledge-antipatterns");
+      clear(antiPatterns);
+      detail.knowledge_after.anti_patterns.forEach((value) =>
+        antiPatterns.append(element("li", { text: value })),
+      );
+      afterSection.classList.remove("hidden");
+    }
   };
 
   const renderFaultMap = (detail) => {
@@ -939,6 +1044,171 @@
     }
   };
 
+  const loadPaths = async () => {
+    const [catalog, recommendation] = await Promise.all([
+      api("/api/v1/learning-paths"),
+      api("/api/v1/learning-paths/recommendation"),
+    ]);
+    renderRecommendation(document.querySelector("#path-recommendation"), recommendation);
+    const grid = document.querySelector("#paths-grid");
+    clear(grid);
+    catalog.paths.forEach((path) => grid.append(renderPathCard(path)));
+  };
+
+  const renderKnowledgeSummary = (node) => {
+    if (!node.before) return null;
+    const details = element("details", { className: "knowledge-summary" });
+    details.append(element("summary", { text: "开始前知识与证据清单" }));
+    const list = element("dl", { className: "detail-list" });
+    appendTextPair(list, "是什么", node.before.what);
+    appendTextPair(list, "为什么", node.before.why);
+    appendTextPair(list, "成功目标", node.before.success_goal);
+    appendTextPair(list, "关注对象", node.before.objects.join("、"));
+    details.append(list);
+    const evidence = element("ul", { className: "question-list" });
+    node.before.evidence_checklist.forEach((value) =>
+      evidence.append(element("li", { text: value })),
+    );
+    details.append(evidence);
+    return details;
+  };
+
+  const renderAfterKnowledge = (node) => {
+    if (!node.after) return null;
+    const details = element("details", { className: "knowledge-summary revealed" });
+    details.append(element("summary", { text: "通过后的根因、修复与预防" }));
+    const list = element("dl", { className: "detail-list" });
+    appendTextPair(list, "关键证据", node.after.key_evidence);
+    appendTextPair(list, "根因", node.after.root_cause);
+    appendTextPair(list, "最小修复", node.after.minimal_fix);
+    appendTextPair(list, "预防", node.after.prevention);
+    details.append(list);
+    return details;
+  };
+
+  const renderLearningNode = (node, index) => {
+    const item = element("article", { className: `learning-node ${node.state}` });
+    const marker = element("span", { className: "node-index", text: String(index + 1) });
+    const body = element("div", { className: "node-body" });
+    const header = element("header");
+    header.append(element("h3", { text: node.title }), badge(node.state));
+    body.append(header, element("p", { text: node.description }));
+    if (node.lock_reasons.length) {
+      const reasons = element("ul", { className: "lock-reasons" });
+      node.lock_reasons.forEach((reason) => reasons.append(element("li", { text: reason })));
+      body.append(reasons);
+    }
+    const before = renderKnowledgeSummary(node);
+    if (before) body.append(before);
+    const after = renderAfterKnowledge(node);
+    if (after) body.append(after);
+    if (node.lab_id && node.state !== "locked") {
+      body.append(
+        element("a", {
+          className: "button secondary small",
+          href: `/labs/${encodeURIComponent(node.lab_id)}`,
+          text: node.state === "active" ? "继续实验" : "查看实验",
+        }),
+      );
+    }
+    item.append(marker, body);
+    return item;
+  };
+
+  const loadPathDetail = async () => {
+    const pathId = root.dataset.pathId;
+    const detail = await api(`/api/v1/learning-paths/${encodeURIComponent(pathId)}`);
+    text("#path-name", detail.summary.name);
+    text("#path-description", detail.summary.description);
+    text("#path-objective", detail.summary.objective);
+    const progress = document.querySelector("#path-progress");
+    progress.textContent = `${detail.summary.completed_node_count}/${detail.summary.lab_node_count}`;
+    progress.className = "status-badge info";
+    document
+      .querySelector("#path-outcome-link")
+      .setAttribute("href", `/paths/${encodeURIComponent(pathId)}/outcome`);
+    const nodes = document.querySelector("#path-nodes");
+    clear(nodes);
+    detail.nodes.forEach((node, index) => nodes.append(renderLearningNode(node, index)));
+  };
+
+  const loadSymptoms = async () => {
+    const payload = await api("/api/v1/symptoms");
+    const grid = document.querySelector("#symptom-grid");
+    clear(grid);
+    payload.symptoms.forEach((symptom) => {
+      const card = element("article", { className: "symptom-card" });
+      card.append(element("h2", { text: symptom.name }));
+      card.append(element("p", { text: symptom.description }));
+      card.append(element("h3", { text: "证据顺序" }));
+      const evidence = element("ol", { className: "question-list" });
+      symptom.evidence_order.forEach((value) => evidence.append(element("li", { text: value })));
+      card.append(evidence);
+      const causes = element("p", {
+        className: "quiet-text",
+        text: `常见分类：${symptom.cause_categories.join("、")}`,
+      });
+      card.append(causes);
+      const labs = element("div", { className: "tag-list" });
+      symptom.lab_ids.forEach((labId) =>
+        labs.append(
+          element("a", {
+            className: "tag",
+            href: `/labs/${encodeURIComponent(labId)}`,
+            text: labId,
+          }),
+        ),
+      );
+      card.append(labs);
+      grid.append(card);
+    });
+  };
+
+  const renderOutcomeList = (selector, values, emptyText, linkLabs = false) => {
+    const target = document.querySelector(selector);
+    clear(target);
+    if (!values.length) {
+      target.append(element("p", { className: "quiet-text", text: emptyText }));
+      return;
+    }
+    values.forEach((value) => {
+      target.append(
+        linkLabs
+          ? element("a", {
+            className: "stack-item",
+            href: `/labs/${encodeURIComponent(value)}`,
+            text: value,
+          })
+          : element("article", { className: "stack-item", text: value }),
+      );
+    });
+  };
+
+  const loadPathOutcome = async () => {
+    const pathId = root.dataset.pathId;
+    const outcome = await api(
+      `/api/v1/learning-paths/${encodeURIComponent(pathId)}/outcome`,
+    );
+    text("#outcome-name", outcome.path_name);
+    text("#outcome-baselines", `${outcome.baseline_completed_count}/${outcome.lab_family_count}`);
+    text("#outcome-variants", `${outcome.variant_completed}/${outcome.variant_total}`);
+    text("#outcome-composites", `${outcome.composite_completed}/${outcome.composite_total}`);
+    text("#outcome-verifications", outcome.manual_verification_count);
+    document
+      .querySelector("#outcome-download")
+      .setAttribute(
+        "href",
+        `/api/v1/learning-paths/${encodeURIComponent(pathId)}/outcome/export`,
+      );
+    renderOutcomeList("#outcome-scenarios", outcome.revealed_scenarios, "暂无已揭示变体。 ");
+    renderOutcomeList(
+      "#outcome-review",
+      outcome.review_lab_ids,
+      "当前没有确定性复习建议。 ",
+      true,
+    );
+  };
+
   const boot = async () => {
     try {
       await refreshCsrf();
@@ -949,6 +1219,10 @@
         "lab-detail": loadLabDetail,
         session: loadSession,
         progress: loadProgress,
+        paths: loadPaths,
+        "path-detail": loadPathDetail,
+        symptoms: loadSymptoms,
+        "path-outcome": loadPathOutcome,
       };
       const loader = loaders[root.dataset.page];
       if (loader) await loader();

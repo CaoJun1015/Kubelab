@@ -6,6 +6,10 @@
 
 ### Added
 
+- M8实验作者工具链，提供安全脚手架、统一lint、声明式Fake验收、公开边界预览和确定性实验包。
+- 21个基线和12个固定变体共33份`LabAuthoringContract`，以及三个综合实验的第一阶段修复契约。
+- `kubelab lab init/lint/test/inspect/package`命令组、稳定JSON问题模型和退出码。
+- 开始开发M7专题学习路径，以“概念、基线、固定变体、综合故障、专题复盘”组织现有实验。
 - 开始开发固定故障变体、渐进式盲练和双根因综合排障场景。
 - LAB-013至018各增加两个固定变体；LAB-019至021增加三个双根因高级实验，目录达到21个实验族、33个场景。
 - 严格`LabVariant`契约、变体Manifest摘要复核、确定性轮换、盲练揭示和已完成故障地图。
@@ -19,6 +23,8 @@
 
 ### Changed
 
+- 开始开发KubeLab 0.5.0a0；作者命令默认不访问学习数据库、网络或Kubernetes集群。
+- 开始开发KubeLab 0.4.0a0；路径状态和复习建议继续从既有Session事实派生。
 - 完成KubeLab 0.3.0rc1的M6.1双平台质量门、停止态安装烟测和四批33场景真实验收。
 - 开始开发KubeLab 0.3.0a0的M6可复现故障变体与综合排障场景。
 - 开始开发KubeLab 0.2.0a0的M5引导式排障学习闭环。
@@ -30,6 +36,8 @@
 
 ### Security
 
+- 作者工具拒绝符号链接、路径穿越、未声明修复字段、危险recreate、凭证/私钥/堆栈/完整Manifest泄漏和不安全归档；普通命令不访问学习数据库或集群。
+- 可选作者集成入口要求显式授权、WSL2 Ubuntu、本机Docker驱动minikube、可信Context及固定镜像缓存，并只通过受限声明式修复边界操作唯一临时Namespace。
 - Web资源与evidence使用独立白名单DTO，完全排除Secret、labels、annotations、conditions、镜像信息和Kubernetes原始对象。
 - 验证、Doctor、复盘导出和未知异常统一脱敏，不公开内部值、Manifest或堆栈。
 - 盲练通过前不公开变体ID、名称、根因、标准修复或内部验证结构；活动变体缺失时禁止静默回退到基线。

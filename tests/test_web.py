@@ -39,6 +39,20 @@ from kubelab.lab_manager import (
     SessionStatusResult,
     SessionTimeline,
 )
+from kubelab.learning_paths import (
+    AfterKnowledgeCard,
+    BeforeKnowledgeCard,
+    LearningNodeState,
+    LearningPathCatalogReport,
+    LearningPathDetail,
+    LearningPathNode,
+    LearningPathOutcome,
+    LearningPathSummary,
+    LearningRecommendation,
+    RecommendationAction,
+    SymptomCatalog,
+    SymptomDefinition,
+)
 from kubelab.operation_lock import OperationLockError
 from kubelab.repositories import ActiveSessionConflict
 from kubelab.runtime import RuntimeEnvironmentError
@@ -96,6 +110,19 @@ def catalog_item() -> LabCatalogItem:
         category="workloads",
         tags=("pod", "images"),
         progress=LabProgress.ACTIVE,
+    )
+
+
+def learning_path_summary() -> LearningPathSummary:
+    return LearningPathSummary(
+        id="service-discovery-traffic",
+        name="Service discovery",
+        description="Trace traffic through Service and Endpoint.",
+        objective="Locate the broken traffic layer.",
+        lab_node_count=3,
+        completed_node_count=1,
+        progress_percent=33,
+        current_node_id="service-baseline",
     )
 
 
@@ -201,6 +228,91 @@ class FakeApplicationService:
             ),
             categories=(),
         )
+
+    def learning_paths(self) -> LearningPathCatalogReport:
+        self.calls.append(("learning_paths",))
+        return LearningPathCatalogReport(paths=(learning_path_summary(),))
+
+    def learning_path(self, path_id: str) -> LearningPathDetail:
+        self.calls.append(("learning_path", path_id))
+        before = BeforeKnowledgeCard(
+            what="Service maps traffic.",
+            why="A wrong port blocks HTTP.",
+            successGoal="Restore HTTP 200.",
+            objects=("Service", "Pod"),
+            evidenceChecklist=("Inspect EndpointSlice",),
+        )
+        after = AfterKnowledgeCard(
+            keyEvidence="Endpoint exists but HTTP fails.",
+            rootCause="The target port was wrong.",
+            minimalFix="Correct only targetPort.",
+            antiPatterns=("Restart every Pod",),
+            prevention="Validate the port contract.",
+        )
+        return LearningPathDetail(
+            summary=learning_path_summary(),
+            nodes=(
+                LearningPathNode(
+                    id="service-baseline",
+                    type="baseline",
+                    title="Service port baseline",
+                    description="Trace the Service traffic chain.",
+                    lab_id="lab-005-image-pull",
+                    state=LearningNodeState.COMPLETED,
+                    before=before,
+                    after=after,
+                ),
+            ),
+        )
+
+    def learning_recommendation(self) -> LearningRecommendation:
+        self.calls.append(("learning_recommendation",))
+        return LearningRecommendation(
+            action=RecommendationAction.START_BASELINE,
+            title="Start Service baseline",
+            reason="This is the next incomplete baseline.",
+            path_id="service-discovery-traffic",
+            node_id="service-baseline",
+            lab_id="lab-005-image-pull",
+        )
+
+    def symptoms(self) -> SymptomCatalog:
+        self.calls.append(("symptoms",))
+        return SymptomCatalog(
+            symptoms=(
+                SymptomDefinition(
+                    id="pod-pending",
+                    name="Pod Pending",
+                    description="Inspect scheduling evidence.",
+                    evidenceOrder=("Pod Events",),
+                    causeCategories=("Scheduling",),
+                    labIds=("lab-005-image-pull",),
+                ),
+            )
+        )
+
+    def learning_path_outcome(self, path_id: str) -> LearningPathOutcome:
+        self.calls.append(("learning_path_outcome", path_id))
+        return LearningPathOutcome(
+            path_id=path_id,
+            path_name="Service discovery",
+            lab_family_count=1,
+            baseline_completed_count=1,
+            variant_total=2,
+            variant_completed=1,
+            composite_total=1,
+            composite_completed=0,
+            hint_request_count=2,
+            manual_verification_count=3,
+            first_completed_at=NOW,
+            last_practiced_at=NOW,
+            revealed_scenarios=("Named port mismatch",),
+            review_lab_ids=("lab-005-image-pull",),
+        )
+
+    def export_learning_path_outcome(self, path_id: str) -> str:
+        self.calls.append(("export_learning_path_outcome", path_id))
+        return "# KubeLab 专题学习成果\n"
 
     def start(self, lab_id: str) -> LabSessionSnapshot:
         self.calls.append(("start", lab_id))
@@ -379,6 +491,12 @@ def test_read_endpoints_delegate_to_fake_application_service(client: TestClient)
     exported = client.get("/api/v1/sessions/latest/retrospective/export")
     progress = client.get("/api/v1/progress")
     onboarding = client.get("/api/v1/onboarding")
+    paths = client.get("/api/v1/learning-paths")
+    path = client.get("/api/v1/learning-paths/service-discovery-traffic")
+    recommendation = client.get("/api/v1/learning-paths/recommendation")
+    symptoms = client.get("/api/v1/symptoms")
+    outcome = client.get("/api/v1/learning-paths/service-discovery-traffic/outcome")
+    outcome_export = client.get("/api/v1/learning-paths/service-discovery-traffic/outcome/export")
 
     assert environment.json()["bind_host"] == "127.0.0.1"
     assert labs.json()["labs"][0]["id"] == "lab-005-image-pull"
@@ -413,6 +531,15 @@ def test_read_endpoints_delegate_to_fake_application_service(client: TestClient)
     assert "attachment" in exported.headers["content-disposition"]
     assert "脱敏复盘" in exported.text
     assert onboarding.json() == {"first_use": True, "completed_at": None, "report": None}
+    assert paths.json()["paths"][0]["id"] == "service-discovery-traffic"
+    assert path.json()["nodes"][0]["state"] == "completed"
+    assert path.json()["nodes"][0]["after"]["minimal_fix"] == "Correct only targetPort."
+    assert recommendation.json()["action"] == "start_baseline"
+    assert symptoms.json()["symptoms"][0]["id"] == "pod-pending"
+    assert outcome.json()["variant_completed"] == 1
+    assert outcome_export.headers["content-type"].startswith("text/markdown")
+    assert "attachment" in outcome_export.headers["content-disposition"]
+    assert "专题学习成果" in outcome_export.text
 
 
 def test_blind_repeat_session_never_exposes_internal_variant_identifier(

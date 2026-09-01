@@ -26,6 +26,7 @@ from kubelab.kubernetes_gateway import (
 )
 from kubelab.lab_registry import LabRegistry
 from kubelab.lab_schema import HttpTarget
+from kubelab.manifest_security import ManifestDocument
 
 FINGERPRINT = "a" * 64
 SESSION_ID = "123e4567-e89b-42d3-a456-426614174000"
@@ -69,7 +70,9 @@ class FakeApi:
         self.quotas: list[Mapping[str, Any]] = []
         self.limits: list[Mapping[str, Any]] = []
         self.applies: list[tuple[bool, Mapping[str, Any]]] = []
+        self.deleted_resources: list[tuple[str, str, str, str]] = []
         self.resources: list[Mapping[str, Any]] = []
+        self.persistent_volumes: list[Mapping[str, Any]] = []
         self.pods: list[Mapping[str, Any]] = []
         self.events: list[Mapping[str, Any]] = []
         self.logs = ""
@@ -151,8 +154,25 @@ class FakeApi:
     def delete_namespace(self, name: str, *, timeout: int) -> None:
         self.deleted_namespace = True
 
+    def delete_resource(
+        self,
+        api_version: str,
+        kind: str,
+        *,
+        namespace: str,
+        name: str,
+        timeout: int,
+    ) -> None:
+        del timeout
+        self.deleted_resources.append((api_version, kind, namespace, name))
+        self.generic.pop((api_version, kind, namespace, name), None)
+
     def list_resources(self, namespace: str, *, timeout: int) -> Sequence[Mapping[str, Any]]:
         return self.resources
+
+    def list_persistent_volumes(self, *, timeout: int) -> Sequence[Mapping[str, Any]]:
+        del timeout
+        return self.persistent_volumes
 
     def list_pods(self, namespace: str, *, timeout: int) -> Sequence[Mapping[str, Any]]:
         return self.pods
@@ -343,6 +363,104 @@ def test_apply_lab_rejects_scope_mismatch_without_materializing() -> None:
     assert api.applies == []
 
 
+def test_authoring_repair_dry_runs_then_applies_scanned_documents() -> None:
+    api = FakeApi()
+    gateway = KubernetesGateway(api, context_fingerprint=FINGERPRINT)
+    repair = ManifestDocument(
+        manifest_path=Path("solutions/fix.yaml"),
+        document_index=1,
+        data={
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {"name": "web"},
+            "spec": {"replicas": 2},
+        },
+    )
+
+    gateway.apply_authoring_repair(scope(), (repair,))
+
+    assert [(dry_run, document["kind"]) for dry_run, document in api.applies] == [
+        (True, "Deployment"),
+        (False, "Deployment"),
+    ]
+    assert all(
+        document["metadata"]["namespace"] == scope().namespace for _, document in api.applies
+    )
+
+
+def test_authoring_repair_recreates_only_exact_declared_resource() -> None:
+    api = FakeApi()
+    key = ("batch/v1", "Job", scope().namespace, "data-check")
+    api.generic[key] = {"apiVersion": "batch/v1", "kind": "Job"}
+    gateway = KubernetesGateway(api, context_fingerprint=FINGERPRINT)
+    repair = ManifestDocument(
+        manifest_path=Path("solutions/fix.yaml"),
+        document_index=1,
+        data={
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {"name": "data-check"},
+            "spec": {
+                "template": {
+                    "spec": {
+                        "restartPolicy": "Never",
+                        "containers": [{"name": "job", "image": "busybox:1.36.1"}],
+                    }
+                }
+            },
+        },
+    )
+
+    gateway.apply_authoring_repair(
+        scope(),
+        (repair,),
+        recreate=frozenset({("batch/v1", "Job", "data-check")}),
+    )
+
+    assert api.deleted_resources == [("batch/v1", "Job", scope().namespace, "data-check")]
+    assert len(api.applies) == 2
+
+
+@pytest.mark.parametrize(
+    ("document", "recreate"),
+    [
+        (
+            {
+                "apiVersion": "v1",
+                "kind": "Secret",
+                "metadata": {"name": "credential"},
+            },
+            frozenset(),
+        ),
+        (
+            {
+                "apiVersion": "apps/v1",
+                "kind": "Deployment",
+                "metadata": {"name": "web"},
+            },
+            frozenset({("batch/v1", "Job", "missing")}),
+        ),
+    ],
+)
+def test_authoring_repair_rejects_unsafe_or_undeclared_targets(
+    document: Mapping[str, Any], recreate: frozenset[tuple[str, str, str]]
+) -> None:
+    api = FakeApi()
+    gateway = KubernetesGateway(api, context_fingerprint=FINGERPRINT)
+    repair = ManifestDocument(
+        manifest_path=Path("solutions/fix.yaml"),
+        document_index=1,
+        data=document,
+    )
+
+    with pytest.raises(KubernetesGatewayError) as error:
+        gateway.apply_authoring_repair(scope(), (repair,), recreate=recreate)
+
+    assert error.value.code is GatewayErrorCode.SCOPE_INVALID
+    assert api.applies == []
+    assert api.deleted_resources == []
+
+
 @pytest.mark.parametrize(
     ("status", "code", "retryable"),
     [
@@ -398,6 +516,29 @@ def test_namespace_exists_handles_not_found() -> None:
     assert (
         KubernetesGateway(api, context_fingerprint=FINGERPRINT).namespace_exists(scope()) is False
     )
+
+
+def test_authoring_persistent_volume_audit_is_namespace_scoped_and_name_only() -> None:
+    api = FakeApi()
+    api.persistent_volumes = [
+        {
+            "metadata": {"name": "owned-pv"},
+            "spec": {
+                "claimRef": {"namespace": scope().namespace, "name": "data"},
+                "csi": {"volumeAttributes": {"token": "private"}},
+            },
+        },
+        {
+            "metadata": {"name": "unrelated-pv"},
+            "spec": {"claimRef": {"namespace": "other", "name": "data"}},
+        },
+    ]
+    gateway = KubernetesGateway(api, context_fingerprint=FINGERPRINT)
+
+    residue = gateway.authoring_persistent_volume_residue(scope())
+
+    assert residue == ("owned-pv",)
+    assert "private" not in repr(residue)
 
 
 @pytest.mark.parametrize(

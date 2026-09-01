@@ -1,0 +1,84 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabAuthoringContract
+scenarioType: baseline
+states:
+  faulted:
+    observations:
+      dependent-deployment-created:
+        type: resource_exists
+        exists: true
+      missing-config-observed:
+        type: pod_status
+        pods:
+        - name: worker-abc
+          phase: Pending
+          ready: false
+          restartCount: 0
+          containers:
+          - name: worker
+            image: busybox:1.36.1
+            ready: false
+            restartCount: 0
+            state: waiting
+            reason: CreateContainerConfigError
+      required-config-created:
+        type: resource_exists
+        exists: false
+      configured-worker-ready:
+        type: pod_status
+        pods:
+        - name: worker-abc
+          phase: Pending
+          ready: false
+          restartCount: 0
+          containers:
+          - name: worker
+            image: busybox:1.36.1
+            ready: false
+            restartCount: 0
+            state: waiting
+            reason: CreateContainerConfigError
+  repaired:
+    observations:
+      dependent-deployment-created:
+        type: resource_exists
+        exists: true
+      missing-config-observed:
+        type: pod_status
+        pods:
+        - name: worker-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: worker
+            image: busybox:1.36.1
+            ready: true
+            restartCount: 0
+            state: running
+      required-config-created:
+        type: resource_exists
+        exists: true
+      configured-worker-ready:
+        type: pod_status
+        pods:
+        - name: worker-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: worker
+            image: busybox:1.36.1
+            ready: true
+            restartCount: 0
+            state: running
+  reset: faulted
+repairs:
+  full:
+    manifest: solutions/fix.yaml
+    allowedChanges:
+    - resource:
+        apiVersion: v1
+        kind: ConfigMap
+        name: app-settings
+      operation: create

@@ -1,0 +1,100 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabAuthoringContract
+scenarioType: baseline
+states:
+  faulted:
+    observations:
+      running-not-ready:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Running
+          ready: false
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: false
+            restartCount: 0
+            state: running
+      no-ready-endpoint:
+        type: service_endpoint_count
+        count: 0
+      readiness-restored:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Running
+          ready: false
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: false
+            restartCount: 0
+            state: running
+      endpoint-restored:
+        type: service_endpoint_count
+        count: 0
+      readiness-http-restored:
+        type: http_response
+        targetAvailable: true
+        statusCode: null
+        exitCode: 6
+        infrastructureError: false
+        timedOut: false
+        cleanupWarning: false
+  repaired:
+    observations:
+      running-not-ready:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+      no-ready-endpoint:
+        type: service_endpoint_count
+        count: 1
+      readiness-restored:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+      endpoint-restored:
+        type: service_endpoint_count
+        count: 1
+      readiness-http-restored:
+        type: http_response
+        targetAvailable: true
+        statusCode: 200
+        exitCode: 0
+        infrastructureError: false
+        timedOut: false
+        cleanupWarning: false
+  reset: faulted
+repairs:
+  full:
+    manifest: solutions/fix.yaml
+    allowedChanges:
+    - resource:
+        apiVersion: apps/v1
+        kind: Deployment
+        name: web
+      operation: modify
+      paths:
+      - /spec/template/spec/containers

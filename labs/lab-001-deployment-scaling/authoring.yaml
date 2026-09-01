@@ -1,0 +1,78 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabAuthoringContract
+scenarioType: baseline
+states:
+  faulted:
+    observations:
+      initial-replica-available:
+        type: deployment_available
+        availableReplicas: 1
+      scaled-replicas-available:
+        type: deployment_available
+        availableReplicas: 1
+      scaled-pods-stable:
+        type: pod_status
+        pods:
+        - name: web-0
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+  repaired:
+    observations:
+      initial-replica-available:
+        type: deployment_available
+        availableReplicas: 3
+      scaled-replicas-available:
+        type: deployment_available
+        availableReplicas: 3
+      scaled-pods-stable:
+        type: pod_status
+        pods:
+        - name: web-0
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+        - name: web-1
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+        - name: web-2
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+  reset: faulted
+repairs:
+  full:
+    manifest: solutions/fix.yaml
+    allowedChanges:
+    - resource:
+        apiVersion: apps/v1
+        kind: Deployment
+        name: web
+      operation: modify
+      paths:
+      - /spec/replicas

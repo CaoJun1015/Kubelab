@@ -34,7 +34,26 @@ from kubelab.lab_registry import (
     RegistryError,
 )
 from kubelab.lab_schema import LabRequirements
+from kubelab.learning_paths import (
+    AfterKnowledgeCard,
+    BeforeKnowledgeCard,
+    LabLearningFacts,
+    LearningFacts,
+    LearningPathCatalogDefinition,
+    LearningPathCatalogReport,
+    LearningPathDefinition,
+    LearningPathDetail,
+    LearningPathOutcome,
+    LearningPathRegistry,
+    LearningRecommendation,
+    SymptomCatalog,
+    derive_outcome,
+    evaluate_path,
+    recommend_next,
+    render_outcome_markdown,
+)
 from kubelab.operation_lock import OperationLock
+from kubelab.public_projection import project_variant_disclosure
 from kubelab.redaction import redact_json
 from kubelab.repositories import (
     ActiveSessionConflict,
@@ -68,6 +87,8 @@ class ManagerErrorCode(StrEnum):
     SESSION_NOT_FOUND = "SESSION_NOT_FOUND"
     ENVIRONMENT_REMOVED = "ENVIRONMENT_REMOVED"
     LAB_VARIANT_NOT_FOUND = "LAB_VARIANT_NOT_FOUND"
+    LEARNING_PATH_INVALID = "LEARNING_PATH_INVALID"
+    LEARNING_PATH_NOT_FOUND = "LEARNING_PATH_NOT_FOUND"
 
 
 class LabManagerError(RuntimeError):
@@ -197,6 +218,9 @@ class LabDetailResult(ManagerModel):
     resolution: str | None = None
     prevention: str | None = None
     fault_map: tuple[FaultMapEntry, ...] = ()
+    learning_path_ids: tuple[str, ...] = ()
+    knowledge_before: BeforeKnowledgeCard | None = None
+    knowledge_after: AfterKnowledgeCard | None = None
 
 
 class SessionResources(ManagerModel):
@@ -385,6 +409,7 @@ class LabManager:
         gateway_factory: GatewayFactory,
         validation: ValidationService,
         readiness: ReadinessGuard | None = None,
+        learning_paths: LearningPathRegistry | None = None,
     ) -> None:
         self._registry = registry
         self._unit_of_work = unit_of_work
@@ -393,6 +418,7 @@ class LabManager:
         self._gateway_factory = gateway_factory
         self._validation = validation
         self._readiness = readiness
+        self._learning_path_registry = learning_paths
 
     def list_labs(
         self, *, category: str | None = None, progress: LabProgress | None = None
@@ -439,16 +465,38 @@ class LabManager:
             practice_mode = PracticeMode.BLIND_REPEAT
             scenario_revealed = _has_passed(event_map.get(active.id, ()))
         public_definition = effective.definition
+        passed_variants = _passed_variants(loaded.definition.metadata.id, sessions, event_map)
         fault_map = tuple(
             _fault_map_entry(
                 slot=index,
                 variant=variant,
-                revealed=variant.definition.metadata.id
-                in _passed_variants(loaded.definition.metadata.id, sessions, event_map),
+                revealed=variant.definition.metadata.id in passed_variants,
             )
             for index, variant in enumerate(loaded.variants, start=1)
         )
-        reveal = active_variant.definition.reveal if active_variant and scenario_revealed else None
+        disclosure = (
+            project_variant_disclosure(active_variant, revealed=scenario_revealed)
+            if active_variant
+            else None
+        )
+        learning_path_ids: tuple[str, ...] = ()
+        knowledge_before = None
+        knowledge_after = None
+        learning_catalog = self._optional_learning_catalog()
+        if learning_catalog is not None:
+            learning_path_ids = tuple(
+                path.metadata.id
+                for path in learning_catalog.paths
+                if any(node.lab_id == lab_id for node in path.nodes)
+            )
+            card = next(
+                (card for card in learning_catalog.knowledge_cards if card.lab_id == lab_id),
+                None,
+            )
+            if card is not None:
+                knowledge_before = card.before
+                if "baseline" in passed_variants:
+                    knowledge_after = card.after
         return LabDetailResult(
             lab=self._catalog_item(
                 loaded,
@@ -478,21 +526,16 @@ class LabManager:
             interview_questions=definition.interview.questions,
             practice_mode=practice_mode,
             scenario_revealed=scenario_revealed,
-            scenario_name=(
-                active_variant.definition.metadata.name
-                if scenario_revealed and active_variant
-                else None
-            ),
-            scenario_description=(
-                active_variant.definition.metadata.description
-                if scenario_revealed and active_variant
-                else None
-            ),
-            key_evidence=reveal.key_evidence if reveal else None,
-            root_cause=reveal.root_cause if reveal else None,
-            resolution=reveal.resolution if reveal else None,
-            prevention=reveal.prevention if reveal else None,
+            scenario_name=disclosure.scenario_name if disclosure else None,
+            scenario_description=disclosure.scenario_description if disclosure else None,
+            key_evidence=disclosure.key_evidence if disclosure else None,
+            root_cause=disclosure.root_cause if disclosure else None,
+            resolution=disclosure.resolution if disclosure else None,
+            prevention=disclosure.prevention if disclosure else None,
             fault_map=fault_map,
+            learning_path_ids=learning_path_ids,
+            knowledge_before=knowledge_before,
+            knowledge_after=knowledge_after,
         )
 
     def session_snapshot(
@@ -800,6 +843,44 @@ class LabManager:
             for category, totals in sorted(category_totals.items())
         )
         return LearningProgressReport(labs=tuple(lab_items), categories=categories)
+
+    def learning_paths(self) -> LearningPathCatalogReport:
+        """Return all M7 paths with progress derived from existing Session facts."""
+        catalog, loaded_labs = self._require_learning_catalog()
+        facts = self._learning_facts(loaded_labs)
+        cards = {card.lab_id: card for card in catalog.knowledge_cards}
+        details = tuple(evaluate_path(path, cards, facts) for path in catalog.paths)
+        return LearningPathCatalogReport(paths=tuple(detail.summary for detail in details))
+
+    def learning_path(self, path_id: str) -> LearningPathDetail:
+        """Return one path map including exact, explainable lock reasons."""
+        catalog, loaded_labs = self._require_learning_catalog()
+        definition = self._find_learning_path(catalog, path_id)
+        cards = {card.lab_id: card for card in catalog.knowledge_cards}
+        return evaluate_path(definition, cards, self._learning_facts(loaded_labs))
+
+    def learning_recommendation(self) -> LearningRecommendation:
+        """Return one deterministic next action; an active Session always wins."""
+        catalog, loaded_labs = self._require_learning_catalog()
+        facts = self._learning_facts(loaded_labs)
+        cards = {card.lab_id: card for card in catalog.knowledge_cards}
+        details = tuple(evaluate_path(path, cards, facts) for path in catalog.paths)
+        return recommend_next(catalog.paths, details, facts)
+
+    def symptoms(self) -> SymptomCatalog:
+        """Return the static symptom index without inspecting the cluster."""
+        catalog, _ = self._require_learning_catalog()
+        return SymptomCatalog(symptoms=catalog.symptoms)
+
+    def learning_path_outcome(self, path_id: str) -> LearningPathOutcome:
+        """Derive one topic outcome without creating a second progress state."""
+        catalog, loaded_labs = self._require_learning_catalog()
+        definition = self._find_learning_path(catalog, path_id)
+        return derive_outcome(definition, self._learning_facts(loaded_labs))
+
+    def export_learning_path_outcome(self, path_id: str) -> str:
+        """Export a bounded, re-redacted Markdown topic outcome."""
+        return render_outcome_markdown(self.learning_path_outcome(path_id))
 
     def export_retrospective(self, session_id: str | None = None) -> str:
         """Render a bounded, re-redacted Markdown learning record."""
@@ -1301,6 +1382,112 @@ class LabManager:
             finally:
                 gateway.close()
 
+    def _optional_learning_catalog(self) -> LearningPathCatalogDefinition | None:
+        if self._learning_path_registry is None:
+            return None
+        labs = self._registry.scan().labs
+        snapshot = self._learning_path_registry.scan(
+            frozenset(lab.definition.metadata.id for lab in labs)
+        )
+        return snapshot.catalog
+
+    def _require_learning_catalog(
+        self,
+    ) -> tuple[LearningPathCatalogDefinition, tuple[LoadedLab, ...]]:
+        labs = self._registry.scan().labs
+        if self._learning_path_registry is None:
+            raise LabManagerError(
+                ManagerErrorCode.LEARNING_PATH_INVALID,
+                "The learning path catalog is unavailable.",
+            )
+        snapshot = self._learning_path_registry.scan(
+            frozenset(lab.definition.metadata.id for lab in labs)
+        )
+        if snapshot.catalog is None:
+            raise LabManagerError(
+                ManagerErrorCode.LEARNING_PATH_INVALID,
+                "The learning path catalog is invalid.",
+                context={"error_count": len(snapshot.errors)},
+            )
+        return snapshot.catalog, labs
+
+    @staticmethod
+    def _find_learning_path(
+        catalog: LearningPathCatalogDefinition, path_id: str
+    ) -> LearningPathDefinition:
+        match = next((path for path in catalog.paths if path.metadata.id == path_id), None)
+        if match is None:
+            raise LabManagerError(
+                ManagerErrorCode.LEARNING_PATH_NOT_FOUND,
+                "The requested learning path was not found.",
+            )
+        return match
+
+    def _learning_facts(self, loaded_labs: tuple[LoadedLab, ...]) -> LearningFacts:
+        with self._unit_of_work() as uow:
+            sessions = uow.sessions.list_all()
+            active = uow.sessions.get_active()
+            event_map = {session.id: uow.sessions.list_events(session.id) for session in sessions}
+            hint_map = {session.id: uow.hints.list_for_session(session.id) for session in sessions}
+            verification_map = {
+                session.id: uow.verifications.list_for_session(session.id) for session in sessions
+            }
+
+        lab_facts: dict[str, LabLearningFacts] = {}
+        for loaded in loaded_labs:
+            lab_id = loaded.definition.metadata.id
+            attempts = tuple(session for session in sessions if session.lab_id == lab_id)
+            ordered_attempts = sorted(attempts, key=lambda item: (item.created_at, item.id))
+            latest = ordered_attempts[-1] if ordered_attempts else None
+            completion_times = sorted(
+                event.created_at
+                for session in attempts
+                for event in event_map[session.id]
+                if event.event_type == "success_contract_passed"
+            )
+            passed_variants = _passed_variants(lab_id, sessions, event_map)
+            completed_variant_ids = passed_variants - {"baseline"}
+            latest_hints = hint_map.get(latest.id, ()) if latest is not None else ()
+            latest_verifications = verification_map.get(latest.id, ()) if latest is not None else ()
+            lab_facts[lab_id] = LabLearningFacts(
+                lab_id=lab_id,
+                baseline_completed="baseline" in passed_variants,
+                variant_total=len(loaded.variants),
+                variant_completed=len(completed_variant_ids),
+                attempt_count=len(attempts),
+                completion_count=len(completion_times),
+                latest_attempt_passed=(
+                    _has_passed(event_map[latest.id]) if latest is not None else None
+                ),
+                latest_unlocked_hint_count=len(latest_hints),
+                latest_manual_verification_count=sum(
+                    run.purpose is VerificationPurpose.MANUAL for run in latest_verifications
+                ),
+                hint_request_count=sum(
+                    hint.request_count for session in attempts for hint in hint_map[session.id]
+                ),
+                manual_verification_count=sum(
+                    run.purpose is VerificationPurpose.MANUAL
+                    for session in attempts
+                    for run in verification_map[session.id]
+                ),
+                first_completed_at=completion_times[0] if completion_times else None,
+                last_completed_at=completion_times[-1] if completion_times else None,
+                last_practiced_at=(
+                    max(session.created_at for session in attempts) if attempts else None
+                ),
+                revealed_scenarios=tuple(
+                    variant.definition.metadata.name
+                    for variant in loaded.variants
+                    if variant.definition.metadata.id in completed_variant_ids
+                ),
+            )
+        return LearningFacts(
+            labs=lab_facts,
+            active_lab_id=active.lab_id if active is not None else None,
+            active_variant_id=active.variant_id if active is not None else None,
+        )
+
     def _require_lab(self, lab_id: str) -> LoadedLab:
         snapshot = self._registry.scan()
         match = next((lab for lab in snapshot.labs if lab.definition.metadata.id == lab_id), None)
@@ -1621,19 +1808,18 @@ def _passed_variants(
 
 
 def _fault_map_entry(*, slot: int, variant: LoadedVariant, revealed: bool) -> FaultMapEntry:
-    if not revealed:
+    disclosure = project_variant_disclosure(variant, revealed=revealed)
+    if not disclosure.revealed:
         return FaultMapEntry(slot=slot, revealed=False)
-    metadata = variant.definition.metadata
-    reveal = variant.definition.reveal
     return FaultMapEntry(
         slot=slot,
         revealed=True,
-        name=metadata.name,
-        description=metadata.description,
-        key_evidence=reveal.key_evidence,
-        root_cause=reveal.root_cause,
-        resolution=reveal.resolution,
-        prevention=reveal.prevention,
+        name=disclosure.scenario_name,
+        description=disclosure.scenario_description,
+        key_evidence=disclosure.key_evidence,
+        root_cause=disclosure.root_cause,
+        resolution=disclosure.resolution,
+        prevention=disclosure.prevention,
     )
 
 

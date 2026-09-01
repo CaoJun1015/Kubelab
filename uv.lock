@@ -349,7 +349,7 @@ wheels = [
 
 [[package]]
 name = "kubelab"
-version = "0.3.0rc1"
+version = "0.5.0a0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },

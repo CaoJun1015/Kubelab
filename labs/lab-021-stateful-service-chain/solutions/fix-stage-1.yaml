@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Service
+metadata: {name: web-headless, namespace: kubelab-stateful-service-chain}
+spec:
+  clusterIP: None
+  selector: {app: stateful-service-chain}
+  ports: [{name: http, port: 80, targetPort: 8080}]
