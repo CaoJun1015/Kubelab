@@ -2,7 +2,7 @@
 
 KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 运维练习平台。它以本机 Docker Engine 和 minikube 为实验环境，目标是把云原生运维面试知识转化为可以反复操作、验证和复盘的故障实验。
 
-> 当前开发版本：`0.4.0a0`（M7专题学习路径）。稳定发布版仍为`v0.1.0`；M6.1的`0.3.0rc1`本地发布候选验收及[Draft PR #5](https://github.com/CaoJun1015/Kubelab/pull/5)双平台CI均已通过。
+> 当前开发版本：`0.5.0a0`（M8实验作者工具链）。稳定发布版仍为`v0.1.0`；M6.1的`0.3.0rc1`本地发布候选验收及[Draft PR #5](https://github.com/CaoJun1015/Kubelab/pull/5)双平台CI均已通过。
 
 ## 界面预览
 
