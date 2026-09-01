@@ -226,6 +226,23 @@ def _run_scenario(
         for change in scenario.contract.repairs.full.allowed_changes
         if change.operation == "recreate"
     )
+    first_documents: tuple[ManifestDocument, ...] = ()
+    first_recreate: frozenset[tuple[str, str, str]] = frozenset()
+    first_plan = scenario.contract.repairs.first
+    if first_plan is not None:
+        first_path = scenario.directory.joinpath(*PurePosixPath(first_plan.manifest).parts)
+        first_documents, first_issue = service._load_manifest_documents(first_path)
+        if first_issue is not None:
+            raise ValueError("first repair source invalid")
+        first_recreate = frozenset(
+            (
+                change.resource.api_version,
+                change.resource.kind,
+                change.resource.name,
+            )
+            for change in first_plan.allowed_changes
+            if change.operation == "recreate"
+        )
 
     with tempfile.TemporaryDirectory(prefix="kubelab-author-") as temporary_name:
         temporary = Path(temporary_name)
@@ -295,6 +312,18 @@ def _run_scenario(
             )
             gateway = gateway_factory(record, fingerprint)
             try:
+                if first_documents:
+                    rewritten_first = tuple(
+                        _rewrite_namespace(item, namespace) for item in first_documents
+                    )
+                    gateway.apply_authoring_repair(
+                        scope,
+                        rewritten_first,
+                        recreate=first_recreate,
+                    )
+                    first_verified = manager.verify(session.id)
+                    if first_verified.status is not ValidationStatus.FAILED:
+                        raise ValueError("first repair unexpectedly satisfied success contract")
                 rewritten_repair = tuple(
                     _rewrite_namespace(item, namespace) for item in repair_documents
                 )
