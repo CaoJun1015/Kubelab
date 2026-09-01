@@ -144,7 +144,7 @@ class ValidationEngine:
 
     def __init__(
         self,
-        unit_of_work: Callable[[], SqlAlchemyUnitOfWork],
+        unit_of_work: Callable[[], SqlAlchemyUnitOfWork] | None,
         *,
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
@@ -260,9 +260,10 @@ class ValidationEngine:
                 for item in evaluations
             ),
         )
-        with self._unit_of_work() as uow:
-            uow.verifications.add(persistence)
-            uow.commit()
+        if self._unit_of_work is not None:
+            with self._unit_of_work() as uow:
+                uow.verifications.add(persistence)
+                uow.commit()
         return ValidationRunResult(
             id=run_id,
             session_id=scope.session_id,

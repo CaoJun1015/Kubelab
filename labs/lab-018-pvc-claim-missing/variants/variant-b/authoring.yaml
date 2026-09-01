@@ -1,0 +1,84 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabAuthoringContract
+scenarioType: variant
+states:
+  faulted:
+    observations:
+      app-data-pending:
+        type: pvc_status
+        phase: Pending
+      consumer-pending:
+        type: pod_status
+        pods:
+        - name: consumer-abc
+          phase: Pending
+          ready: false
+          restartCount: 0
+          containers:
+          - name: consumer
+            image: busybox:1.36.1
+            ready: false
+            restartCount: 0
+            state: running
+      app-data-bound:
+        type: pvc_status
+        phase: Pending
+      consumer-ready:
+        type: pod_status
+        pods:
+        - name: consumer-abc
+          phase: Pending
+          ready: false
+          restartCount: 0
+          containers:
+          - name: consumer
+            image: busybox:1.36.1
+            ready: false
+            restartCount: 0
+            state: running
+  repaired:
+    observations:
+      app-data-pending:
+        type: pvc_status
+        phase: Bound
+      consumer-pending:
+        type: pod_status
+        pods:
+        - name: consumer-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: consumer
+            image: busybox:1.36.1
+            ready: true
+            restartCount: 0
+            state: running
+      app-data-bound:
+        type: pvc_status
+        phase: Bound
+      consumer-ready:
+        type: pod_status
+        pods:
+        - name: consumer-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: consumer
+            image: busybox:1.36.1
+            ready: true
+            restartCount: 0
+            state: running
+  reset: faulted
+repairs:
+  full:
+    manifest: solutions/fix.yaml
+    allowedChanges:
+    - resource:
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        name: app-data
+      operation: recreate
+      paths:
+      - /spec/storageClassName

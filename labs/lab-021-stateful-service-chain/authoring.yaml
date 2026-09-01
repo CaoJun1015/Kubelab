@@ -1,0 +1,122 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabAuthoringContract
+scenarioType: composite
+states:
+  faulted:
+    observations:
+      stateful-pod-ready:
+        type: pod_status
+        pods:
+        - name: web-0
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+      endpoints-empty:
+        type: service_endpoint_count
+        count: 0
+      endpoints-restored:
+        type: service_endpoint_count
+        count: 0
+      stable-dns-restored:
+        type: dns_resolution
+        resolved: false
+        infrastructureError: false
+        timedOut: false
+        cleanupWarning: false
+      business-http-ok:
+        type: http_response
+        targetAvailable: true
+        statusCode: null
+        exitCode: 6
+        infrastructureError: false
+        timedOut: false
+        cleanupWarning: false
+  repaired:
+    observations:
+      stateful-pod-ready:
+        type: pod_status
+        pods: &id001
+        - name: web-0
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+      endpoints-empty:
+        type: service_endpoint_count
+        count: 1
+      endpoints-restored:
+        type: service_endpoint_count
+        count: 1
+      stable-dns-restored:
+        type: dns_resolution
+        resolved: true
+        infrastructureError: false
+        timedOut: false
+        cleanupWarning: false
+      business-http-ok:
+        type: http_response
+        targetAvailable: true
+        statusCode: 200
+        exitCode: 0
+        infrastructureError: false
+        timedOut: false
+        cleanupWarning: false
+  reset: faulted
+  firstRepair:
+    observations:
+      stateful-pod-ready:
+        type: pod_status
+        pods: *id001
+      endpoints-empty:
+        type: service_endpoint_count
+        count: 1
+      endpoints-restored:
+        type: service_endpoint_count
+        count: 1
+      stable-dns-restored:
+        type: dns_resolution
+        resolved: true
+        infrastructureError: false
+        timedOut: false
+        cleanupWarning: false
+      business-http-ok:
+        type: http_response
+        targetAvailable: true
+        statusCode: null
+        exitCode: 6
+        infrastructureError: false
+        timedOut: false
+        cleanupWarning: false
+repairs:
+  full:
+    manifest: solutions/fix.yaml
+    allowedChanges:
+    - resource:
+        apiVersion: v1
+        kind: Service
+        name: web-headless
+      operation: modify
+      paths:
+      - /spec/ports
+      - /spec/selector/app
+  first:
+    manifest: solutions/fix-stage-1.yaml
+    allowedChanges:
+    - resource:
+        apiVersion: v1
+        kind: Service
+        name: web-headless
+      operation: modify
+      paths:
+      - /spec/selector/app

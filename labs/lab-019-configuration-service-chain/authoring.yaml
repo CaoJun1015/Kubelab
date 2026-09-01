@@ -1,0 +1,159 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabAuthoringContract
+scenarioType: composite
+states:
+  faulted:
+    observations:
+      configmap-present:
+        type: resource_exists
+        exists: true
+      pod-config-error:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Pending
+          ready: false
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: false
+            restartCount: 0
+            state: waiting
+            reason: CreateContainerConfigError
+      app-mode-correct:
+        type: config_value
+        resourceExists: true
+        keyExists: false
+        matched: false
+        validEncoding: true
+      web-ready:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Pending
+          ready: false
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: false
+            restartCount: 0
+            state: waiting
+            reason: CreateContainerConfigError
+      endpoints-present:
+        type: service_endpoint_count
+        count: 1
+      business-http-ok:
+        type: http_response
+        targetAvailable: true
+        statusCode: null
+        exitCode: 6
+        infrastructureError: false
+        timedOut: false
+        cleanupWarning: false
+  repaired:
+    observations:
+      configmap-present:
+        type: resource_exists
+        exists: true
+      pod-config-error:
+        type: pod_status
+        pods: &id001
+        - name: web-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+      app-mode-correct:
+        type: config_value
+        resourceExists: true
+        keyExists: true
+        matched: true
+        validEncoding: true
+      web-ready:
+        type: pod_status
+        pods: &id002
+        - name: web-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+      endpoints-present:
+        type: service_endpoint_count
+        count: 1
+      business-http-ok:
+        type: http_response
+        targetAvailable: true
+        statusCode: 200
+        exitCode: 0
+        infrastructureError: false
+        timedOut: false
+        cleanupWarning: false
+  reset: faulted
+  firstRepair:
+    observations:
+      configmap-present:
+        type: resource_exists
+        exists: true
+      pod-config-error:
+        type: pod_status
+        pods: *id001
+      app-mode-correct:
+        type: config_value
+        resourceExists: true
+        keyExists: true
+        matched: true
+        validEncoding: true
+      web-ready:
+        type: pod_status
+        pods: *id002
+      endpoints-present:
+        type: service_endpoint_count
+        count: 1
+      business-http-ok:
+        type: http_response
+        targetAvailable: true
+        statusCode: null
+        exitCode: 6
+        infrastructureError: false
+        timedOut: false
+        cleanupWarning: false
+repairs:
+  full:
+    manifest: solutions/fix.yaml
+    allowedChanges:
+    - resource:
+        apiVersion: v1
+        kind: ConfigMap
+        name: app-settings
+      operation: modify
+      paths:
+      - /data/APP_MODE
+    - resource:
+        apiVersion: v1
+        kind: Service
+        name: web
+      operation: modify
+      paths:
+      - /spec/ports
+  first:
+    manifest: solutions/fix-stage-1.yaml
+    allowedChanges:
+    - resource:
+        apiVersion: v1
+        kind: ConfigMap
+        name: app-settings
+      operation: modify
+      paths:
+      - /data/APP_MODE

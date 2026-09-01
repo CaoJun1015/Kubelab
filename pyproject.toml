@@ -83,6 +83,7 @@ packages = ["src/kubelab"]
 "SECURITY.md" = "kubelab/docs/SECURITY.md"
 "CHANGELOG.md" = "kubelab/docs/CHANGELOG.md"
 "docs" = "kubelab/docs/project"
+"schemas" = "kubelab/schemas"
 
 [tool.hatch.build.targets.sdist]
 only-include = [
@@ -138,7 +139,10 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["kubelab"]
-omit = ["src/kubelab/migrations/*"]
+omit = [
+    "src/kubelab/authoring_integration.py",
+    "src/kubelab/migrations/*",
+]
 
 [tool.coverage.report]
 show_missing = true

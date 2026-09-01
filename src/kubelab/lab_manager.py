@@ -53,6 +53,7 @@ from kubelab.learning_paths import (
     render_outcome_markdown,
 )
 from kubelab.operation_lock import OperationLock
+from kubelab.public_projection import project_variant_disclosure
 from kubelab.redaction import redact_json
 from kubelab.repositories import (
     ActiveSessionConflict,
@@ -473,7 +474,11 @@ class LabManager:
             )
             for index, variant in enumerate(loaded.variants, start=1)
         )
-        reveal = active_variant.definition.reveal if active_variant and scenario_revealed else None
+        disclosure = (
+            project_variant_disclosure(active_variant, revealed=scenario_revealed)
+            if active_variant
+            else None
+        )
         learning_path_ids: tuple[str, ...] = ()
         knowledge_before = None
         knowledge_after = None
@@ -521,20 +526,12 @@ class LabManager:
             interview_questions=definition.interview.questions,
             practice_mode=practice_mode,
             scenario_revealed=scenario_revealed,
-            scenario_name=(
-                active_variant.definition.metadata.name
-                if scenario_revealed and active_variant
-                else None
-            ),
-            scenario_description=(
-                active_variant.definition.metadata.description
-                if scenario_revealed and active_variant
-                else None
-            ),
-            key_evidence=reveal.key_evidence if reveal else None,
-            root_cause=reveal.root_cause if reveal else None,
-            resolution=reveal.resolution if reveal else None,
-            prevention=reveal.prevention if reveal else None,
+            scenario_name=disclosure.scenario_name if disclosure else None,
+            scenario_description=disclosure.scenario_description if disclosure else None,
+            key_evidence=disclosure.key_evidence if disclosure else None,
+            root_cause=disclosure.root_cause if disclosure else None,
+            resolution=disclosure.resolution if disclosure else None,
+            prevention=disclosure.prevention if disclosure else None,
             fault_map=fault_map,
             learning_path_ids=learning_path_ids,
             knowledge_before=knowledge_before,
@@ -1811,19 +1808,18 @@ def _passed_variants(
 
 
 def _fault_map_entry(*, slot: int, variant: LoadedVariant, revealed: bool) -> FaultMapEntry:
-    if not revealed:
+    disclosure = project_variant_disclosure(variant, revealed=revealed)
+    if not disclosure.revealed:
         return FaultMapEntry(slot=slot, revealed=False)
-    metadata = variant.definition.metadata
-    reveal = variant.definition.reveal
     return FaultMapEntry(
         slot=slot,
         revealed=True,
-        name=metadata.name,
-        description=metadata.description,
-        key_evidence=reveal.key_evidence,
-        root_cause=reveal.root_cause,
-        resolution=reveal.resolution,
-        prevention=reveal.prevention,
+        name=disclosure.scenario_name,
+        description=disclosure.scenario_description,
+        key_evidence=disclosure.key_evidence,
+        root_cause=disclosure.root_cause,
+        resolution=disclosure.resolution,
+        prevention=disclosure.prevention,
     )
 
 

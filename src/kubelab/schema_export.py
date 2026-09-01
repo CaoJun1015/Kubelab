@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from kubelab.authoring_schema import LabAuthoringContract
 from kubelab.lab_schema import LabDefinition, LabVariantDefinition
 from kubelab.learning_paths import LearningPathCatalogDefinition
 
@@ -40,6 +41,16 @@ def default_learning_path_schema_path() -> Path:
     return Path(__file__).resolve().parents[2] / "schemas" / "learning-path-v1alpha1.schema.json"
 
 
+def render_authoring_json_schema() -> str:
+    """Return the canonical M8 author-contract JSON Schema."""
+    schema = LabAuthoringContract.model_json_schema(by_alias=True, mode="validation")
+    return json.dumps(schema, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+
+
+def default_authoring_schema_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "schemas" / "lab-authoring-v1alpha1.schema.json"
+
+
 def main() -> None:
     """Write the canonical schema for maintainers."""
     path = default_schema_path()
@@ -49,6 +60,8 @@ def main() -> None:
     variant_path.write_text(render_variant_json_schema(), encoding="utf-8", newline="\n")
     learning_path = default_learning_path_schema_path()
     learning_path.write_text(render_learning_path_json_schema(), encoding="utf-8", newline="\n")
+    authoring_path = default_authoring_schema_path()
+    authoring_path.write_text(render_authoring_json_schema(), encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":

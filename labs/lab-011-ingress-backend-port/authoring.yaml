@@ -1,0 +1,48 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabAuthoringContract
+scenarioType: baseline
+states:
+  faulted:
+    observations:
+      ingress-created:
+        type: resource_exists
+        exists: true
+      backend-endpoint-ready:
+        type: service_endpoint_count
+        count: 1
+      ingress-http-restored:
+        type: http_response
+        targetAvailable: true
+        statusCode: null
+        exitCode: 6
+        infrastructureError: false
+        timedOut: false
+        cleanupWarning: false
+  repaired:
+    observations:
+      ingress-created:
+        type: resource_exists
+        exists: true
+      backend-endpoint-ready:
+        type: service_endpoint_count
+        count: 1
+      ingress-http-restored:
+        type: http_response
+        targetAvailable: true
+        statusCode: 200
+        exitCode: 0
+        infrastructureError: false
+        timedOut: false
+        cleanupWarning: false
+  reset: faulted
+repairs:
+  full:
+    manifest: solutions/fix.yaml
+    allowedChanges:
+    - resource:
+        apiVersion: networking.k8s.io/v1
+        kind: Ingress
+        name: web
+      operation: modify
+      paths:
+      - /spec/rules

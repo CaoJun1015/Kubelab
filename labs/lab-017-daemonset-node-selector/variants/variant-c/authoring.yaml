@@ -1,0 +1,78 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabAuthoringContract
+scenarioType: variant
+states:
+  faulted:
+    observations:
+      daemonset-present:
+        type: resource_exists
+        exists: true
+      daemon-pod-pending:
+        type: pod_status
+        pods:
+        - name: node-agent-abc
+          phase: Pending
+          ready: false
+          restartCount: 0
+          containers:
+          - name: agent
+            image: busybox:1.36.1
+            ready: false
+            restartCount: 0
+            state: running
+      daemon-pod-ready:
+        type: pod_status
+        pods:
+        - name: node-agent-abc
+          phase: Pending
+          ready: false
+          restartCount: 0
+          containers:
+          - name: agent
+            image: busybox:1.36.1
+            ready: false
+            restartCount: 0
+            state: running
+  repaired:
+    observations:
+      daemonset-present:
+        type: resource_exists
+        exists: true
+      daemon-pod-pending:
+        type: pod_status
+        pods:
+        - name: node-agent-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: agent
+            image: busybox:1.36.1
+            ready: true
+            restartCount: 0
+            state: running
+      daemon-pod-ready:
+        type: pod_status
+        pods:
+        - name: node-agent-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: agent
+            image: busybox:1.36.1
+            ready: true
+            restartCount: 0
+            state: running
+  reset: faulted
+repairs:
+  full:
+    manifest: solutions/fix.yaml
+    allowedChanges:
+    - resource:
+        apiVersion: apps/v1
+        kind: DaemonSet
+        name: node-agent
+      operation: recreate
+      paths:
+      - /spec/template/spec/affinity

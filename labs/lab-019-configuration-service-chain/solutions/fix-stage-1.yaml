@@ -1,0 +1,4 @@
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: app-settings, namespace: kubelab-configuration-service-chain}
+data: {LOG_LEVEL: info, APP_MODE: production}

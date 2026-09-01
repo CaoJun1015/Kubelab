@@ -14,6 +14,7 @@ from typing import Protocol
 
 EXPECTED_LAB_COUNT = 21
 EXPECTED_VARIANT_COUNT = 12
+EXPECTED_AUTHORING_COUNT = 33
 EXPECTED_WEB_ASSETS = {
     "static/app.js",
     "static/styles.css",
@@ -37,6 +38,12 @@ EXPECTED_PACKAGE_FILES = {
     "migrations/versions/0002_guided_learning.py",
     "migrations/versions/0003_lab_variants.py",
     "py.typed",
+}
+EXPECTED_SCHEMA_FILES = {
+    "lab-v1alpha1.schema.json",
+    "lab-variant-v1alpha1.schema.json",
+    "learning-path-v1alpha1.schema.json",
+    "lab-authoring-v1alpha1.schema.json",
 }
 EXPECTED_PROJECT_DOCS = {
     "CHANGELOG.md",
@@ -225,9 +232,22 @@ def verify_wheel(path: Path, expected_version: str) -> None:
             raise ValueError(
                 f"wheel contains {len(variants)} variants, expected {EXPECTED_VARIANT_COUNT}"
             )
+        authoring = {
+            name
+            for name in names
+            if re.fullmatch(r"kubelab/labs/[^/]+/(?:variants/[^/]+/)?authoring\.yaml", name)
+        }
+        if len(authoring) != EXPECTED_AUTHORING_COUNT:
+            raise ValueError(
+                "wheel contains "
+                f"{len(authoring)} author contracts, expected {EXPECTED_AUTHORING_COUNT}"
+            )
         for asset in EXPECTED_WEB_ASSETS | EXPECTED_PACKAGE_FILES:
             if f"kubelab/{asset}" not in names:
                 raise ValueError(f"wheel is missing kubelab/{asset}")
+        for schema in EXPECTED_SCHEMA_FILES:
+            if f"kubelab/schemas/{schema}" not in names:
+                raise ValueError(f"wheel is missing kubelab/schemas/{schema}")
         wheel_docs = {
             "kubelab/docs/README.md",
             "kubelab/docs/LICENSE",
@@ -268,9 +288,22 @@ def verify_sdist(path: Path, expected_version: str) -> None:
             raise ValueError(
                 f"sdist contains {len(variants)} variants, expected {EXPECTED_VARIANT_COUNT}"
             )
+        authoring = {
+            name
+            for name in relative
+            if re.fullmatch(r"labs/[^/]+/(?:variants/[^/]+/)?authoring\.yaml", name)
+        }
+        if len(authoring) != EXPECTED_AUTHORING_COUNT:
+            raise ValueError(
+                "sdist contains "
+                f"{len(authoring)} author contracts, expected {EXPECTED_AUTHORING_COUNT}"
+            )
         for asset in EXPECTED_WEB_ASSETS | EXPECTED_PACKAGE_FILES:
             if f"src/kubelab/{asset}" not in relative:
                 raise ValueError(f"sdist is missing src/kubelab/{asset}")
+        for schema in EXPECTED_SCHEMA_FILES:
+            if f"schemas/{schema}" not in relative:
+                raise ValueError(f"sdist is missing schemas/{schema}")
         missing_docs = (EXPECTED_PROJECT_DOCS | EXPECTED_SCREENSHOTS).difference(relative)
         if missing_docs:
             raise ValueError(f"sdist is missing documentation: {sorted(missing_docs)}")
@@ -299,6 +332,7 @@ def main() -> int:
     print(
         f"verified KubeLab {args.version}: {EXPECTED_LAB_COUNT} labs, "
         f"{EXPECTED_VARIANT_COUNT} variants, "
+        f"{EXPECTED_AUTHORING_COUNT} author contracts, "
         f"{len(EXPECTED_WEB_ASSETS)} Web assets, metadata and safety rules"
     )
     return 0

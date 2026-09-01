@@ -1,0 +1,78 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabAuthoringContract
+scenarioType: variant
+states:
+  faulted:
+    observations:
+      job-present:
+        type: resource_exists
+        exists: true
+      job-failed:
+        type: pod_status
+        pods:
+        - name: data-check-abc
+          phase: Failed
+          ready: false
+          restartCount: 0
+          containers:
+          - name: checker
+            image: busybox:1.36.1
+            ready: false
+            restartCount: 0
+            state: running
+      job-succeeded:
+        type: pod_status
+        pods:
+        - name: data-check-abc
+          phase: Failed
+          ready: false
+          restartCount: 0
+          containers:
+          - name: checker
+            image: busybox:1.36.1
+            ready: false
+            restartCount: 0
+            state: running
+  repaired:
+    observations:
+      job-present:
+        type: resource_exists
+        exists: true
+      job-failed:
+        type: pod_status
+        pods:
+        - name: data-check-abc
+          phase: Succeeded
+          ready: false
+          restartCount: 0
+          containers:
+          - name: checker
+            image: busybox:1.36.1
+            ready: false
+            restartCount: 0
+            state: running
+      job-succeeded:
+        type: pod_status
+        pods:
+        - name: data-check-abc
+          phase: Succeeded
+          ready: false
+          restartCount: 0
+          containers:
+          - name: checker
+            image: busybox:1.36.1
+            ready: false
+            restartCount: 0
+            state: running
+  reset: faulted
+repairs:
+  full:
+    manifest: solutions/fix.yaml
+    allowedChanges:
+    - resource:
+        apiVersion: batch/v1
+        kind: Job
+        name: data-check
+      operation: recreate
+      paths:
+      - /spec/template/spec/containers

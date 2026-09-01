@@ -292,9 +292,21 @@ class KubernetesApi(Protocol):
         timeout: int,
     ) -> None: ...
 
+    def delete_resource(
+        self,
+        api_version: str,
+        kind: str,
+        *,
+        namespace: str,
+        name: str,
+        timeout: int,
+    ) -> None: ...
+
     def delete_namespace(self, name: str, *, timeout: int) -> None: ...
 
     def list_resources(self, namespace: str, *, timeout: int) -> Sequence[Mapping[str, Any]]: ...
+
+    def list_persistent_volumes(self, *, timeout: int) -> Sequence[Mapping[str, Any]]: ...
 
     def list_pods(self, namespace: str, *, timeout: int) -> Sequence[Mapping[str, Any]]: ...
 
@@ -445,6 +457,22 @@ class OfficialKubernetesApi:  # pragma: no cover - exercised by opt-in WSL integ
             kwargs["dry_run"] = "All"
         resource.patch(**kwargs)
 
+    def delete_resource(
+        self,
+        api_version: str,
+        kind: str,
+        *,
+        namespace: str,
+        name: str,
+        timeout: int,
+    ) -> None:
+        resource = self._dynamic.resources.get(api_version=api_version, kind=kind)
+        try:
+            resource.delete(name=name, namespace=namespace, _request_timeout=timeout)
+        except ApiException as exc:
+            if exc.status != 404:
+                raise
+
     def delete_namespace(self, name: str, *, timeout: int) -> None:
         self._core.delete_namespace(name, _request_timeout=timeout)
 
@@ -455,6 +483,10 @@ class OfficialKubernetesApi:  # pragma: no cover - exercised by opt-in WSL integ
             response = resource.get(namespace=namespace, _request_timeout=timeout)
             documents.extend(self._serialized(item) for item in response.items)
         return documents
+
+    def list_persistent_volumes(self, *, timeout: int) -> Sequence[Mapping[str, Any]]:
+        response = self._core.list_persistent_volume(_request_timeout=timeout)
+        return [self._serialized(item) for item in response.items]
 
     def list_pods(self, namespace: str, *, timeout: int) -> Sequence[Mapping[str, Any]]:
         response = self._core.list_namespaced_pod(namespace, _request_timeout=timeout)
@@ -681,6 +713,90 @@ class KubernetesGateway:
                 )
             )
 
+    def apply_authoring_repair(
+        self,
+        scope: SessionScope,
+        documents: tuple[ManifestDocument, ...],
+        *,
+        recreate: frozenset[tuple[str, str, str]] = frozenset(),
+    ) -> None:
+        """Apply only pre-scanned author repair documents inside an owned Namespace."""
+        self.assert_namespace_owned(scope)
+        prepared: list[Mapping[str, Any]] = []
+        identities: set[tuple[str, str, str]] = set()
+        for source in documents:
+            api_version = source.data.get("apiVersion")
+            kind = source.data.get("kind")
+            metadata = source.data.get("metadata")
+            name = metadata.get("name") if isinstance(metadata, Mapping) else None
+            if (
+                not isinstance(api_version, str)
+                or not isinstance(kind, str)
+                or not isinstance(name, str)
+                or (api_version, kind) not in ALLOWED_RESOURCES
+                or kind == "Secret"
+            ):
+                raise self._scope_error("Author repair contains an unsupported resource.")
+            identity = (api_version, kind, name)
+            if identity in identities:
+                raise self._scope_error("Author repair contains a duplicate resource.")
+            identities.add(identity)
+            prepared.append(self._prepare_document(scope, source))
+        if not recreate.issubset(identities):
+            raise self._scope_error("Author recreate targets must exist in the repair bundle.")
+        for api_version, kind, name in sorted(recreate):
+            self._call(
+                partial(
+                    self._api.delete_resource,
+                    api_version,
+                    kind,
+                    namespace=scope.namespace,
+                    name=name,
+                    timeout=self._request_timeout,
+                )
+            )
+            deadline = self._monotonic() + 60
+            while self._monotonic() < deadline:
+                existing = self._call(
+                    partial(
+                        self._api.get_resource,
+                        api_version,
+                        kind,
+                        namespace=scope.namespace,
+                        name=name,
+                        timeout=self._request_timeout,
+                    )
+                )
+                if existing is None:
+                    break
+                self._sleep(min(1.0, max(0.0, deadline - self._monotonic())))
+            else:
+                raise KubernetesGatewayError(
+                    GatewayErrorCode.TIMEOUT,
+                    "Author repair resource deletion timed out.",
+                    retryable=True,
+                )
+        for document in prepared:
+            self._call(
+                partial(
+                    self._api.apply,
+                    document,
+                    namespace=scope.namespace,
+                    dry_run=True,
+                    timeout=self._request_timeout,
+                )
+            )
+        for document in sorted(prepared, key=_apply_sort_key):
+            self._call(
+                partial(
+                    self._api.apply,
+                    document,
+                    namespace=scope.namespace,
+                    dry_run=False,
+                    timeout=self._request_timeout,
+                )
+            )
+
     def namespace_exists(self, scope: SessionScope) -> bool:
         self._guard_scope(scope)
         try:
@@ -692,6 +808,24 @@ class KubernetesGateway:
                 return False
             raise
         return True
+
+    def authoring_persistent_volume_residue(self, scope: SessionScope) -> tuple[str, ...]:
+        """Return only PV names whose claimRef belongs to the author test Namespace."""
+        self._guard_scope(scope)
+        volumes = self._call(
+            lambda: self._api.list_persistent_volumes(timeout=self._request_timeout)
+        )
+        names: list[str] = []
+        for volume in volumes:
+            spec = volume.get("spec")
+            claim_ref = spec.get("claimRef") if isinstance(spec, Mapping) else None
+            if not isinstance(claim_ref, Mapping) or claim_ref.get("namespace") != scope.namespace:
+                continue
+            metadata = volume.get("metadata")
+            name = metadata.get("name") if isinstance(metadata, Mapping) else None
+            if isinstance(name, str) and name:
+                names.append(name)
+        return tuple(sorted(set(names)))
 
     def assert_namespace_owned(self, scope: SessionScope) -> None:
         """Apply all six deletion invariants without changing the cluster."""

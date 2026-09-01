@@ -1,0 +1,78 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabAuthoringContract
+scenarioType: baseline
+states:
+  faulted:
+    observations:
+      liveness-restarts:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Running
+          ready: false
+          restartCount: 2
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: false
+            restartCount: 2
+            state: running
+      probe-deployment-available:
+        type: deployment_available
+        availableReplicas: 0
+      probe-pod-stable:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Running
+          ready: false
+          restartCount: 2
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: false
+            restartCount: 2
+            state: running
+  repaired:
+    observations:
+      liveness-restarts:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+      probe-deployment-available:
+        type: deployment_available
+        availableReplicas: 1
+      probe-pod-stable:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+  reset: faulted
+repairs:
+  full:
+    manifest: solutions/fix.yaml
+    allowedChanges:
+    - resource:
+        apiVersion: apps/v1
+        kind: Deployment
+        name: web
+      operation: modify
+      paths:
+      - /spec/template/spec/containers

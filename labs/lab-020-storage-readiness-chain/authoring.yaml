@@ -1,0 +1,145 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabAuthoringContract
+scenarioType: composite
+states:
+  faulted:
+    observations:
+      deployment-present:
+        type: resource_exists
+        exists: true
+      web-pending:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Pending
+          ready: false
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: false
+            restartCount: 0
+            state: running
+      app-data-bound:
+        type: pvc_status
+        phase: null
+      web-ready:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Pending
+          ready: false
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: false
+            restartCount: 0
+            state: running
+      business-http-ok:
+        type: http_response
+        targetAvailable: true
+        statusCode: null
+        exitCode: 6
+        infrastructureError: false
+        timedOut: false
+        cleanupWarning: false
+  repaired:
+    observations:
+      deployment-present:
+        type: resource_exists
+        exists: true
+      web-pending:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+      app-data-bound:
+        type: pvc_status
+        phase: Bound
+      web-ready:
+        type: pod_status
+        pods:
+        - name: web-abc
+          phase: Running
+          ready: true
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: true
+            restartCount: 0
+            state: running
+      business-http-ok:
+        type: http_response
+        targetAvailable: true
+        statusCode: 200
+        exitCode: 0
+        infrastructureError: false
+        timedOut: false
+        cleanupWarning: false
+  reset: faulted
+  firstRepair:
+    observations:
+      deployment-present:
+        type: resource_exists
+        exists: true
+      web-pending:
+        type: pod_status
+        pods: &id001
+        - name: web-abc
+          phase: Running
+          ready: false
+          restartCount: 0
+          containers:
+          - name: web
+            image: nginx:1.27-alpine
+            ready: false
+            restartCount: 0
+            state: running
+      app-data-bound:
+        type: pvc_status
+        phase: Bound
+      web-ready:
+        type: pod_status
+        pods: *id001
+      business-http-ok:
+        type: http_response
+        targetAvailable: true
+        statusCode: null
+        exitCode: 6
+        infrastructureError: false
+        timedOut: false
+        cleanupWarning: false
+repairs:
+  full:
+    manifest: solutions/fix.yaml
+    allowedChanges:
+    - resource:
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        name: app-data
+      operation: create
+    - resource:
+        apiVersion: apps/v1
+        kind: Deployment
+        name: web
+      operation: modify
+      paths:
+      - /spec/template/spec/containers
+  first:
+    manifest: solutions/fix-stage-1.yaml
+    allowedChanges:
+    - resource:
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        name: app-data
+      operation: create

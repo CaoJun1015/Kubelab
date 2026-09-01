@@ -1,0 +1,44 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabAuthoringContract
+scenarioType: baseline
+states:
+  faulted:
+    observations:
+      old-version-present:
+        type: container_image
+        image: nginx:1.26-alpine
+      old-version-available:
+        type: deployment_available
+        availableReplicas: 2
+      target-version-present:
+        type: container_image
+        image: nginx:1.26-alpine
+      target-version-available:
+        type: deployment_available
+        availableReplicas: 2
+  repaired:
+    observations:
+      old-version-present:
+        type: container_image
+        image: nginx:1.27-alpine
+      old-version-available:
+        type: deployment_available
+        availableReplicas: 2
+      target-version-present:
+        type: container_image
+        image: nginx:1.27-alpine
+      target-version-available:
+        type: deployment_available
+        availableReplicas: 2
+  reset: faulted
+repairs:
+  full:
+    manifest: solutions/fix.yaml
+    allowedChanges:
+    - resource:
+        apiVersion: apps/v1
+        kind: Deployment
+        name: web
+      operation: modify
+      paths:
+      - /spec/template/spec/containers
