@@ -6,6 +6,7 @@ import argparse
 import re
 import sys
 import tarfile
+import tomllib
 import zipfile
 from dataclasses import dataclass
 from email import parser
@@ -313,24 +314,61 @@ def verify_sdist(path: Path, expected_version: str) -> None:
         _assert_metadata(_metadata(reader, names, "/PKG-INFO"), expected_version, "sdist")
 
 
+def _single_artifact(dist_dir: Path, pattern: str, label: str) -> Path:
+    matches = sorted(dist_dir.glob(pattern))
+    if len(matches) != 1:
+        raise ValueError(
+            f"expected exactly one {label} in {dist_dir}, found {[path.name for path in matches]}"
+        )
+    return matches[0]
+
+
+def _project_version(project_file: Path) -> str:
+    try:
+        project = tomllib.loads(project_file.read_text(encoding="utf-8"))["project"]
+        version = project["version"]
+    except (KeyError, OSError, tomllib.TOMLDecodeError) as exc:
+        raise ValueError(f"cannot read project version from {project_file}") from exc
+    if not isinstance(version, str) or not version.strip():
+        raise ValueError(f"project version in {project_file} must be a non-empty string")
+    return version
+
+
+def _verification_inputs(args: argparse.Namespace) -> tuple[Path, Path, str]:
+    if args.dist_dir is not None:
+        if args.wheel is not None or args.sdist is not None or args.version is not None:
+            raise ValueError("--dist-dir cannot be combined with --wheel, --sdist, or --version")
+        return (
+            _single_artifact(args.dist_dir, "kubelab-*.whl", "wheel"),
+            _single_artifact(args.dist_dir, "kubelab-*.tar.gz", "source distribution"),
+            _project_version(args.project_file),
+        )
+    if args.wheel is None or args.sdist is None or args.version is None:
+        raise ValueError("provide --dist-dir, or provide --wheel, --sdist, and --version together")
+    return args.wheel, args.sdist, args.version
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--wheel", required=True, type=Path)
-    parser.add_argument("--sdist", required=True, type=Path)
-    parser.add_argument("--version", required=True)
+    parser.add_argument("--dist-dir", type=Path)
+    parser.add_argument("--project-file", type=Path, default=Path("pyproject.toml"))
+    parser.add_argument("--wheel", type=Path)
+    parser.add_argument("--sdist", type=Path)
+    parser.add_argument("--version")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     try:
-        verify_wheel(args.wheel, args.version)
-        verify_sdist(args.sdist, args.version)
+        wheel, sdist, version = _verification_inputs(args)
+        verify_wheel(wheel, version)
+        verify_sdist(sdist, version)
     except (KeyError, OSError, tarfile.TarError, ValueError, zipfile.BadZipFile) as exc:
         print(f"distribution verification failed: {exc}", file=sys.stderr)
         return 1
     print(
-        f"verified KubeLab {args.version}: {EXPECTED_LAB_COUNT} labs, "
+        f"verified KubeLab {version}: {EXPECTED_LAB_COUNT} labs, "
         f"{EXPECTED_VARIANT_COUNT} variants, "
         f"{EXPECTED_AUTHORING_COUNT} author contracts, "
         f"{len(EXPECTED_WEB_ASSETS)} Web assets, metadata and safety rules"

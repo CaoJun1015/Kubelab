@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote
@@ -150,19 +149,14 @@ def test_built_distributions_pass_shared_release_verifier(tmp_path: Path) -> Non
         env=os.environ.copy(),
     )
     wheel = next(output.glob("kubelab-*.whl"))
-    sdist = next(output.glob("kubelab-*.tar.gz"))
-    metadata = tomllib.loads((project / "pyproject.toml").read_text(encoding="utf-8"))
-    version = metadata["project"]["version"]
     subprocess.run(
         [
             sys.executable,
             str(project / "scripts" / "verify_distribution.py"),
-            "--wheel",
-            str(wheel),
-            "--sdist",
-            str(sdist),
-            "--version",
-            version,
+            "--dist-dir",
+            str(output),
+            "--project-file",
+            str(project / "pyproject.toml"),
         ],
         cwd=project,
         check=True,

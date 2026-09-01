@@ -223,3 +223,13 @@ def test_wsl_quality_gate_is_isolated_and_keeps_real_integration_disabled() -> N
     assert "KUBELAB_RUN_LAB_INTEGRATION=0" in script
     assert "python -m pytest" in script
     assert "0.3.0rc1" in script
+
+
+def test_ci_verifies_artifacts_against_the_current_project_version() -> None:
+    workflow = (Path(__file__).parents[1] / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "--dist-dir dist" in workflow
+    assert "--project-file pyproject.toml" in workflow
+    assert "dist/kubelab-0.3.0rc1" not in workflow
