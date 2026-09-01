@@ -40,6 +40,7 @@ from kubelab.lab_manager import (
     SessionStage,
 )
 from kubelab.lab_registry import LabRegistry, LoadedLab
+from kubelab.learning_paths import LearningPathRegistry, RecommendationAction
 from kubelab.operation_lock import OperationLock, OperationLockError
 from kubelab.repositories import ActiveSessionConflict
 from kubelab.session_state import (
@@ -276,6 +277,7 @@ def build_manager(
     validation: FakeValidation | None = None,
     registry: LabRegistry | None = None,
     readiness: FakeReadiness | None = None,
+    learning_paths: LearningPathRegistry | None = None,
 ) -> tuple[LabManager, FakeGateway, FakeTrust, FakeValidation]:
     selected_gateway = gateway or FakeGateway()
     selected_trust = trust or FakeTrust()
@@ -291,8 +293,22 @@ def build_manager(
         gateway_factory=FakeGatewayFactory(selected_gateway),
         validation=selected_validation,
         readiness=readiness,
+        learning_paths=learning_paths,
     )
     return manager, selected_gateway, selected_trust, selected_validation
+
+
+def build_m7_manager(database: Database, tmp_path: Path) -> LabManager:
+    project = Path(__file__).parents[1]
+    manager, _, _, _ = build_manager(
+        database,
+        tmp_path,
+        registry=LabRegistry(project / "labs"),
+        learning_paths=LearningPathRegistry(
+            project / "src" / "kubelab" / "content" / "learning-paths.yaml"
+        ),
+    )
+    return manager
 
 
 def persisted(database: Database, session_id: str) -> LabSessionSnapshot:
@@ -361,6 +377,64 @@ def test_catalog_marks_active_then_completed_after_success(
 
     assert manager.list_labs().labs[0].progress is LabProgress.COMPLETED
     assert manager.session_snapshot(latest_if_inactive=True).status is SessionStatus.COMPLETED
+
+
+def test_m7_paths_progress_recommendation_and_outcome_share_session_facts(
+    database: Database, tmp_path: Path
+) -> None:
+    manager = build_m7_manager(database, tmp_path)
+    baseline = manager.start("lab-013-service-target-port")
+    manager.verify(baseline.id)
+
+    detail_after_pass = manager.show_lab("lab-013-service-target-port")
+    assert detail_after_pass.knowledge_before is not None
+    assert detail_after_pass.knowledge_after is not None
+    assert detail_after_pass.learning_path_ids == ("service-discovery-traffic",)
+
+    manager.cleanup(baseline.id)
+    variant = manager.start("lab-013-service-target-port")
+    assert variant.variant_id == "variant-b"
+    manager.verify(variant.id)
+    manager.cleanup(variant.id)
+
+    paths = manager.learning_paths()
+    service_path = next(path for path in paths.paths if path.id == "service-discovery-traffic")
+    detail = manager.learning_path(service_path.id)
+    outcome = manager.learning_path_outcome(service_path.id)
+    recommendation = manager.learning_recommendation()
+
+    assert len(paths.paths) == 4
+    assert service_path.completed_node_count == 2
+    assert next(node for node in detail.nodes if node.id == "target-port-variant").after
+    assert outcome.baseline_completed_count == 1
+    assert outcome.variant_completed == 1
+    assert recommendation.action is RecommendationAction.START_BASELINE
+    assert recommendation.lab_id == "lab-007-service-selector"
+    assert len(manager.symptoms().symptoms) == 9
+    exported = manager.export_learning_path_outcome(service_path.id)
+    assert "Service targetPort" not in exported
+    assert "expected" not in exported.casefold()
+    assert "actual" not in exported.casefold()
+
+
+def test_invalid_path_catalog_does_not_break_existing_lab_detail(
+    database: Database, tmp_path: Path
+) -> None:
+    invalid = tmp_path / "learning-paths.yaml"
+    invalid.write_text("kind: LearningPathCatalog\n", encoding="utf-8")
+    manager, _, _, _ = build_manager(
+        database,
+        tmp_path,
+        learning_paths=LearningPathRegistry(invalid),
+    )
+
+    detail = manager.show_lab("complete-lab")
+
+    assert detail.lab.id == "complete-lab"
+    assert detail.learning_path_ids == ()
+    with pytest.raises(LabManagerError) as error:
+        manager.learning_paths()
+    assert error.value.code == ManagerErrorCode.LEARNING_PATH_INVALID
 
 
 def test_safe_cluster_reads_do_not_change_ready_session(database: Database, tmp_path: Path) -> None:

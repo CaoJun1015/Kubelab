@@ -1,0 +1,402 @@
+{
+  "$defs": {
+    "AfterKnowledgeCard": {
+      "additionalProperties": false,
+      "properties": {
+        "antiPatterns": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Antipatterns",
+          "type": "array"
+        },
+        "keyEvidence": {
+          "minLength": 1,
+          "title": "Keyevidence",
+          "type": "string"
+        },
+        "minimalFix": {
+          "minLength": 1,
+          "title": "Minimalfix",
+          "type": "string"
+        },
+        "prevention": {
+          "minLength": 1,
+          "title": "Prevention",
+          "type": "string"
+        },
+        "rootCause": {
+          "minLength": 1,
+          "title": "Rootcause",
+          "type": "string"
+        }
+      },
+      "required": [
+        "keyEvidence",
+        "rootCause",
+        "minimalFix",
+        "antiPatterns",
+        "prevention"
+      ],
+      "title": "AfterKnowledgeCard",
+      "type": "object"
+    },
+    "BeforeKnowledgeCard": {
+      "additionalProperties": false,
+      "properties": {
+        "evidenceChecklist": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidencechecklist",
+          "type": "array"
+        },
+        "objects": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Objects",
+          "type": "array"
+        },
+        "successGoal": {
+          "minLength": 1,
+          "title": "Successgoal",
+          "type": "string"
+        },
+        "what": {
+          "minLength": 1,
+          "title": "What",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "what",
+        "why",
+        "successGoal",
+        "objects",
+        "evidenceChecklist"
+      ],
+      "title": "BeforeKnowledgeCard",
+      "type": "object"
+    },
+    "LabKnowledgeCard": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "$ref": "#/$defs/AfterKnowledgeCard"
+        },
+        "before": {
+          "$ref": "#/$defs/BeforeKnowledgeCard"
+        },
+        "labId": {
+          "maxLength": 40,
+          "minLength": 3,
+          "pattern": "^[a-z][a-z0-9-]{2,39}$",
+          "title": "Labid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "labId",
+        "before",
+        "after"
+      ],
+      "title": "LabKnowledgeCard",
+      "type": "object"
+    },
+    "LearningPathDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "metadata": {
+          "$ref": "#/$defs/LearningPathMetadata"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/LearningPathNodeDefinition"
+          },
+          "minItems": 2,
+          "title": "Nodes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "metadata",
+        "nodes"
+      ],
+      "title": "LearningPathDefinition",
+      "type": "object"
+    },
+    "LearningPathMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "objective": {
+          "minLength": 1,
+          "title": "Objective",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "objective"
+      ],
+      "title": "LearningPathMetadata",
+      "type": "object"
+    },
+    "LearningPathNodeDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "dependsOn": {
+          "default": [],
+          "items": {
+            "maxLength": 63,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "type": "string"
+          },
+          "title": "Dependson",
+          "type": "array"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "labId": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "minLength": 3,
+              "pattern": "^[a-z][a-z0-9-]{2,39}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Labid"
+        },
+        "requirements": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/LearningRequirement"
+          },
+          "title": "Requirements",
+          "type": "array"
+        },
+        "title": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "concept",
+            "baseline",
+            "variant",
+            "composite",
+            "retrospective"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "title",
+        "description"
+      ],
+      "title": "LearningPathNodeDefinition",
+      "type": "object"
+    },
+    "LearningRequirement": {
+      "additionalProperties": false,
+      "description": "A prerequisite derived from existing Session success events.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "baseline_completed",
+            "variant_completed"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "labId": {
+          "maxLength": 40,
+          "minLength": 3,
+          "pattern": "^[a-z][a-z0-9-]{2,39}$",
+          "title": "Labid",
+          "type": "string"
+        },
+        "minimumVariantCount": {
+          "anyOf": [
+            {
+              "maximum": 20,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimumvariantcount"
+        }
+      },
+      "required": [
+        "kind",
+        "labId"
+      ],
+      "title": "LearningRequirement",
+      "type": "object"
+    },
+    "SymptomDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "causeCategories": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Causecategories",
+          "type": "array"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "evidenceOrder": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidenceorder",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "labIds": {
+          "items": {
+            "maxLength": 40,
+            "minLength": 3,
+            "pattern": "^[a-z][a-z0-9-]{2,39}$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Labids",
+          "type": "array"
+        },
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "evidenceOrder",
+        "causeCategories",
+        "labIds"
+      ],
+      "title": "SymptomDefinition",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": {
+      "const": "kubelab.io/v1alpha1",
+      "title": "Apiversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "LearningPathCatalog",
+      "title": "Kind",
+      "type": "string"
+    },
+    "knowledgeCards": {
+      "items": {
+        "$ref": "#/$defs/LabKnowledgeCard"
+      },
+      "minItems": 1,
+      "title": "Knowledgecards",
+      "type": "array"
+    },
+    "paths": {
+      "items": {
+        "$ref": "#/$defs/LearningPathDefinition"
+      },
+      "minItems": 1,
+      "title": "Paths",
+      "type": "array"
+    },
+    "symptoms": {
+      "items": {
+        "$ref": "#/$defs/SymptomDefinition"
+      },
+      "minItems": 1,
+      "title": "Symptoms",
+      "type": "array"
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "paths",
+    "knowledgeCards",
+    "symptoms"
+  ],
+  "title": "LearningPathCatalogDefinition",
+  "type": "object"
+}

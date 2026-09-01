@@ -1,0 +1,591 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LearningPathCatalog
+paths:
+  - metadata:
+      id: workload-lifecycle
+      name: 工作负载生命周期
+      description: 从调度、拉取、启动、运行到健康检查，建立Pod与控制器排障顺序。
+      objective: 能够使用状态、Events和Logs判断故障发生在哪一个生命周期阶段。
+    nodes:
+      - id: workload-concept
+        type: concept
+        title: 工作负载如何到达Ready
+        description: 先区分期望状态、调度结果、容器状态和健康检查，再选择证据入口。
+      - id: scaling-baseline
+        type: baseline
+        title: Deployment副本异常
+        description: 用控制器期望状态和实际Pod数量建立第一条证据链。
+        labId: lab-001-deployment-scaling
+        dependsOn: [workload-concept]
+      - id: rollout-baseline
+        type: baseline
+        title: 滚动更新异常
+        description: 观察Deployment发布状态与ReplicaSet之间的关系。
+        labId: lab-002-rolling-update
+        dependsOn: [workload-concept]
+      - id: probes-baseline
+        type: baseline
+        title: 健康检查异常
+        description: 区分进程运行、容器Ready和业务可用三个事实。
+        labId: lab-004-probes
+        dependsOn: [workload-concept]
+      - id: image-baseline
+        type: baseline
+        title: 镜像拉取异常
+        description: 根据waiting reason和Events定位镜像阶段问题。
+        labId: lab-005-image-pull
+        dependsOn: [workload-concept]
+      - id: crash-baseline
+        type: baseline
+        title: 容器反复退出
+        description: 联合当前状态、previous logs和restart count分析CrashLoopBackOff。
+        labId: lab-006-crash-loop
+        dependsOn: [workload-concept]
+      - id: oom-baseline
+        type: baseline
+        title: 内存限制与OOM
+        description: 从容器终止原因和资源约束识别内存故障。
+        labId: lab-010-oom-killed
+        dependsOn: [workload-concept]
+      - id: job-baseline
+        type: baseline
+        title: Job命令失败
+        description: 使用Job、Pod退出状态和日志判断批处理失败。
+        labId: lab-015-job-command-failure
+        dependsOn: [workload-concept]
+      - id: job-variant
+        type: variant
+        title: Job固定变体复练
+        description: 在不同失败表现中复用相同的批处理调查框架。
+        labId: lab-015-job-command-failure
+        dependsOn: [job-baseline]
+      - id: daemonset-baseline
+        type: baseline
+        title: DaemonSet调度异常
+        description: 比较节点集合与调度约束，解释为什么期望Pod没有出现。
+        labId: lab-017-daemonset-node-selector
+        dependsOn: [workload-concept]
+      - id: daemonset-variant
+        type: variant
+        title: DaemonSet固定变体复练
+        description: 迁移节点选择知识到亲和性相关故障。
+        labId: lab-017-daemonset-node-selector
+        dependsOn: [daemonset-baseline]
+      - id: workload-retrospective
+        type: retrospective
+        title: 工作负载专题复盘
+        description: 用生命周期阶段整理症状、证据、根因和预防措施。
+        dependsOn: [scaling-baseline, rollout-baseline, probes-baseline, image-baseline, crash-baseline, oom-baseline, job-variant, daemonset-variant]
+
+  - metadata:
+      id: configuration-dependencies
+      name: 配置与应用依赖
+      description: 训练配置对象、引用关系和应用启动契约的分层排查。
+      objective: 能够区分对象不存在、名称错误、键错误和配置修复后的下游问题。
+    nodes:
+      - id: configuration-concept
+        type: concept
+        title: 配置如何进入容器
+        description: 从ConfigMap对象、工作负载引用和容器实际状态理解配置依赖。
+      - id: injection-baseline
+        type: baseline
+        title: ConfigMap注入异常
+        description: 检查配置对象和容器消费方式是否满足约定。
+        labId: lab-003-configmap-injection
+        dependsOn: [configuration-concept]
+      - id: missing-config-baseline
+        type: baseline
+        title: ConfigMap缺失
+        description: 从Pod事件识别工作负载引用的外部配置依赖。
+        labId: lab-008-configmap-missing
+        dependsOn: [configuration-concept]
+      - id: config-key-baseline
+        type: baseline
+        title: ConfigMap键契约异常
+        description: 对齐ConfigMap数据键和Deployment引用键。
+        labId: lab-014-configmap-key-missing
+        dependsOn: [configuration-concept]
+      - id: config-key-variant
+        type: variant
+        title: 配置引用固定变体复练
+        description: 盲练名称和键引用的相似故障。
+        labId: lab-014-configmap-key-missing
+        dependsOn: [config-key-baseline]
+      - id: configuration-composite
+        type: composite
+        title: 配置与Service双根因综合实验
+        description: 修复配置后继续沿流量链定位第二个阻断点。
+        labId: lab-019-configuration-service-chain
+        dependsOn: [config-key-variant]
+        requirements:
+          - kind: baseline_completed
+            labId: lab-013-service-target-port
+          - kind: variant_completed
+            labId: lab-014-configmap-key-missing
+            minimumVariantCount: 1
+      - id: configuration-retrospective
+        type: retrospective
+        title: 配置专题复盘
+        description: 整理对象、引用、容器状态和下游依赖的调查顺序。
+        dependsOn: [injection-baseline, missing-config-baseline, configuration-composite]
+
+  - metadata:
+      id: service-discovery-traffic
+      name: 服务发现与流量链路
+      description: 沿Service、Endpoint、Pod端口、DNS与HTTP逐层定位访问异常。
+      objective: 能够判断流量在哪一层中断，并用下一层证据验证假设。
+    nodes:
+      - id: traffic-concept
+        type: concept
+        title: Kubernetes流量链
+        description: 将调用端口、Service端口、targetPort、Endpoint和Pod监听端口串成一条链路。
+      - id: selector-baseline
+        type: baseline
+        title: Service选择器异常
+        description: 使用Service selector和Endpoint判断后端是否被选中。
+        labId: lab-007-service-selector
+        dependsOn: [traffic-concept]
+      - id: readiness-baseline
+        type: baseline
+        title: Readiness阻断流量
+        description: 理解Ready条件如何影响Endpoint和业务访问。
+        labId: lab-009-readiness-path
+        dependsOn: [traffic-concept]
+      - id: ingress-baseline
+        type: baseline
+        title: Ingress后端端口异常
+        description: 对齐Ingress backend、Service端口与HTTP结果。
+        labId: lab-011-ingress-backend-port
+        dependsOn: [traffic-concept]
+      - id: target-port-baseline
+        type: baseline
+        title: Service targetPort异常
+        description: 区分Endpoint存在和后端端口真正可访问。
+        labId: lab-013-service-target-port
+        dependsOn: [traffic-concept]
+      - id: target-port-variant
+        type: variant
+        title: Service端口固定变体复练
+        description: 在命名端口和调用契约变化中复用端口映射证据链。
+        labId: lab-013-service-target-port
+        dependsOn: [target-port-baseline]
+      - id: headless-baseline
+        type: baseline
+        title: StatefulSet Headless Service异常
+        description: 检查Headless Service与StatefulSet稳定网络的协作关系。
+        labId: lab-016-statefulset-headless
+        dependsOn: [traffic-concept]
+      - id: headless-variant
+        type: variant
+        title: 稳定网络固定变体复练
+        description: 迁移selector知识到serviceName和Headless语义。
+        labId: lab-016-statefulset-headless
+        dependsOn: [headless-baseline]
+      - id: traffic-composite
+        type: composite
+        title: StatefulSet流量双根因综合实验
+        description: 先恢复Endpoint，再继续验证targetPort与稳定DNS。
+        labId: lab-021-stateful-service-chain
+        dependsOn: [target-port-baseline, headless-variant]
+        requirements:
+          - kind: baseline_completed
+            labId: lab-013-service-target-port
+          - kind: variant_completed
+            labId: lab-016-statefulset-headless
+            minimumVariantCount: 1
+      - id: traffic-retrospective
+        type: retrospective
+        title: 服务流量专题复盘
+        description: 复盘从调用契约到Pod进程的逐层证据。
+        dependsOn: [selector-baseline, readiness-baseline, ingress-baseline, target-port-variant, traffic-composite]
+
+  - metadata:
+      id: storage-scheduling
+      name: 存储与调度
+      description: 训练节点约束、PVC生命周期、挂载语义和应用健康的组合排查。
+      objective: 能够区分调度、绑定、挂载、读写权限和健康检查故障。
+    nodes:
+      - id: storage-concept
+        type: concept
+        title: 从调度到卷可用
+        description: 理解Pod调度、PVC绑定、卷挂载和应用读写之间的先后关系。
+      - id: pvc-pending-baseline
+        type: baseline
+        title: PVC Pending
+        description: 使用PVC状态、StorageClass和Events解释卷为何未绑定。
+        labId: lab-012-pvc-pending
+        dependsOn: [storage-concept]
+      - id: scheduling-baseline
+        type: baseline
+        title: DaemonSet节点条件异常
+        description: 对照可用节点标签检查调度约束。
+        labId: lab-017-daemonset-node-selector
+        dependsOn: [storage-concept]
+      - id: scheduling-variant
+        type: variant
+        title: 调度条件固定变体复练
+        description: 在nodeAffinity和podAffinity中迁移调度调查方法。
+        labId: lab-017-daemonset-node-selector
+        dependsOn: [scheduling-baseline]
+      - id: claim-baseline
+        type: baseline
+        title: 工作负载PVC依赖异常
+        description: 联合Pod Pending事件与PVC对象判断依赖缺口。
+        labId: lab-018-pvc-claim-missing
+        dependsOn: [storage-concept]
+      - id: claim-variant
+        type: variant
+        title: 存储固定变体复练
+        description: 盲练StorageClass和只读挂载带来的不同表现。
+        labId: lab-018-pvc-claim-missing
+        dependsOn: [claim-baseline]
+      - id: storage-composite
+        type: composite
+        title: 存储与Readiness双根因综合实验
+        description: PVC恢复后继续调查应用为什么仍未Ready。
+        labId: lab-020-storage-readiness-chain
+        dependsOn: [pvc-pending-baseline, claim-variant]
+        requirements:
+          - kind: baseline_completed
+            labId: lab-009-readiness-path
+          - kind: baseline_completed
+            labId: lab-012-pvc-pending
+          - kind: variant_completed
+            labId: lab-018-pvc-claim-missing
+            minimumVariantCount: 1
+      - id: storage-retrospective
+        type: retrospective
+        title: 存储与调度专题复盘
+        description: 整理从调度条件到应用健康的证据链和预防措施。
+        dependsOn: [scheduling-variant, storage-composite]
+
+knowledgeCards:
+  - labId: lab-001-deployment-scaling
+    before:
+      what: Deployment通过副本数声明应用期望容量。
+      why: 期望与实际副本不一致会直接降低容量或可用性。
+      successGoal: 让控制器与Pod数量稳定满足任务要求。
+      objects: [Deployment, ReplicaSet, Pod]
+      evidenceChecklist: [比较spec与status副本数, 查看控制器Events, 确认Pod归属]
+    after:
+      keyEvidence: Deployment期望副本与可用副本存在差异。
+      rootCause: 基线场景的副本声明不满足业务容量目标。
+      minimalFix: 只修正Deployment副本期望并等待控制器收敛。
+      antiPatterns: [直接创建孤立Pod, 未等待rollout完成就判断成功]
+      prevention: 将容量声明和rollout状态纳入发布检查。
+  - labId: lab-002-rolling-update
+    before:
+      what: Deployment滚动更新通过新旧ReplicaSet逐步替换Pod。
+      why: 更新策略或模板异常会让发布无法收敛。
+      successGoal: 让新版本完成rollout且可用副本稳定。
+      objects: [Deployment, ReplicaSet, Pod]
+      evidenceChecklist: [查看rollout状态, 比较新旧ReplicaSet, 检查Pod事件]
+    after:
+      keyEvidence: Deployment发布状态长期没有完成。
+      rootCause: 基线模板使新副本无法达到可用条件。
+      minimalFix: 只修正阻断新副本可用的模板字段。
+      antiPatterns: [删除所有旧副本后再调查, 只看Deployment名称]
+      prevention: 在发布流水线验证模板与rollout超时。
+  - labId: lab-003-configmap-injection
+    before:
+      what: ConfigMap通过环境变量或卷向容器提供非敏感配置。
+      why: 对象存在不代表容器引用和值契约正确。
+      successGoal: 让工作负载消费正确配置并稳定运行。
+      objects: [ConfigMap, Deployment, Pod]
+      evidenceChecklist: [确认ConfigMap数据键, 检查Pod模板引用, 观察容器状态]
+    after:
+      keyEvidence: 配置对象内容与工作负载消费契约不一致。
+      rootCause: 基线场景的配置注入字段没有提供应用需要的值。
+      minimalFix: 只调整对应配置或引用字段。
+      antiPatterns: [把配置复制进镜像, 用Secret替代普通配置而不分析]
+      prevention: 对配置键和值建立部署前契约测试。
+  - labId: lab-004-probes
+    before:
+      what: Liveness和Readiness分别决定容器重启与流量接入。
+      why: 错误探针会让健康应用被重启或无法接收流量。
+      successGoal: 让探针匹配应用真实健康端点。
+      objects: [Deployment, Pod, Event]
+      evidenceChecklist: [区分Running与Ready, 查看探针失败事件, 对照端口和路径]
+    after:
+      keyEvidence: 容器进程存在，但探针结果持续失败。
+      rootCause: 基线探针配置与应用实际健康接口不一致。
+      minimalFix: 只修正探针的错误字段。
+      antiPatterns: [直接删除所有探针, 只增加初始延迟掩盖错误]
+      prevention: 在镜像发布时验证健康端点与探针契约。
+  - labId: lab-005-image-pull
+    before:
+      what: kubelet必须先拉取镜像才能创建容器。
+      why: 镜像名称、标签或访问条件错误会阻断整个启动链。
+      successGoal: 让Pod使用固定、可获取的镜像进入Ready。
+      objects: [Deployment, Pod, Event]
+      evidenceChecklist: [查看waiting reason, 阅读镜像拉取事件, 核对镜像字段]
+    after:
+      keyEvidence: Pod停留在ImagePullBackOff并产生拉取失败事件。
+      rootCause: 基线镜像引用指向不可获取的版本。
+      minimalFix: 只替换为任务规定的固定镜像。
+      antiPatterns: [改用latest, 添加不必要的镜像凭证]
+      prevention: 在部署前检查镜像存在性并固定不可变版本。
+  - labId: lab-006-crash-loop
+    before:
+      what: CrashLoopBackOff表示容器启动后反复退出并退避重启。
+      why: 当前日志可能为空，退出原因常在previous logs和终止状态中。
+      successGoal: 让容器进程持续运行并保持Ready。
+      objects: [Pod, ContainerStatus, Log]
+      evidenceChecklist: [查看lastState, 读取previous logs, 检查命令和参数]
+    after:
+      keyEvidence: 重启次数增长且前一次容器以非零状态退出。
+      rootCause: 基线容器启动命令不能持续成功运行。
+      minimalFix: 只修正导致进程退出的命令参数。
+      antiPatterns: [反复删除Pod, 只提高restart容忍时间]
+      prevention: 对容器入口命令和退出行为增加镜像级测试。
+  - labId: lab-007-service-selector
+    before:
+      what: Service通过selector选择Pod并形成Endpoint。
+      why: Service对象存在但没有Endpoint时，流量没有后端目标。
+      successGoal: 让Service选择正确Pod并产生可用Endpoint。
+      objects: [Service, EndpointSlice, Pod]
+      evidenceChecklist: [查看Service selector, 对照Pod labels, 统计Endpoint]
+    after:
+      keyEvidence: Service selector与目标Pod标签不匹配。
+      rootCause: 基线选择器没有选中预期后端。
+      minimalFix: 只修正Service selector。
+      antiPatterns: [修改所有Pod标签迁就错误Service, 只重启Pod]
+      prevention: 使用稳定标签契约并在部署后检查Endpoint。
+  - labId: lab-008-configmap-missing
+    before:
+      what: Pod模板可以声明启动前必须存在的ConfigMap。
+      why: 引用对象缺失会在容器创建前阻断启动。
+      successGoal: 恢复配置依赖并让Pod进入Running和Ready。
+      objects: [ConfigMap, Deployment, Pod, Event]
+      evidenceChecklist: [读取CreateContainerConfigError事件, 核对引用名称, 检查对象是否存在]
+    after:
+      keyEvidence: Pod事件明确指出被引用的ConfigMap不存在。
+      rootCause: 基线环境缺少工作负载声明的配置对象。
+      minimalFix: 创建契约要求的ConfigMap，不改动无关工作负载字段。
+      antiPatterns: [删除配置引用, 把值硬编码到镜像]
+      prevention: 使用部署依赖清单和原子化发布配置。
+  - labId: lab-009-readiness-path
+    before:
+      what: Readiness决定Pod是否进入Service后端集合。
+      why: 进程运行不等于可以接收业务流量。
+      successGoal: 让健康端点与readiness path一致并稳定Ready。
+      objects: [Deployment, Pod, Service, EndpointSlice]
+      evidenceChecklist: [检查Ready条件, 查看探针事件, 对照应用路径]
+    after:
+      keyEvidence: Pod Running但Ready为false，探针路径持续失败。
+      rootCause: 基线readiness path与应用实际响应路径不一致。
+      minimalFix: 只修正readiness path。
+      antiPatterns: [删除readiness, 把failureThreshold无限增大]
+      prevention: 将健康接口作为应用与平台的版本化契约。
+  - labId: lab-010-oom-killed
+    before:
+      what: 容器内存超过limit时可能被内核以OOMKilled终止。
+      why: 重启会掩盖资源配置和应用内存行为之间的不匹配。
+      successGoal: 让容器在合理资源约束内稳定运行。
+      objects: [Pod, ContainerStatus, Deployment]
+      evidenceChecklist: [查看终止原因, 比较requests与limits, 观察重启次数]
+    after:
+      keyEvidence: lastState显示OOMKilled且重启次数增加。
+      rootCause: 基线内存限制不足以承载容器工作负载。
+      minimalFix: 只调整受影响容器的内存资源约束。
+      antiPatterns: [移除所有limit, 只反复重启Pod]
+      prevention: 基于测量设置requests和limits并监控OOM事件。
+  - labId: lab-011-ingress-backend-port
+    before:
+      what: Ingress将HTTP规则转发到Service的已声明端口。
+      why: 后端端口引用错误会在入口层阻断正常Service。
+      successGoal: 让Ingress后端与Service端口契约一致。
+      objects: [Ingress, Service, EndpointSlice]
+      evidenceChecklist: [查看Ingress backend, 查看Service ports, 确认Endpoint存在]
+    after:
+      keyEvidence: Service已有后端，但Ingress引用了不匹配的Service端口。
+      rootCause: 基线Ingress backend port与Service声明不一致。
+      minimalFix: 只修正Ingress后端端口引用。
+      antiPatterns: [修改容器监听端口, 重建整个Deployment]
+      prevention: 在入口发布前校验Ingress到Service的引用完整性。
+  - labId: lab-012-pvc-pending
+    before:
+      what: PVC必须由匹配的StorageClass和供应器完成绑定。
+      why: PVC Pending会阻断依赖卷的Pod调度或启动。
+      successGoal: 让PVC使用可用存储策略进入Bound。
+      objects: [PersistentVolumeClaim, StorageClass, Event]
+      evidenceChecklist: [查看PVC phase, 阅读PVC事件, 检查StorageClass]
+    after:
+      keyEvidence: PVC长期Pending且事件指向存储策略问题。
+      rootCause: 基线PVC请求无法被当前默认存储能力满足。
+      minimalFix: 只修正PVC存储类或请求契约。
+      antiPatterns: [手工创建不受管理的hostPath PV, 删除PVC事件证据]
+      prevention: 发布前验证目标环境StorageClass与容量策略。
+  - labId: lab-013-service-target-port
+    before:
+      what: Service port面向调用方，targetPort指向后端容器端口。
+      why: Endpoint存在并不代表Service能连接到正确监听端口。
+      successGoal: 让Service端口映射满足调用契约并返回HTTP 200。
+      objects: [Service, EndpointSlice, Deployment, Pod]
+      evidenceChecklist: [确认Endpoint存在, 对照port与targetPort, 核对容器监听端口]
+    after:
+      keyEvidence: 后端Pod Ready且Endpoint存在，但Service HTTP探测失败。
+      rootCause: 基线targetPort没有指向应用实际监听端口。
+      minimalFix: 只修正Service targetPort。
+      antiPatterns: [修改健康Pod的容器端口, 删除并重建所有工作负载]
+      prevention: 为Service端口映射增加部署契约测试。
+  - labId: lab-014-configmap-key-missing
+    before:
+      what: ConfigMap名称和数据键共同构成工作负载引用契约。
+      why: 对象存在但键缺失仍会阻断容器创建。
+      successGoal: 让引用键存在并提供任务要求的配置值。
+      objects: [ConfigMap, Deployment, Pod, Event]
+      evidenceChecklist: [检查Pod事件, 查看ConfigMap键列表, 对照env引用]
+    after:
+      keyEvidence: ConfigMap存在，但Pod事件指出引用键不可用。
+      rootCause: 基线ConfigMap缺少Deployment引用的配置键。
+      minimalFix: 只补充缺失键和值。
+      antiPatterns: [删除env引用, 改用不相关ConfigMap]
+      prevention: 对配置对象名称和键同时做发布前校验。
+  - labId: lab-015-job-command-failure
+    before:
+      what: Job以Pod成功退出作为批处理完成事实。
+      why: 命令、文件系统和退出码都会影响Job成功条件。
+      successGoal: 让新建Job的Pod以零状态完成。
+      objects: [Job, Pod, Log]
+      evidenceChecklist: [查看Job条件, 查看Pod退出码, 读取Job日志]
+    after:
+      keyEvidence: Job Pod进入Failed并留下稳定退出信息。
+      rootCause: 基线命令主动以非零状态结束。
+      minimalFix: 安全删除不可变Job后以正确命令重建。
+      antiPatterns: [直接修改不可变Job模板, 只提高backoffLimit]
+      prevention: 在发布前以相同镜像验证批处理入口命令。
+  - labId: lab-016-statefulset-headless
+    before:
+      what: StatefulSet通过serviceName和Headless Service提供稳定网络身份。
+      why: Service选择或Headless语义错误会破坏Endpoint与稳定DNS。
+      successGoal: 让Headless Service产生Endpoint并满足HTTP访问。
+      objects: [StatefulSet, Service, EndpointSlice, Pod]
+      evidenceChecklist: [查看Service clusterIP, 对照selector, 检查StatefulSet serviceName]
+    after:
+      keyEvidence: StatefulSet Pod Ready，但治理Service没有Endpoint。
+      rootCause: 基线Headless Service selector没有选中Pod。
+      minimalFix: 只修正治理Service selector。
+      antiPatterns: [改动StatefulSet稳定标签, 创建第二个普通Service绕过]
+      prevention: 同时验证serviceName、Headless语义和标签契约。
+  - labId: lab-017-daemonset-node-selector
+    before:
+      what: DaemonSet在满足约束的节点上各运行一个Pod。
+      why: nodeSelector或亲和性不匹配时，控制器可能无法创建目标Pod。
+      successGoal: 让至少一个DaemonSet Pod稳定Running和Ready。
+      objects: [DaemonSet, Node, Pod, Event]
+      evidenceChecklist: [查看期望与就绪数量, 检查节点标签, 阅读调度约束]
+    after:
+      keyEvidence: DaemonSet存在，但没有节点满足模板中的选择条件。
+      rootCause: 基线nodeSelector引用不存在的hostname。
+      minimalFix: 只移除错误节点条件。
+      antiPatterns: [给节点添加虚假业务标签, 改用Deployment规避]
+      prevention: 在发布前对节点约束与目标集群标签做匹配检查。
+  - labId: lab-018-pvc-claim-missing
+    before:
+      what: Pod声明的PVC必须先存在并完成绑定才能挂载。
+      why: 缺失、错误StorageClass和挂载权限会产生不同阶段的症状。
+      successGoal: 让PVC Bound且消费Pod稳定Ready。
+      objects: [Deployment, Pod, PersistentVolumeClaim, Event]
+      evidenceChecklist: [查看Pod调度事件, 检查PVC存在与phase, 核对volumeMount]
+    after:
+      keyEvidence: Pod Pending事件指出声明的PVC不存在。
+      rootCause: 基线环境缺少工作负载引用的PVC。
+      minimalFix: 只创建满足约束的PVC。
+      antiPatterns: [删除volume声明, 使用hostPath绕过PVC]
+      prevention: 将PVC作为工作负载发布依赖统一交付。
+  - labId: lab-019-configuration-service-chain
+    before:
+      what: 应用启动依赖和Service端口可以形成连续的多层故障。
+      why: 第一处修复成功后，新的证据可能揭示第二个独立根因。
+      successGoal: 配置正确、Pod Ready、Endpoint存在且HTTP返回200。
+      objects: [ConfigMap, Deployment, Pod, Service, EndpointSlice]
+      evidenceChecklist: [先确认容器能否创建, 再确认Ready与Endpoint, 最后验证Service HTTP]
+    after:
+      keyEvidence: 配置修复使Pod恢复后，HTTP仍被独立端口映射问题阻断。
+      rootCause: 缺失配置键与错误Service targetPort共同造成故障。
+      minimalFix: 按证据顺序分别补齐配置键并修正targetPort。
+      antiPatterns: [一次改动多个无关字段, 第一处修复后跳过重新验证]
+      prevention: 为配置依赖和Service契约分别建立验证关卡。
+  - labId: lab-020-storage-readiness-chain
+    before:
+      what: 存储依赖和应用Readiness位于Pod可用链路的不同阶段。
+      why: PVC恢复只解决调度或挂载，不保证应用已经可接流量。
+      successGoal: PVC Bound、Pod稳定Ready且HTTP返回200。
+      objects: [PersistentVolumeClaim, Pod, Deployment, Service]
+      evidenceChecklist: [先确认PVC与挂载, 再查看Ready条件, 最后验证HTTP]
+    after:
+      keyEvidence: PVC修复后Pod可以启动，但错误健康路径继续使其NotReady。
+      rootCause: 缺失PVC与错误readiness path共同造成故障。
+      minimalFix: 先补齐PVC，再只修正readiness path。
+      antiPatterns: [PVC Bound后立即宣布成功, 删除readiness掩盖问题]
+      prevention: 将存储就绪和应用健康作为两个独立发布检查。
+  - labId: lab-021-stateful-service-chain
+    before:
+      what: StatefulSet稳定网络同时依赖Headless Service选择和端口映射。
+      why: Endpoint恢复后，错误targetPort仍可能阻断实际流量。
+      successGoal: Endpoint、稳定Pod DNS和HTTP检查全部通过。
+      objects: [StatefulSet, Service, EndpointSlice, Pod]
+      evidenceChecklist: [确认selector与Endpoint, 验证稳定DNS, 对照targetPort与容器端口]
+    after:
+      keyEvidence: selector修复产生Endpoint后，HTTP仍因端口映射失败。
+      rootCause: 错误Headless selector与错误targetPort共同造成故障。
+      minimalFix: 按层修正selector和targetPort，不改变稳定标签。
+      antiPatterns: [看到Endpoint就停止验证, 修改StatefulSet身份标签]
+      prevention: 对Headless语义、Endpoint、DNS和HTTP执行分层验收。
+
+symptoms:
+  - id: pod-pending
+    name: Pod Pending
+    description: Pod尚未进入运行阶段，应先判断调度、存储或依赖对象是否阻断。
+    evidenceOrder: [Pod Conditions, Pod Events, 节点与PVC状态]
+    causeCategories: [调度约束, 存储依赖, 配置依赖]
+    labIds: [lab-008-configmap-missing, lab-012-pvc-pending, lab-017-daemonset-node-selector, lab-018-pvc-claim-missing]
+  - id: running-not-ready
+    name: Running但NotReady
+    description: 容器进程已经运行，但尚未满足接收业务流量的健康条件。
+    evidenceOrder: [Ready条件, 探针Events, 健康端点]
+    causeCategories: [Readiness配置, 应用健康, 依赖未就绪]
+    labIds: [lab-004-probes, lab-009-readiness-path, lab-020-storage-readiness-chain]
+  - id: crash-loop-backoff
+    name: CrashLoopBackOff
+    description: 容器反复退出，当前状态与前一次运行证据需要联合查看。
+    evidenceOrder: [Container lastState, Previous logs, 命令与配置]
+    causeCategories: [启动命令, 应用配置, 资源限制]
+    labIds: [lab-006-crash-loop, lab-010-oom-killed]
+  - id: image-pull-backoff
+    name: ImagePullBackOff
+    description: kubelet无法取得镜像，容器尚未真正启动。
+    evidenceOrder: [Waiting reason, Pod Events, 镜像引用]
+    causeCategories: [镜像名称, 镜像版本, 仓库访问]
+    labIds: [lab-005-image-pull]
+  - id: service-no-endpoints
+    name: Service无Endpoint
+    description: Service没有可转发后端，应优先检查选择器和Pod Ready状态。
+    evidenceOrder: [EndpointSlice, Service selector, Pod labels与Ready]
+    causeCategories: [选择器, Readiness, Headless Service]
+    labIds: [lab-007-service-selector, lab-009-readiness-path, lab-016-statefulset-headless, lab-021-stateful-service-chain]
+  - id: endpoint-http-failed
+    name: 有Endpoint但HTTP失败
+    description: 后端已经被选中，故障更可能位于端口映射或应用响应层。
+    evidenceOrder: [Service ports, Endpoint ports, 容器监听端口, HTTP结果]
+    causeCategories: [targetPort, 调用端口, 应用响应]
+    labIds: [lab-011-ingress-backend-port, lab-013-service-target-port, lab-019-configuration-service-chain]
+  - id: pvc-pending
+    name: PVC Pending
+    description: 存储声明尚未绑定，应检查StorageClass、供应器和请求约束。
+    evidenceOrder: [PVC phase, PVC Events, StorageClass]
+    causeCategories: [StorageClass, 动态供应, 容量与访问模式]
+    labIds: [lab-012-pvc-pending, lab-018-pvc-claim-missing, lab-020-storage-readiness-chain]
+  - id: job-failed
+    name: Job Failed
+    description: 批处理Pod以失败状态结束，应从退出码和日志判断执行阶段问题。
+    evidenceOrder: [Job Conditions, Pod termination state, Job logs]
+    causeCategories: [命令不存在, 非零退出, 文件系统权限]
+    labIds: [lab-015-job-command-failure]
+  - id: stable-dns-failed
+    name: StatefulSet稳定DNS失败
+    description: 稳定Pod域名无法解析时，应检查serviceName、Headless语义和Endpoint。
+    evidenceOrder: [StatefulSet serviceName, Service clusterIP, EndpointSlice, 固定DNS检查]
+    causeCategories: [治理Service缺失, 非Headless Service, 选择器]
+    labIds: [lab-016-statefulset-headless, lab-021-stateful-service-chain]

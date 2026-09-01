@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from kubelab.lab_schema import LabDefinition, LabVariantDefinition
+from kubelab.learning_paths import LearningPathCatalogDefinition
 
 
 def render_lab_json_schema() -> str:
@@ -29,6 +30,16 @@ def default_variant_schema_path() -> Path:
     return Path(__file__).resolve().parents[2] / "schemas" / "lab-variant-v1alpha1.schema.json"
 
 
+def render_learning_path_json_schema() -> str:
+    """Return the canonical M7 learning-path catalog JSON Schema."""
+    schema = LearningPathCatalogDefinition.model_json_schema(by_alias=True, mode="validation")
+    return json.dumps(schema, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+
+
+def default_learning_path_schema_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "schemas" / "learning-path-v1alpha1.schema.json"
+
+
 def main() -> None:
     """Write the canonical schema for maintainers."""
     path = default_schema_path()
@@ -36,6 +47,8 @@ def main() -> None:
     path.write_text(render_lab_json_schema(), encoding="utf-8", newline="\n")
     variant_path = default_variant_schema_path()
     variant_path.write_text(render_variant_json_schema(), encoding="utf-8", newline="\n")
+    learning_path = default_learning_path_schema_path()
+    learning_path.write_text(render_learning_path_json_schema(), encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":
