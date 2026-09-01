@@ -1518,6 +1518,25 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - [x] 只读REST API、脱敏Markdown导出和Fake Application Service测试；
 - [x] 不增加迁移、随机练习、限时面试、评分、浏览器终端或在线YAML编辑器。
 
+### M8 实验作者工具链
+
+- `LabAuthoringContract`使用独立Pydantic严格Schema，描述场景类型、faulted/firstRepair/repaired/reset状态、声明式修复计划、资源身份、操作类型、JSON Pointer白名单和最小Fake观测。学习运行时Registry忽略该文件。
+- `AuthoringService`不依赖`ApplicationRuntime`。`init/lint/test/inspect/package`默认只处理本地文件，不创建Session、不访问学习数据库、不连接Kubernetes。
+- lint复用Lab/Variant Schema、LabRegistry和ManifestSecurityScanner，并对故障与修复资源做结构diff；未声明资源、字段或不安全recreate失败关闭。
+- 声明式Fake Gateway复用正式ValidationEngine，证明普通场景的初始、成功预检、修复、reset闭环；综合实验额外证明第一阶段修复后第二根因仍存在。
+- inspect复用Application Service公开投影规则，将盲练通过前和通过后预览分离，只输出相对路径、摘要、检查类型和允许变化路径。
+- package先执行lint、Fake测试和泄漏检查，再生成路径排序、LF统一、固定权限/所有者/时间戳的tar.gz；`index.json`记录场景、Schema、文件大小和SHA-256，构建后重新验证。
+- 可选integration入口需要显式环境变量、WSL2 Ubuntu、本机Docker驱动minikube、可信Context和固定镜像缓存。它使用临时SQLite与唯一Namespace，通过受限Solution Applier应用精确声明的修复并生成脱敏JUnit；普通测试不启用。
+
+实际实现状态（0.5.0a0）：
+
+- [x] 三种安全模板及五个作者命令；
+- [x] 33份作者契约和LAB-019～021第一阶段修复；
+- [x] 统一lint、九类Fake观测、综合阶段生命周期与共享查询一致性检查；
+- [x] 盲练公开投影、高风险泄漏扫描和确定性实验包；
+- [x] 真实集成门禁、声明式修复应用及Namespace/PV残留审计；本轮未授权、未执行真实集群测试；
+- [x] 不新增学习Web、数据库迁移、远程包安装、新实验、Shell修复或插件执行。
+
 ---
 
 ## 21. PRD待确认项结论

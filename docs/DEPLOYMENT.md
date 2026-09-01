@@ -628,7 +628,22 @@ minikube logs
 
 常见原因包括镜像仓库不可达、代理配置或镜像地址错误。修复网络或镜像源后再重试；进入PVC实验前，`storage-provisioner`必须恢复正常。
 
-## 18. 卸载
+## 18. 维护者：作者集成入口
+
+安装包也提供`kubelab lab init/lint/test/inspect/package`，普通作者流程可在Windows或WSL运行，并且默认不访问数据库或集群。真实作者验收必须单独授权：
+
+```bash
+export KUBELAB_RUN_LAB_INTEGRATION=1
+kubelab lab test labs/lab-001-deployment-scaling \
+  --integration --junit author-integration.xml
+unset KUBELAB_RUN_LAB_INTEGRATION
+```
+
+只有本机WSL2 Ubuntu、Docker驱动的minikube、已受信且未漂移的当前Context、通过Doctor和实验requirements以及四个固定镜像均已缓存时入口才运行。它拒绝远程/生产Context，不启动Shell，不执行作者命令或脚本，只应用`authoring.yaml`精确声明的修复资源。失败后应先检查脱敏JUnit和归属明确的`kubelab-author-*`资源，不要对未知资源或PV做自动删除。
+
+日常安装烟测、普通pytest和CI都不得设置`KUBELAB_RUN_LAB_INTEGRATION`。M8当前只完成该入口的Fake门禁验收，尚未形成真实集群兼容性声明。
+
+## 19. 卸载
 
 仅撤销KubeLab信任并卸载CLI：
 
@@ -645,7 +660,7 @@ uv tool uninstall kubelab
 minikube delete
 ```
 
-## 19. 验收清单
+## 20. 验收清单
 
 部署完成后逐项确认：
 
@@ -661,7 +676,7 @@ minikube delete
 - [ ] 配置文件权限为600；
 - [ ] 配置文件不含Token、私钥或证书原文。
 
-## 20. 官方参考
+## 21. 官方参考
 
 - [Microsoft：安装WSL](https://learn.microsoft.com/windows/wsl/install)
 - [Microsoft：WSL启用systemd](https://learn.microsoft.com/windows/wsl/systemd)
