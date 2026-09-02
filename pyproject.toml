@@ -72,6 +72,7 @@ package = true
 
 [tool.hatch.build]
 skip-excluded-dirs = true
+exclude = ["docs/promotion/**"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kubelab"]
@@ -83,7 +84,19 @@ packages = ["src/kubelab"]
 "CONTRIBUTING.md" = "kubelab/docs/CONTRIBUTING.md"
 "SECURITY.md" = "kubelab/docs/SECURITY.md"
 "CHANGELOG.md" = "kubelab/docs/CHANGELOG.md"
-"docs" = "kubelab/docs/project"
+"docs/ARCHITECTURE.md" = "kubelab/docs/project/ARCHITECTURE.md"
+"docs/DEPLOYMENT.md" = "kubelab/docs/project/DEPLOYMENT.md"
+"docs/example-retrospective.md" = "kubelab/docs/project/example-retrospective.md"
+"docs/LAB_DEVELOPMENT.md" = "kubelab/docs/project/LAB_DEVELOPMENT.md"
+"docs/M6_1_ACCEPTANCE.md" = "kubelab/docs/project/M6_1_ACCEPTANCE.md"
+"docs/M6_REFERENCE_STUDY.md" = "kubelab/docs/project/M6_REFERENCE_STUDY.md"
+"docs/M8_AUTHORING_CONTRACT.md" = "kubelab/docs/project/M8_AUTHORING_CONTRACT.md"
+"docs/PRD-M7-LEARNING-PATHS.md" = "kubelab/docs/project/PRD-M7-LEARNING-PATHS.md"
+"docs/PRD-M8-AUTHOR-TOOLCHAIN.md" = "kubelab/docs/project/PRD-M8-AUTHOR-TOOLCHAIN.md"
+"docs/PRD-M9-TRUSTED-LAB-PACKAGES.md" = "kubelab/docs/project/PRD-M9-TRUSTED-LAB-PACKAGES.md"
+"docs/TUTORIAL.md" = "kubelab/docs/project/TUTORIAL.md"
+"docs/assets" = "kubelab/docs/project/assets"
+"docs/environment-snapshots" = "kubelab/docs/project/environment-snapshots"
 "schemas" = "kubelab/schemas"
 
 [tool.hatch.build.targets.sdist]
@@ -109,6 +122,7 @@ only-include = [
     "uv.lock",
 ]
 exclude = [
+    "docs/promotion/**",
     "**/.cache/**",
     "**/.mypy_cache/**",
     "**/.pytest_cache/**",
