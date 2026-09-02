@@ -1,0 +1,9 @@
+apiVersion: kubelab.io/v1alpha1
+kind: LabPackage
+metadata:
+  labId: lab-007-service-selector
+  version: 1.0.0
+  publisherId: kubelab
+  publisherName: KubeLab Project
+spec:
+  requiresKubelab: ">=0.6.0a0,<0.7.0"

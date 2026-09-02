@@ -19,7 +19,7 @@ from kubelab.authoring_integration import _docker_profile, _write_junit
 from kubelab.authoring_schema import LabAuthoringContract
 from kubelab.cli import app
 from kubelab.safe_yaml import load_all_unique
-from kubelab.schema_export import render_authoring_json_schema
+from kubelab.schema_export import render_authoring_json_schema, render_package_json_schema
 
 LABS_ROOT = Path(__file__).resolve().parents[1] / "labs"
 RUNNER = CliRunner()
@@ -29,6 +29,12 @@ def test_checked_in_authoring_schema_matches_pydantic_model() -> None:
     schema = LABS_ROOT.parent / "schemas" / "lab-authoring-v1alpha1.schema.json"
 
     assert schema.read_text(encoding="utf-8") == render_authoring_json_schema()
+
+
+def test_checked_in_package_schema_matches_pydantic_model() -> None:
+    schema = LABS_ROOT.parent / "schemas" / "lab-package-v1alpha1.schema.json"
+
+    assert schema.read_text(encoding="utf-8") == render_package_json_schema()
 
 
 def _init(
@@ -67,6 +73,7 @@ def test_init_generates_complete_lintable_and_testable_lab(
     assert len(result.results) == 1
     expected = {
         "lab.yaml",
+        "package.yaml",
         "README.md",
         "authoring.yaml",
         "manifests",
@@ -430,9 +437,43 @@ def test_package_is_deterministic_indexed_and_non_installing(tmp_path: Path) -> 
         assert index_stream is not None
         index = json.loads(index_stream.read())
     assert index["labId"] == "lab-package-sample"
+    assert index["formatVersion"] == 2
+    assert index["package"] == {
+        "publisherId": "local-author",
+        "publisherName": "Local Author",
+        "requiresKubelab": ">=0.6.0a0,<0.7.0",
+        "version": "0.1.0",
+    }
+    assert index["schemaVersions"]["package"] == "kubelab.io/v1alpha1"
     assert index["scenarios"] == ["lab-package-sample"]
     assert any(item["path"].endswith("authoring.yaml") for item in index["files"])
     assert not any(".git" in name or "kubelab.db" in name for name in names)
+
+
+def test_package_default_name_contains_version_and_rejects_metadata_mismatch(
+    tmp_path: Path,
+) -> None:
+    service = AuthoringService(tmp_path)
+    target = tmp_path / "lab-versioned-sample"
+    _init(service, target, scenario_id="lab-versioned-sample")
+
+    packaged = service.package(target)
+
+    assert packaged.passed
+    assert packaged.output == "lab-versioned-sample-0.1.0.kubelab-lab.tar.gz"
+    metadata = yaml.safe_load((target / "package.yaml").read_text(encoding="utf-8"))
+    metadata["metadata"]["labId"] = "lab-another-id"
+    (target / "package.yaml").write_text(
+        yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+
+    rejected = service.package(
+        target,
+        output=tmp_path / "mismatch.kubelab-lab.tar.gz",
+    )
+
+    assert not rejected.passed
+    assert rejected.issues[0].code == "AUTHOR_PACKAGE_LAB_ID_MISMATCH"
 
 
 def test_package_normalizes_crlf_and_rejects_oversized_or_unsafe_archives(

@@ -12,6 +12,7 @@ import yaml
 from kubelab.authoring import AuthoringService
 from kubelab.lab_registry import EffectiveLab, LabRegistry, LoadedLab
 from kubelab.manifest_security import ManifestDocument, ManifestSecurityScanner
+from kubelab.package_schema import LabPackageDefinition
 
 LABS_ROOT = Path(__file__).resolve().parents[1] / "labs"
 EXPECTED_IDS = (
@@ -43,6 +44,22 @@ def _snapshot() -> tuple[LoadedLab, ...]:
     snapshot = LabRegistry(LABS_ROOT).scan()
     assert snapshot.errors == ()
     return snapshot.labs
+
+
+def test_bundled_families_have_matching_v2_package_contracts() -> None:
+    loaded_by_directory = {Path(lab.lab_path).parent.name: lab for lab in _snapshot()}
+    contracts = sorted(LABS_ROOT.glob("lab-*/package.yaml"))
+
+    assert len(contracts) == 21
+    for path in contracts:
+        definition = LabPackageDefinition.model_validate(
+            yaml.safe_load(path.read_text(encoding="utf-8"))
+        )
+        parent = loaded_by_directory[path.parent.name]
+        assert definition.metadata.lab_id == parent.definition.metadata.id
+        assert definition.metadata.version == "1.0.0"
+        assert definition.metadata.publisher_id == "kubelab"
+        assert definition.spec.requires_kubelab == ">=0.6.0a0,<0.7.0"
 
 
 def _variant_scenarios() -> tuple[tuple[LoadedLab, EffectiveLab], ...]:

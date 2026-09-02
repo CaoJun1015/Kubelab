@@ -26,6 +26,12 @@ from kubelab.authoring_schema import LabAuthoringContract, RepairPlan
 from kubelab.authoring_templates import baseline_template, composite_template, variant_template
 from kubelab.lab_registry import EffectiveLab, ExecutableLab, LabRegistry, LoadedLab, LoadedVariant
 from kubelab.manifest_security import ManifestDocument, ManifestSecurityScanner
+from kubelab.package_schema import (
+    PACKAGE_FORMAT_VERSION,
+    LabPackageDefinition,
+    LabPackageIndex,
+    package_index_metadata,
+)
 from kubelab.public_projection import project_variant_disclosure
 from kubelab.safe_yaml import load_all_unique
 
@@ -493,7 +499,20 @@ class AuthoringService:
             )
         assert loaded.target.family_directory is not None
         lab_id = next(iter(parents))
-        requested_output = output or (self._workspace / f"{lab_id}.kubelab-lab.tar.gz")
+        package_definition, package_issue = self._load_package_definition(
+            loaded.target.family_directory,
+            lab_id=lab_id,
+        )
+        if package_issue is not None or package_definition is None:
+            return AuthoringPackageReport(
+                passed=False,
+                labId=lab_id,
+                fileCount=0,
+                issues=(package_issue,) if package_issue else (),
+            )
+        requested_output = output or (
+            self._workspace / f"{lab_id}-{package_definition.metadata.version}.kubelab-lab.tar.gz"
+        )
         destination, output_issue = self._resolve_package_output(requested_output)
         if output_issue is not None or destination is None:
             return AuthoringPackageReport(
@@ -507,6 +526,7 @@ class AuthoringService:
                 loaded.target.family_directory,
                 lab_id=lab_id,
                 scenario_ids=tuple(item.scenario_id for item in loaded.scenarios),
+                package_definition=package_definition,
             )
             temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp")
             try:
@@ -539,6 +559,32 @@ class AuthoringService:
             issues=(),
         )
 
+    def _load_package_definition(
+        self,
+        family: Path,
+        *,
+        lab_id: str,
+    ) -> tuple[LabPackageDefinition | None, AuthoringIssue | None]:
+        path = family / "package.yaml"
+        try:
+            documents = load_all_unique(path.read_text(encoding="utf-8"))
+            if len(documents) != 1:
+                raise ValueError("package metadata must contain one document")
+            definition = LabPackageDefinition.model_validate(documents[0])
+        except (OSError, UnicodeError, ValueError, yaml.YAMLError, ValidationError):
+            return None, self._issue(
+                "AUTHOR_PACKAGE_METADATA_INVALID",
+                self._display(path),
+                "A complete lab family requires a valid package.yaml.",
+            )
+        if definition.metadata.lab_id != lab_id:
+            return None, self._issue(
+                "AUTHOR_PACKAGE_LAB_ID_MISMATCH",
+                self._display(path),
+                "package.yaml labId must match lab.yaml metadata.id.",
+            )
+        return definition, None
+
     def _load_target(self, target: Path) -> _LoadedTarget:
         resolved, path_issue = self._resolve_target(target)
         if path_issue is not None or resolved is None:
@@ -569,10 +615,19 @@ class AuthoringService:
             if self._registry_error_in_target(error.lab_path, target_info)
         ]
         scenarios: list[_Scenario] = []
+        checked_package_families: set[Path] = set()
         for loaded in snapshot.labs:
             family = (target_info.catalog_root / Path(loaded.lab_path).parent).resolve()
             if target_info.family_directory is not None and family != target_info.family_directory:
                 continue
+            if family not in checked_package_families:
+                _, package_issue = self._load_package_definition(
+                    family,
+                    lab_id=loaded.definition.metadata.id,
+                )
+                if package_issue is not None:
+                    issues.append(package_issue)
+                checked_package_families.add(family)
             if target_info.variant_directory is None:
                 baseline = self._load_scenario(
                     registry,
@@ -852,6 +907,7 @@ class AuthoringService:
         *,
         lab_id: str,
         scenario_ids: tuple[str, ...],
+        package_definition: LabPackageDefinition,
     ) -> tuple[bytes, int]:
         entries: dict[str, bytes] = {}
         total_bytes = 0
@@ -884,15 +940,18 @@ class AuthoringService:
             for path, content in sorted(entries.items())
         ]
         index = {
-            "formatVersion": 1,
+            "formatVersion": PACKAGE_FORMAT_VERSION,
             "labId": lab_id,
+            "package": package_index_metadata(package_definition),
             "schemaVersions": {
                 "lab": "kubelab.io/v1alpha1",
                 "authoring": "kubelab.io/v1alpha1",
+                "package": "kubelab.io/v1alpha1",
             },
             "scenarios": list(scenario_ids),
             "files": file_index,
         }
+        LabPackageIndex.model_validate(index)
         entries["index.json"] = (
             json.dumps(index, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
         ).encode("utf-8")
@@ -937,7 +996,8 @@ class AuthoringService:
             if index_stream is None:
                 raise ValueError("missing package index")
             index = json.loads(index_stream.read())
-            expected = {item["path"]: item for item in index["files"]}
+            parsed = LabPackageIndex.model_validate(index)
+            expected = {item.path: item for item in parsed.files}
             actual = {member.name: member for member in members if member.name != "index.json"}
             if set(actual) != set(expected):
                 raise ValueError("package index mismatch")
@@ -946,8 +1006,8 @@ class AuthoringService:
                 if stream is None:
                     raise ValueError("package member cannot be read")
                 content = stream.read()
-                if len(content) != expected[name]["size"] or (
-                    hashlib.sha256(content).hexdigest() != expected[name]["sha256"]
+                if len(content) != expected[name].size or (
+                    hashlib.sha256(content).hexdigest() != expected[name].sha256
                 ):
                     raise ValueError("package digest mismatch")
 

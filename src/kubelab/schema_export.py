@@ -8,6 +8,7 @@ from pathlib import Path
 from kubelab.authoring_schema import LabAuthoringContract
 from kubelab.lab_schema import LabDefinition, LabVariantDefinition
 from kubelab.learning_paths import LearningPathCatalogDefinition
+from kubelab.package_schema import LabPackageDefinition
 
 
 def render_lab_json_schema() -> str:
@@ -51,6 +52,16 @@ def default_authoring_schema_path() -> Path:
     return Path(__file__).resolve().parents[2] / "schemas" / "lab-authoring-v1alpha1.schema.json"
 
 
+def render_package_json_schema() -> str:
+    """Return the canonical M9 local-package metadata JSON Schema."""
+    schema = LabPackageDefinition.model_json_schema(by_alias=True, mode="validation")
+    return json.dumps(schema, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+
+
+def default_package_schema_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "schemas" / "lab-package-v1alpha1.schema.json"
+
+
 def main() -> None:
     """Write the canonical schema for maintainers."""
     path = default_schema_path()
@@ -62,6 +73,8 @@ def main() -> None:
     learning_path.write_text(render_learning_path_json_schema(), encoding="utf-8", newline="\n")
     authoring_path = default_authoring_schema_path()
     authoring_path.write_text(render_authoring_json_schema(), encoding="utf-8", newline="\n")
+    package_path = default_package_schema_path()
+    package_path.write_text(render_package_json_schema(), encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":

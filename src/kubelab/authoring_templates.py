@@ -8,6 +8,7 @@ from typing import Any, Literal
 import yaml
 
 from kubelab.lab_schema import LabDefinition
+from kubelab.package_schema import package_metadata
 
 ScenarioType = Literal["baseline", "variant", "composite"]
 
@@ -89,6 +90,7 @@ def baseline_template(
     contract = _scaling_contract("baseline", composite=False)
     return {
         "lab.yaml": _yaml(lab),
+        "package.yaml": _yaml(package_metadata(lab_id)),
         "README.md": _readme(title, description),
         "manifests/deployment.yaml": _yaml(manifest),
         "solutions/fix.yaml": _yaml(repair),
@@ -262,6 +264,7 @@ def composite_template(
     contract = _scaling_contract("composite", composite=True)
     return {
         "lab.yaml": _yaml(lab),
+        "package.yaml": _yaml(package_metadata(lab_id)),
         "README.md": _readme(title, description),
         "manifests/resources.yaml": _yaml_all(manifest),
         "solutions/fix-stage-1.yaml": _yaml(first),
