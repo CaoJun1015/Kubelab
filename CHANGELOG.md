@@ -6,6 +6,7 @@
 
 ### Added
 
+- 开始开发M9可信本地实验包生命周期，连接作者产物、版本化本地目录和可复现Session。
 - M8实验作者工具链，提供安全脚手架、统一lint、声明式Fake验收、公开边界预览和确定性实验包。
 - 21个基线和12个固定变体共33份`LabAuthoringContract`，以及三个综合实验的第一阶段修复契约。
 - `kubelab lab init/lint/test/inspect/package`命令组、稳定JSON问题模型和退出码。
@@ -23,6 +24,7 @@
 
 ### Changed
 
+- 开始开发KubeLab 0.6.0a0；只接受显式本地实验包，Web保持只读且不提供上传。
 - 开始开发KubeLab 0.5.0a0；作者命令默认不访问学习数据库、网络或Kubernetes集群。
 - 开始开发KubeLab 0.4.0a0；路径状态和复习建议继续从既有Session事实派生。
 - 完成KubeLab 0.3.0rc1的M6.1双平台质量门、停止态安装烟测和四批33场景真实验收。
