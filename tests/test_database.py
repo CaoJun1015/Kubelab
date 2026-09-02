@@ -26,6 +26,7 @@ from kubelab.db_models import (
     SessionEvidenceSnapshotRecord,
     VerificationRunRecord,
 )
+from kubelab.package_state import LabSource, NewLabPackage, PackageStatus
 from kubelab.repositories import ActiveSessionConflict, SessionNotFoundError
 from kubelab.session_state import (
     CheckResultInput,
@@ -167,6 +168,8 @@ def test_initialize_creates_all_tables_and_required_pragmas(tmp_path: Path) -> N
             "guided_learning_state",
             "hint_usage",
             "lab_session",
+            "lab_package",
+            "lab_package_event",
             "retrospective",
             "session_event",
             "session_evidence_snapshot",
@@ -181,7 +184,7 @@ def test_initialize_creates_all_tables_and_required_pragmas(tmp_path: Path) -> N
             revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-        assert revision == "0003_lab_variants"
+        assert revision == "0004_lab_packages"
     finally:
         database.dispose()
 
@@ -245,6 +248,10 @@ def test_v010_database_upgrades_without_losing_session_history(tmp_path: Path) -
         assert state is not None and state[0] is not None and state[1] is None
         assert connection.execute("SELECT request_count FROM hint_usage").fetchall() == []
         assert connection.execute("SELECT variant_id FROM lab_session").fetchone() == ("baseline",)
+        assert connection.execute(
+            "SELECT lab_source, package_sha256, lab_public_snapshot, scenario_public_snapshot "
+            "FROM lab_session"
+        ).fetchone() == ("builtin", None, None, None)
     assert database.backup_path.is_file()
     database.dispose()
 
@@ -267,15 +274,18 @@ def test_m5_database_upgrade_preserves_all_guided_learning_records(tmp_path: Pat
     }
     with sqlite3.connect(path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0003_lab_variants",
+            "0004_lab_packages",
         )
         assert {
             table: connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
             for table in expected_counts
         } == expected_counts
         assert connection.execute(
-            "SELECT variant_id, reset_count, last_error_code FROM lab_session"
-        ).fetchone() == ("baseline", 2, "SAFE_ERROR")
+            "SELECT variant_id, lab_source, package_sha256, reset_count, last_error_code "
+            "FROM lab_session"
+        ).fetchone() == ("baseline", "builtin", None, 2, "SAFE_ERROR")
+        assert connection.execute("SELECT COUNT(*) FROM lab_package").fetchone() == (0,)
+        assert connection.execute("SELECT COUNT(*) FROM lab_package_event").fetchone() == (0,)
         assert connection.execute("SELECT level, request_count FROM hint_usage").fetchone() == (
             2,
             3,
@@ -362,7 +372,7 @@ def test_upgrade_verifier_uses_copy_and_reports_only_safe_metadata(tmp_path: Pat
         "session_count": 1,
         "source_revision": "0002_guided_learning",
         "source_unchanged": True,
-        "target_revision": "0003_lab_variants",
+        "target_revision": "0004_lab_packages",
     }
     assert path.read_bytes() == source_bytes
     assert str(path) not in result.stdout
@@ -469,6 +479,61 @@ def test_session_create_transition_events_and_completion(tmp_path: Path) -> None
         with database.unit_of_work() as uow:
             assert uow.sessions.get_active() is None
             assert uow.sessions.require(created.id).status is SessionStatus.COMPLETED
+    finally:
+        database.dispose()
+
+
+def test_package_inventory_and_session_provenance_are_persisted(tmp_path: Path) -> None:
+    database = make_database(tmp_path)
+    digest = "b" * 64
+    try:
+        with database.unit_of_work() as uow:
+            staged = uow.packages.add(
+                NewLabPackage(
+                    sha256=digest,
+                    lab_id="lab-local-networking",
+                    package_version="1.0.0",
+                    publisher_id="local-author",
+                    publisher_name="Local Author",
+                    requires_kubelab=">=0.6.0a0,<0.7.0",
+                    format_version=2,
+                    archive_size=2048,
+                    imported_at=datetime(2026, 9, 2, 8, 0, tzinfo=UTC),
+                )
+            )
+            enabled = uow.packages.set_status(
+                digest,
+                PackageStatus.ENABLED,
+                event_type="enabled",
+                occurred_at=datetime(2026, 9, 2, 9, 0, tzinfo=UTC),
+            )
+            session = uow.sessions.create(
+                NewLabSession(
+                    id="00000000-0000-4000-8000-000000000222",
+                    lab_id="lab-local-networking",
+                    variant_id="baseline",
+                    lab_source=LabSource.LOCAL_PACKAGE,
+                    package_sha256=digest,
+                    lab_public_snapshot={"name": "<b>local</b>", "secret": "Bearer hidden"},
+                    scenario_public_snapshot={"revealed": False},
+                    namespace="kubelab-local-networking",
+                    context_name="minikube",
+                    context_fingerprint="c" * 64,
+                )
+            )
+            events = uow.packages.list_events(digest)
+            uow.commit()
+
+        assert staged.status is PackageStatus.STAGED
+        assert enabled.status is PackageStatus.ENABLED
+        assert [event.event_type for event in events] == ["imported", "enabled"]
+        assert session.lab_source is LabSource.LOCAL_PACKAGE
+        assert session.package_sha256 == digest
+        assert session.lab_public_snapshot == {"name": "<b>local</b>", "secret": "[REDACTED]"}
+        assert session.scenario_public_snapshot == {"revealed": False}
+        with database.unit_of_work() as uow:
+            assert uow.packages.get_enabled("lab-local-networking") == enabled
+            assert uow.packages.active_session_count(digest) == 1
     finally:
         database.dispose()
 

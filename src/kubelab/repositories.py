@@ -14,12 +14,21 @@ from kubelab.db_models import (
     CheckResultRecord,
     GuidedLearningStateRecord,
     HintUsageRecord,
+    LabPackageEventRecord,
+    LabPackageRecord,
     LabSessionRecord,
     RetrospectiveRecord,
     SessionEventRecord,
     SessionEvidenceSnapshotRecord,
     VerificationRunRecord,
     utc_now,
+)
+from kubelab.package_state import (
+    LabPackageEventSnapshot,
+    LabPackageSnapshot,
+    LabSource,
+    NewLabPackage,
+    PackageStatus,
 )
 from kubelab.redaction import redact_json
 from kubelab.session_state import (
@@ -56,6 +65,14 @@ class ActiveSessionConflict(RuntimeError):
         super().__init__("Only one active lab session is allowed." + detail)
 
 
+class PackageVersionConflict(RuntimeError):
+    code = "PACKAGE_VERSION_CONFLICT"
+
+
+class PackageNotFoundError(LookupError):
+    code = "PACKAGE_NOT_FOUND"
+
+
 class SessionRepository:
     """Persistence operations for sessions and their lifecycle events."""
 
@@ -67,6 +84,10 @@ class SessionRepository:
             id=new_session.id,
             lab_id=new_session.lab_id,
             variant_id=new_session.variant_id,
+            lab_source=new_session.lab_source.value,
+            package_sha256=new_session.package_sha256,
+            lab_public_snapshot=_safe_dict(new_session.lab_public_snapshot),
+            scenario_public_snapshot=_safe_dict(new_session.scenario_public_snapshot),
             namespace=new_session.namespace,
             status=SessionStatus.PROVISIONING.value,
             context_name=new_session.context_name,
@@ -517,6 +538,152 @@ class RetrospectiveRepository:
         return _retrospective_snapshot(record) if record else None
 
 
+class PackageRepository:
+    """Persist package inventory and its sanitized lifecycle audit trail."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def add(self, value: NewLabPackage) -> LabPackageSnapshot:
+        record = LabPackageRecord(
+            sha256=value.sha256,
+            lab_id=value.lab_id,
+            package_version=value.package_version,
+            publisher_id=value.publisher_id,
+            publisher_name=value.publisher_name,
+            requires_kubelab=value.requires_kubelab,
+            format_version=value.format_version,
+            archive_size=value.archive_size,
+            status=PackageStatus.STAGED.value,
+            imported_at=value.imported_at,
+        )
+        try:
+            with self._session.begin_nested():
+                self._session.add(record)
+                self._session.flush()
+        except IntegrityError as exc:
+            raise PackageVersionConflict("The package identity and version already exist.") from exc
+        self.record_event(value.sha256, "imported", occurred_at=value.imported_at)
+        return _package_snapshot(record)
+
+    def get(self, sha256: str) -> LabPackageSnapshot | None:
+        record = self._session.get(LabPackageRecord, sha256)
+        return _package_snapshot(record) if record else None
+
+    def require(self, sha256: str) -> LabPackageSnapshot:
+        snapshot = self.get(sha256)
+        if snapshot is None:
+            raise PackageNotFoundError("The local package is not registered.")
+        return snapshot
+
+    def find_version(
+        self,
+        lab_id: str,
+        package_version: str,
+        *,
+        publisher_id: str | None = None,
+    ) -> LabPackageSnapshot | None:
+        statement = select(LabPackageRecord).where(
+            LabPackageRecord.lab_id == lab_id,
+            LabPackageRecord.package_version == package_version,
+        )
+        if publisher_id is not None:
+            statement = statement.where(LabPackageRecord.publisher_id == publisher_id)
+        record = self._session.scalar(statement)
+        return _package_snapshot(record) if record else None
+
+    def list_all(self) -> tuple[LabPackageSnapshot, ...]:
+        statement = select(LabPackageRecord).order_by(
+            LabPackageRecord.lab_id,
+            LabPackageRecord.publisher_id,
+            LabPackageRecord.package_version,
+            LabPackageRecord.imported_at,
+        )
+        return tuple(_package_snapshot(record) for record in self._session.scalars(statement))
+
+    def list_for_lab(self, lab_id: str) -> tuple[LabPackageSnapshot, ...]:
+        statement = (
+            select(LabPackageRecord)
+            .where(LabPackageRecord.lab_id == lab_id)
+            .order_by(LabPackageRecord.imported_at, LabPackageRecord.sha256)
+        )
+        return tuple(_package_snapshot(record) for record in self._session.scalars(statement))
+
+    def get_enabled(self, lab_id: str) -> LabPackageSnapshot | None:
+        statement = select(LabPackageRecord).where(
+            LabPackageRecord.lab_id == lab_id,
+            LabPackageRecord.status == PackageStatus.ENABLED.value,
+        )
+        record = self._session.scalar(statement)
+        return _package_snapshot(record) if record else None
+
+    def set_status(
+        self,
+        sha256: str,
+        status: PackageStatus,
+        *,
+        event_type: str,
+        occurred_at: datetime | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> LabPackageSnapshot:
+        record = self._session.get(LabPackageRecord, sha256)
+        if record is None:
+            raise PackageNotFoundError("The local package is not registered.")
+        timestamp = occurred_at or utc_now()
+        record.status = status.value
+        if status is PackageStatus.ENABLED:
+            record.enabled_at = timestamp
+            record.pending_removal_at = None
+            record.removed_at = None
+        elif status is PackageStatus.DISABLED:
+            record.disabled_at = timestamp
+        elif status is PackageStatus.PENDING_REMOVAL:
+            record.pending_removal_at = timestamp
+        elif status is PackageStatus.REMOVED:
+            record.removed_at = timestamp
+        self.record_event(
+            sha256,
+            event_type,
+            context=context,
+            occurred_at=timestamp,
+        )
+        self._session.flush()
+        return _package_snapshot(record)
+
+    def active_session_count(self, sha256: str) -> int:
+        statement = select(LabSessionRecord).where(
+            LabSessionRecord.package_sha256 == sha256,
+            LabSessionRecord.status.in_(status.value for status in ACTIVE_SESSION_STATUSES),
+        )
+        return len(tuple(self._session.scalars(statement)))
+
+    def record_event(
+        self,
+        sha256: str,
+        event_type: str,
+        *,
+        context: dict[str, Any] | None = None,
+        occurred_at: datetime | None = None,
+    ) -> LabPackageEventSnapshot:
+        event = LabPackageEventRecord(
+            package_sha256=sha256,
+            event_type=event_type,
+            context=_safe_dict(context),
+            created_at=occurred_at or utc_now(),
+        )
+        self._session.add(event)
+        self._session.flush()
+        return _package_event_snapshot(event)
+
+    def list_events(self, sha256: str) -> tuple[LabPackageEventSnapshot, ...]:
+        statement = (
+            select(LabPackageEventRecord)
+            .where(LabPackageEventRecord.package_sha256 == sha256)
+            .order_by(LabPackageEventRecord.created_at, LabPackageEventRecord.id)
+        )
+        return tuple(_package_event_snapshot(record) for record in self._session.scalars(statement))
+
+
 class SqlAlchemyUnitOfWork:
     """Explicit transaction boundary shared by future CLI and Web services."""
 
@@ -528,6 +695,7 @@ class SqlAlchemyUnitOfWork:
         self.hints: HintRepository
         self.guided_learning: GuidedLearningRepository
         self.retrospectives: RetrospectiveRepository
+        self.packages: PackageRepository
 
     def __enter__(self) -> SqlAlchemyUnitOfWork:
         self._session = self._session_factory()
@@ -536,6 +704,7 @@ class SqlAlchemyUnitOfWork:
         self.hints = HintRepository(self._session)
         self.guided_learning = GuidedLearningRepository(self._session)
         self.retrospectives = RetrospectiveRepository(self._session)
+        self.packages = PackageRepository(self._session)
         return self
 
     def commit(self) -> None:
@@ -582,6 +751,10 @@ def _session_snapshot(record: LabSessionRecord) -> LabSessionSnapshot:
         id=record.id,
         lab_id=record.lab_id,
         variant_id=record.variant_id,
+        lab_source=LabSource(record.lab_source),
+        package_sha256=record.package_sha256,
+        lab_public_snapshot=record.lab_public_snapshot,
+        scenario_public_snapshot=record.scenario_public_snapshot,
         namespace=record.namespace,
         status=SessionStatus(record.status),
         context_name=record.context_name,
@@ -641,6 +814,35 @@ def _retrospective_snapshot(record: RetrospectiveRecord) -> RetrospectiveSnapsho
     )
 
 
+def _package_snapshot(record: LabPackageRecord) -> LabPackageSnapshot:
+    return LabPackageSnapshot(
+        sha256=record.sha256,
+        lab_id=record.lab_id,
+        package_version=record.package_version,
+        publisher_id=record.publisher_id,
+        publisher_name=record.publisher_name,
+        requires_kubelab=record.requires_kubelab,
+        format_version=record.format_version,
+        archive_size=record.archive_size,
+        imported_at=_aware_required(record.imported_at),
+        status=PackageStatus(record.status),
+        enabled_at=_aware(record.enabled_at),
+        disabled_at=_aware(record.disabled_at),
+        pending_removal_at=_aware(record.pending_removal_at),
+        removed_at=_aware(record.removed_at),
+    )
+
+
+def _package_event_snapshot(record: LabPackageEventRecord) -> LabPackageEventSnapshot:
+    return LabPackageEventSnapshot(
+        id=record.id,
+        package_sha256=record.package_sha256,
+        event_type=record.event_type,
+        context=record.context,
+        created_at=_aware_required(record.created_at),
+    )
+
+
 def _aware_required(value: datetime) -> datetime:
     aware = _aware(value)
     if aware is None:  # pragma: no cover - non-null database constraint
@@ -652,6 +854,9 @@ __all__ = [
     "ActiveSessionConflict",
     "GuidedLearningRepository",
     "HintRepository",
+    "PackageNotFoundError",
+    "PackageRepository",
+    "PackageVersionConflict",
     "RetrospectiveRepository",
     "SessionNotFoundError",
     "SessionRepository",

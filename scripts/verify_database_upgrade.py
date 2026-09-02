@@ -18,8 +18,9 @@ ALLOWED_REVISIONS = {
     "0001_initial_persistence",
     "0002_guided_learning",
     "0003_lab_variants",
+    "0004_lab_packages",
 }
-TARGET_REVISION = "0003_lab_variants"
+TARGET_REVISION = "0004_lab_packages"
 
 
 def _revision(connection: sqlite3.Connection) -> str:
@@ -65,7 +66,7 @@ def verify_copy_upgrade(source: Path) -> dict[str, Any]:
     with closing(sqlite3.connect(f"{source.as_uri()}?mode=ro", uri=True)) as connection:
         source_revision = _revision(connection)
         if source_revision not in ALLOWED_REVISIONS:
-            raise RuntimeError("The source database revision is not supported by M6.1.")
+            raise RuntimeError("The source database revision is not supported by M9.")
         source_counts = _table_counts(connection)
 
         with tempfile.TemporaryDirectory(prefix="kubelab-m6-1-upgrade-") as temporary:
@@ -86,7 +87,7 @@ def verify_copy_upgrade(source: Path) -> dict[str, Any]:
             with closing(sqlite3.connect(candidate)) as upgraded:
                 target_revision = _revision(upgraded)
                 if target_revision != TARGET_REVISION:
-                    raise RuntimeError("The copied database did not reach the M6 revision.")
+                    raise RuntimeError("The copied database did not reach the M9 revision.")
                 target_counts = _table_counts(upgraded)
                 for table, count in source_counts.items():
                     if target_counts.get(table) != count:
@@ -94,13 +95,21 @@ def verify_copy_upgrade(source: Path) -> dict[str, Any]:
                 indexes = {row[1] for row in upgraded.execute("PRAGMA index_list('lab_session')")}
                 if "ix_lab_session_lab_variant_created" not in indexes:
                     raise RuntimeError("The copied database is missing the variant query index.")
-                if source_revision != TARGET_REVISION:
+                if source_revision in {"0001_initial_persistence", "0002_guided_learning"}:
                     invalid_variants = upgraded.execute(
                         "SELECT COUNT(*) FROM lab_session "
                         "WHERE variant_id IS NULL OR variant_id != 'baseline'"
                     ).fetchone()[0]
                     if invalid_variants:
                         raise RuntimeError("A legacy Session was not backfilled to baseline.")
+                if source_revision != TARGET_REVISION:
+                    invalid_sources = upgraded.execute(
+                        "SELECT COUNT(*) FROM lab_session "
+                        "WHERE lab_source != 'builtin' OR package_sha256 IS NOT NULL "
+                        "OR lab_public_snapshot IS NOT NULL OR scenario_public_snapshot IS NOT NULL"
+                    ).fetchone()[0]
+                    if invalid_sources:
+                        raise RuntimeError("A legacy Session has invalid package provenance.")
 
             backup_created = candidate.with_name("kubelab.db.bak").is_file()
             if backup_created != (source_revision != TARGET_REVISION):

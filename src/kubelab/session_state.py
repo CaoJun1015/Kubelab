@@ -7,7 +7,9 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from kubelab.package_state import LabSource
 
 
 class SessionStatus(StrEnum):
@@ -101,6 +103,10 @@ class NewLabSession(PersistenceDto):
     variant_id: str = Field(
         default="baseline", pattern=r"^(?:baseline|variant-[a-z0-9][a-z0-9-]{0,53})$"
     )
+    lab_source: LabSource = LabSource.BUILTIN
+    package_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    lab_public_snapshot: dict[str, Any] | None = None
+    scenario_public_snapshot: dict[str, Any] | None = None
     namespace: str = Field(pattern=r"^kubelab-[a-z0-9](?:[a-z0-9-]{0,53}[a-z0-9])?$")
     context_name: str = Field(min_length=1)
     context_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -112,11 +118,23 @@ class NewLabSession(PersistenceDto):
     def id_is_uuid4(cls, value: str) -> str:
         return _require_uuid4(value)
 
+    @model_validator(mode="after")
+    def package_digest_matches_source(self) -> NewLabSession:
+        if self.lab_source is LabSource.LOCAL_PACKAGE and self.package_sha256 is None:
+            raise ValueError("local package sessions require package_sha256")
+        if self.lab_source is LabSource.BUILTIN and self.package_sha256 is not None:
+            raise ValueError("built-in sessions cannot reference package_sha256")
+        return self
+
 
 class LabSessionSnapshot(PersistenceDto):
     id: str
     lab_id: str
     variant_id: str = "baseline"
+    lab_source: LabSource = LabSource.BUILTIN
+    package_sha256: str | None = None
+    lab_public_snapshot: dict[str, Any] | None = None
+    scenario_public_snapshot: dict[str, Any] | None = None
     namespace: str
     status: SessionStatus
     context_name: str

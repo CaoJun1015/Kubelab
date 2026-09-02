@@ -38,6 +38,15 @@ class LabSessionRecord(Base):
             "'cleaning','completed','error')",
             name="ck_lab_session_status",
         ),
+        CheckConstraint(
+            "lab_source IN ('builtin','local_package')",
+            name="ck_lab_session_source",
+        ),
+        CheckConstraint(
+            "(lab_source = 'builtin' AND package_sha256 IS NULL) OR "
+            "(lab_source = 'local_package' AND package_sha256 IS NOT NULL)",
+            name="ck_lab_session_package_source",
+        ),
         Index(
             "uq_lab_session_single_active",
             text("1"),
@@ -52,6 +61,12 @@ class LabSessionRecord(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     lab_id: Mapped[str] = mapped_column(String(64), nullable=False)
     variant_id: Mapped[str] = mapped_column(String(63), nullable=False, default="baseline")
+    lab_source: Mapped[str] = mapped_column(String(16), nullable=False, default="builtin")
+    package_sha256: Mapped[str | None] = mapped_column(
+        ForeignKey("lab_package.sha256", ondelete="RESTRICT")
+    )
+    lab_public_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    scenario_public_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     namespace: Mapped[str] = mapped_column(String(63), nullable=False)
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default=SessionStatus.PROVISIONING.value
@@ -72,6 +87,60 @@ Index(
     LabSessionRecord.variant_id,
     LabSessionRecord.created_at,
 )
+
+
+class LabPackageRecord(Base):
+    __tablename__ = "lab_package"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('staged','enabled','disabled','pending_removal','removed')",
+            name="ck_lab_package_status",
+        ),
+        Index(
+            "uq_lab_package_identity_version",
+            "lab_id",
+            "publisher_id",
+            "package_version",
+            unique=True,
+        ),
+        Index(
+            "uq_lab_package_one_enabled",
+            "lab_id",
+            unique=True,
+            sqlite_where=text("status = 'enabled'"),
+        ),
+        Index("ix_lab_package_lab_status", "lab_id", "status"),
+    )
+
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    lab_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    package_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    publisher_id: Mapped[str] = mapped_column(String(63), nullable=False)
+    publisher_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    requires_kubelab: Mapped[str] = mapped_column(String(120), nullable=False)
+    format_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    archive_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="staged")
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pending_removal_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class LabPackageEventRecord(Base):
+    __tablename__ = "lab_package_event"
+    __table_args__ = (
+        Index("ix_lab_package_event_package_created", "package_sha256", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    package_sha256: Mapped[str] = mapped_column(
+        ForeignKey("lab_package.sha256", ondelete="CASCADE"), nullable=False
+    )
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    context: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class SessionEventRecord(Base):
@@ -207,6 +276,8 @@ __all__ = [
     "GuidedLearningStateRecord",
     "HintUsageRecord",
     "LabSessionRecord",
+    "LabPackageEventRecord",
+    "LabPackageRecord",
     "RetrospectiveRecord",
     "SessionEventRecord",
     "SessionEvidenceSnapshotRecord",
