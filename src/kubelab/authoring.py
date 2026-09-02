@@ -26,6 +26,7 @@ from kubelab.authoring_schema import LabAuthoringContract, RepairPlan
 from kubelab.authoring_templates import baseline_template, composite_template, variant_template
 from kubelab.lab_registry import EffectiveLab, ExecutableLab, LabRegistry, LoadedLab, LoadedVariant
 from kubelab.manifest_security import ManifestDocument, ManifestSecurityScanner
+from kubelab.package_archive import PackageArchiveError, verify_lab_archive
 from kubelab.package_schema import (
     PACKAGE_FORMAT_VERSION,
     LabPackageDefinition,
@@ -976,40 +977,12 @@ class AuthoringService:
 
     @staticmethod
     def _verify_package(path: Path) -> None:
-        with tarfile.open(path, "r:gz") as archive:
-            members = archive.getmembers()
-            if len(members) > _MAX_PACKAGE_FILES + 1 or sum(member.size for member in members) > (
-                _MAX_PACKAGE_BYTES + _MAX_MANIFEST_BYTES
-            ):
-                raise ValueError("archive exceeds bounded content limits")
-            if any(
-                not member.isfile()
-                or member.issym()
-                or member.islnk()
-                or PurePosixPath(member.name).is_absolute()
-                or ".." in PurePosixPath(member.name).parts
-                for member in members
-            ):
-                raise ValueError("unsafe archive member")
-            index_member = archive.getmember("index.json")
-            index_stream = archive.extractfile(index_member)
-            if index_stream is None:
-                raise ValueError("missing package index")
-            index = json.loads(index_stream.read())
-            parsed = LabPackageIndex.model_validate(index)
-            expected = {item.path: item for item in parsed.files}
-            actual = {member.name: member for member in members if member.name != "index.json"}
-            if set(actual) != set(expected):
-                raise ValueError("package index mismatch")
-            for name, member in actual.items():
-                stream = archive.extractfile(member)
-                if stream is None:
-                    raise ValueError("package member cannot be read")
-                content = stream.read()
-                if len(content) != expected[name].size or (
-                    hashlib.sha256(content).hexdigest() != expected[name].sha256
-                ):
-                    raise ValueError("package digest mismatch")
+        try:
+            verified = verify_lab_archive(path)
+        except PackageArchiveError as exc:
+            raise ValueError(exc.message) from exc
+        if not verified.importable:
+            raise ValueError("author packages must use an importable format")
 
     @staticmethod
     def _classify_target(path: Path) -> _Target:
