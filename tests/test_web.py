@@ -54,6 +54,8 @@ from kubelab.learning_paths import (
     SymptomDefinition,
 )
 from kubelab.operation_lock import OperationLockError
+from kubelab.package_manager import PackageInfo, PackageIntegrity
+from kubelab.package_state import LabSource, PackageStatus
 from kubelab.repositories import ActiveSessionConflict
 from kubelab.runtime import RuntimeEnvironmentError
 from kubelab.session_state import (
@@ -227,6 +229,38 @@ class FakeApplicationService:
                 ),
             ),
             categories=(),
+        )
+
+    def packages(self) -> tuple[PackageInfo, ...]:
+        self.calls.append(("packages",))
+        return (self._package_info(),)
+
+    def package_versions(self, lab_id: str) -> tuple[PackageInfo, ...]:
+        self.calls.append(("package_versions", lab_id))
+        return (self._package_info(),)
+
+    @staticmethod
+    def _package_info() -> PackageInfo:
+        return PackageInfo(
+            labId="lab-local-<script>",
+            packageVersion="1.0.0",
+            publisherId="local-author",
+            publisherName="<img src=x onerror=alert(1)>",
+            publisherVerified=False,
+            requiresKubelab=">=0.6.0a0,<0.7.0",
+            formatVersion=2,
+            archiveSize=1024,
+            sha256="a" * 64,
+            status=PackageStatus.ENABLED,
+            integrity=PackageIntegrity.VERIFIED,
+            compatible=True,
+            available=True,
+            scenarioCount=1,
+            importedAt=NOW,
+            enabledAt=NOW,
+            disabledAt=None,
+            pendingRemovalAt=None,
+            removedAt=None,
         )
 
     def learning_paths(self) -> LearningPathCatalogReport:
@@ -490,6 +524,8 @@ def test_read_endpoints_delegate_to_fake_application_service(client: TestClient)
     retrospective = client.get("/api/v1/sessions/latest/retrospective")
     exported = client.get("/api/v1/sessions/latest/retrospective/export")
     progress = client.get("/api/v1/progress")
+    packages = client.get("/api/v1/packages")
+    package_versions = client.get("/api/v1/packages/lab-local-package")
     onboarding = client.get("/api/v1/onboarding")
     paths = client.get("/api/v1/learning-paths")
     path = client.get("/api/v1/learning-paths/service-discovery-traffic")
@@ -527,6 +563,12 @@ def test_read_endpoints_delegate_to_fake_application_service(client: TestClient)
     assert retrospective.json()["retrospective"] is None
     assert retrospective.json()["metadata"] is None
     assert progress.json()["labs"][0]["attempt_count"] == 2
+    assert packages.json()[0]["publisherVerified"] is False
+    assert packages.json()[0]["status"] == "enabled"
+    assert package_versions.json()[0]["packageVersion"] == "1.0.0"
+    assert "onerror" in packages.text
+    assert "manifest" not in packages.text.casefold()
+    assert "source_path" not in packages.text.casefold()
     assert exported.headers["content-type"].startswith("text/markdown")
     assert "attachment" in exported.headers["content-disposition"]
     assert "脱敏复盘" in exported.text
@@ -542,10 +584,33 @@ def test_read_endpoints_delegate_to_fake_application_service(client: TestClient)
     assert "专题学习成果" in outcome_export.text
 
 
+def test_package_http_surface_is_read_only(client: TestClient) -> None:
+    assert client.get("/packages").status_code == 200
+    for path in (
+        "/api/v1/packages/import",
+        "/api/v1/packages/lab-local-networking/enable",
+        "/api/v1/packages/lab-local-networking/remove",
+    ):
+        response = client.post(path, headers=csrf(client))
+        assert response.status_code in {404, 405}
+
+
 def test_blind_repeat_session_never_exposes_internal_variant_identifier(
     client: TestClient, fake: FakeApplicationService
 ) -> None:
-    blind_session = session().model_copy(update={"variant_id": "variant-b"})
+    blind_session = session().model_copy(
+        update={
+            "variant_id": "variant-b",
+            "lab_source": LabSource.LOCAL_PACKAGE,
+            "package_sha256": "b" * 64,
+            "lab_public_snapshot": {"secret": "must-not-leak"},
+            "scenario_public_snapshot": {"root_cause": "must-not-leak"},
+            "package_version": "1.0.0",
+            "publisher_id": "local-author",
+            "publisher_name": "Local Author",
+            "publisher_verified": False,
+        }
+    )
 
     def active_session() -> SessionStatusResult:
         return SessionStatusResult(
@@ -567,6 +632,11 @@ def test_blind_repeat_session_never_exposes_internal_variant_identifier(
     assert response.json()["session"]["scenario_revealed"] is False
     assert "variant-b" not in response.text
     assert "variant_id" not in response.text
+    assert response.json()["session"]["source"] == "local_package"
+    assert response.json()["session"]["package_version"] == "1.0.0"
+    assert response.json()["session"]["publisher_verified"] is False
+    assert "package_sha256" not in response.text
+    assert "must-not-leak" not in response.text
 
 
 def test_onboarding_page_is_static_and_explicit_check_requires_csrf(

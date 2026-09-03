@@ -36,6 +36,7 @@ def ui_client():
         ("/labs/lab-005-image-pull", "lab-detail", "你的任务"),
         ("/sessions/123e4567-e89b-42d3-a456-426614174111", "session", "资源与 Pods"),
         ("/progress", "progress", "学习进度"),
+        ("/packages", "packages", "本地实验包"),
     ],
 )
 def test_page_shells_render_navigation_and_expected_landmarks(
@@ -52,6 +53,7 @@ def test_page_shells_render_navigation_and_expected_landmarks(
     assert 'href="/paths"' in response.text
     assert 'href="/onboarding"' in response.text
     assert 'href="/progress"' in response.text
+    assert 'href="/packages"' in response.text
     assert 'src="http://testserver/static/app.js"' in response.text
 
 
@@ -114,6 +116,9 @@ def test_frontend_uses_text_only_rendering_and_required_interaction_guards() -> 
     assert "/api/v1/progress" in script
     assert "/api/v1/learning-paths" in script
     assert "/api/v1/symptoms" in script
+    assert "/api/v1/packages" in script
+    assert 'detail.lab.source === "local_package"' in script
+    assert "未验证（自声明信息）" in script
     assert "expected" not in script
     assert "actual" not in script
 
@@ -178,6 +183,7 @@ def test_built_distributions_pass_shared_release_verifier(tmp_path: Path) -> Non
         "kubelab/templates/session.html",
         "kubelab/templates/progress.html",
         "kubelab/templates/onboarding.html",
+        "kubelab/templates/packages.html",
         "kubelab/templates/paths.html",
         "kubelab/templates/path_detail.html",
         "kubelab/templates/path_outcome.html",

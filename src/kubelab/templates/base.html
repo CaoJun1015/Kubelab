@@ -23,6 +23,7 @@
         <a href="/onboarding"{% if page == "onboarding" %} aria-current="page"{% endif %}>环境</a>
         <a href="/paths"{% if page in ("paths", "path-detail", "path-outcome", "symptoms") %} aria-current="page"{% endif %}>路径</a>
         <a href="/labs"{% if page in ("labs", "lab-detail") %} aria-current="page"{% endif %}>实验</a>
+        <a href="/packages"{% if page == "packages" %} aria-current="page"{% endif %}>本地包</a>
         <a href="/progress"{% if page == "progress" %} aria-current="page"{% endif %}>进度</a>
       </nav>
       <span class="local-badge"><span aria-hidden="true"></span>127.0.0.1</span>

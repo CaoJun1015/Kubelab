@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-heading">
+  <div>
+    <p class="eyebrow">LOCAL PACKAGES</p>
+    <h1>本地实验包</h1>
+    <p>这里只展示已离线验证并登记的版本。导入、启用、回滚和移除仅通过 WSL CLI 完成。</p>
+  </div>
+</header>
+
+<div id="page-error" class="alert error hidden" role="alert"></div>
+
+<section class="panel" aria-labelledby="package-trust-title">
+  <div class="panel-heading">
+    <div>
+      <p class="eyebrow">TRUST BOUNDARY</p>
+      <h2 id="package-trust-title">完整性已验证，发布者未认证</h2>
+    </div>
+  </div>
+  <p>SHA-256、文件索引、安全规则和 Fake 生命周期通过，仅代表内容完整；M9 不提供签名、公钥信任或网络下载。</p>
+</section>
+
+<section aria-labelledby="package-list-title">
+  <div class="panel-heading">
+    <div><p class="eyebrow">INVENTORY</p><h2 id="package-list-title">版本清单</h2></div>
+    <span id="packages-count" class="result-count" aria-live="polite">读取中…</span>
+  </div>
+  <div id="packages-grid" class="card-grid labs-grid" aria-live="polite"></div>
+</section>
+{% endblock %}

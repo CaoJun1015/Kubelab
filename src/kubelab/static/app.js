@@ -195,6 +195,10 @@
     if (lab.variant_total) {
       meta.append(element("span", { text: `变体 ${lab.variant_completed}/${lab.variant_total}` }));
     }
+    if (lab.source === "local_package") {
+      meta.append(element("span", { text: `本地包 ${lab.package_version || "—"}` }));
+      meta.append(element("span", { text: "发布者未验证" }));
+    }
     card.append(meta);
     return card;
   };
@@ -437,6 +441,20 @@
     appendTextPair(facts, "Kubernetes", detail.kubernetes_requirement);
     appendTextPair(facts, "最低资源", `${detail.minimum_cpu} CPU / ${detail.minimum_memory_mib} MiB`);
     appendTextPair(facts, "提示层级", String(detail.hint_count));
+    appendTextPair(
+      facts,
+      "实验来源",
+      detail.lab.source === "local_package" ? "本地实验包" : "KubeLab 内置",
+    );
+    if (detail.lab.source === "local_package") {
+      appendTextPair(facts, "包版本", detail.lab.package_version || "—");
+      appendTextPair(facts, "发布者", detail.lab.publisher_name || detail.lab.publisher_id || "—");
+      appendTextPair(
+        facts,
+        "发布者身份",
+        detail.lab.publisher_verified ? "已验证" : "未验证（自声明信息）",
+      );
+    }
     appendTextPair(
       facts,
       "练习模式",
@@ -1209,6 +1227,34 @@
     );
   };
 
+  const loadPackages = async () => {
+    const packages = await api("/api/v1/packages");
+    text("#packages-count", `${packages.length} 个版本`);
+    const grid = document.querySelector("#packages-grid");
+    clear(grid);
+    if (!packages.length) {
+      grid.append(
+        element("p", {
+          className: "empty-state",
+          text: "尚未登记本地实验包。请在 WSL 中使用 kubelab package import。",
+        }),
+      );
+      return;
+    }
+    packages.forEach((item) => {
+      const card = element("article", { className: "lab-card" });
+      card.append(badge(item.status));
+      card.append(element("h3", { text: item.labId || item.lab_id }));
+      card.append(element("p", { text: `${item.publisherName || item.publisher_name} · 发布者未验证` }));
+      const meta = element("div", { className: "card-meta" });
+      meta.append(element("span", { text: `版本 ${item.packageVersion || item.package_version}` }));
+      meta.append(element("span", { text: `完整性 ${item.integrity}` }));
+      meta.append(element("span", { text: `${item.scenarioCount ?? item.scenario_count} 个场景` }));
+      card.append(meta);
+      grid.append(card);
+    });
+  };
+
   const boot = async () => {
     try {
       await refreshCsrf();
@@ -1223,6 +1269,7 @@
         "path-detail": loadPathDetail,
         symptoms: loadSymptoms,
         "path-outcome": loadPathOutcome,
+        packages: loadPackages,
       };
       const loader = loaders[root.dataset.page];
       if (loader) await loader();

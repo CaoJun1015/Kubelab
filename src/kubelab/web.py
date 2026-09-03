@@ -57,6 +57,7 @@ from kubelab.learning_paths import (
     SymptomCatalog,
 )
 from kubelab.operation_lock import OperationLockError
+from kubelab.package_manager import PackageInfo, PackageManagerError
 from kubelab.redaction import redact_json
 from kubelab.repositories import ActiveSessionConflict
 from kubelab.runtime import ApplicationRuntime, RuntimeEnvironmentError, build_application_runtime
@@ -152,6 +153,12 @@ class PublicSession(WebModel):
     last_error_code: str | None
     practice_mode: str = "baseline"
     scenario_revealed: bool = True
+    source: str = "builtin"
+    package_version: str | None = None
+    publisher_id: str | None = None
+    publisher_name: str | None = None
+    publisher_verified: bool = True
+    available: bool = True
 
 
 class ActiveSessionResponse(WebModel):
@@ -296,6 +303,10 @@ class WebApplicationService(Protocol):
 
     def export_retrospective(self) -> str: ...
 
+    def packages(self) -> tuple[PackageInfo, ...]: ...
+
+    def package_versions(self, lab_id: str) -> tuple[PackageInfo, ...]: ...
+
 
 class KubeLabApplicationService:
     """Adapter that keeps FastAPI unaware of persistence and Kubernetes clients."""
@@ -407,6 +418,16 @@ class KubeLabApplicationService:
 
     def export_retrospective(self) -> str:
         return self._manager.export_retrospective()
+
+    def packages(self) -> tuple[PackageInfo, ...]:
+        if self._runtime.packages is None:
+            raise RuntimeEnvironmentError("Package inventory service is unavailable.")
+        return self._runtime.packages.list_packages()
+
+    def package_versions(self, lab_id: str) -> tuple[PackageInfo, ...]:
+        if self._runtime.packages is None:
+            raise RuntimeEnvironmentError("Package inventory service is unavailable.")
+        return self._runtime.packages.show(lab_id)
 
 
 def build_web_application_service() -> WebApplicationService:  # pragma: no cover
@@ -605,6 +626,10 @@ def create_app(
     def progress_page(request: Request) -> Response:
         return render_page(request, "progress.html", title="学习进度", page="progress")
 
+    @app.get("/packages", response_class=HTMLResponse, include_in_schema=False)
+    def packages_page(request: Request) -> Response:
+        return render_page(request, "packages.html", title="本地实验包", page="packages")
+
     @app.get("/paths", response_class=HTMLResponse, include_in_schema=False)
     def learning_paths_page(request: Request) -> Response:
         return render_page(request, "paths.html", title="专题路径", page="paths")
@@ -661,6 +686,14 @@ def create_app(
     @app.get("/api/v1/progress", response_model=LearningProgressReport)
     def progress(request: Request) -> LearningProgressReport:
         return _service(request).progress()
+
+    @app.get("/api/v1/packages", response_model=tuple[PackageInfo, ...])
+    def packages(request: Request) -> tuple[PackageInfo, ...]:
+        return _service(request).packages()
+
+    @app.get("/api/v1/packages/{lab_id}", response_model=tuple[PackageInfo, ...])
+    def package_versions(request: Request, lab_id: str) -> tuple[PackageInfo, ...]:
+        return _service(request).package_versions(lab_id)
 
     @app.get(
         "/api/v1/learning-paths",
@@ -869,6 +902,12 @@ def _public_session(
             if scenario_revealed is not None
             else session.variant_id == "baseline" or session.status is SessionStatus.PASSED
         ),
+        source=session.lab_source.value,
+        package_version=session.package_version,
+        publisher_id=session.publisher_id,
+        publisher_name=session.publisher_name,
+        publisher_verified=session.publisher_verified,
+        available=session.available,
     )
 
 
@@ -995,7 +1034,14 @@ def _public_error(
         context = {"session_id": error.active.id, "status": error.active.status.value}
     if isinstance(
         error,
-        (LabManagerError, EnvironmentNotReadyError, ContextError, ConfigError, DatabaseError),
+        (
+            LabManagerError,
+            PackageManagerError,
+            EnvironmentNotReadyError,
+            ContextError,
+            ConfigError,
+            DatabaseError,
+        ),
     ):
         message = _redacted_text(str(getattr(error, "message", str(error))))
     elif isinstance(error, (ActiveSessionConflict, OperationLockError, RuntimeEnvironmentError)):
@@ -1020,6 +1066,7 @@ def _status_for_error(code: str) -> int:
     if code in {
         "LAB_NOT_FOUND",
         "LEARNING_PATH_NOT_FOUND",
+        "PACKAGE_NOT_FOUND",
         "SESSION_NOT_FOUND",
         "KUBERNETES_NOT_FOUND",
     }:
@@ -1044,6 +1091,8 @@ def _status_for_error(code: str) -> int:
         return 409
     if code in {"LAB_INVALID"}:
         return 422
+    if code in {"PACKAGE_NOT_AVAILABLE", "PACKAGE_NOT_ENABLED"}:
+        return 409
     if code in {
         "CLUSTER_OPERATION_FAILED",
         "CLEANUP_FAILED",
@@ -1053,6 +1102,8 @@ def _status_for_error(code: str) -> int:
         "RUNTIME_PLATFORM_UNSUPPORTED",
         "ENVIRONMENT_NOT_READY",
         "LEARNING_PATH_INVALID",
+        "PACKAGE_PLATFORM_UNSUPPORTED",
+        "PACKAGE_SERVICE_UNAVAILABLE",
     }:
         return 503
     return 500
