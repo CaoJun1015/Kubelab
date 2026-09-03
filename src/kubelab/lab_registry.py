@@ -22,6 +22,7 @@ from kubelab.lab_schema import (
     LabVariantDefinition,
 )
 from kubelab.manifest_security import ManifestDocument, ManifestSecurityScanner
+from kubelab.package_state import LabSource
 from kubelab.safe_yaml import load_all_unique
 
 
@@ -76,6 +77,11 @@ class LoadedLab(LabModel):
     manifest_paths: tuple[str, ...]
     manifest_sha256: tuple[str, ...]
     variants: tuple[LoadedVariant, ...] = ()
+    source: LabSource = LabSource.BUILTIN
+    package_sha256: str | None = None
+    package_version: str | None = None
+    publisher_id: str | None = None
+    publisher_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -153,10 +159,24 @@ class LabRegistry:
         *,
         environ: Mapping[str, str] | None = None,
         scanner: ManifestSecurityScanner | None = None,
+        source: LabSource = LabSource.BUILTIN,
+        package_sha256: str | None = None,
+        package_version: str | None = None,
+        publisher_id: str | None = None,
+        publisher_name: str | None = None,
     ) -> None:
         self._explicit_labs_dir = labs_dir
         self._environ = environ if environ is not None else os.environ
         self._scanner = scanner or ManifestSecurityScanner()
+        self._source = source
+        self._package_sha256 = package_sha256
+        self._package_version = package_version
+        self._publisher_id = publisher_id
+        self._publisher_name = publisher_name
+        if source is LabSource.LOCAL_PACKAGE and package_sha256 is None:
+            raise ValueError("Local package registries require a package digest.")
+        if source is LabSource.BUILTIN and package_sha256 is not None:
+            raise ValueError("Built-in registries cannot carry a package digest.")
 
     def scan(self) -> RegistrySnapshot:
         """Return all valid labs and isolated, redacted source errors."""
@@ -244,6 +264,11 @@ class LabRegistry:
                     manifest_paths=bundle.paths,
                     manifest_sha256=bundle.digests,
                     variants=variants,
+                    source=self._source,
+                    package_sha256=self._package_sha256,
+                    package_version=self._package_version,
+                    publisher_id=self._publisher_id,
+                    publisher_name=self._publisher_name,
                 )
             )
 
@@ -257,6 +282,15 @@ class LabRegistry:
             )
         )
         return RegistrySnapshot(labs=tuple(loaded), errors=tuple(errors))
+
+    def pinned_lab(self, lab_id: str, package_sha256: str | None = None) -> LoadedLab | None:
+        """Resolve a built-in lab; package-aware registries override digest lookup."""
+        if package_sha256 is not None:
+            return None
+        return next(
+            (lab for lab in self.scan().labs if lab.definition.metadata.id == lab_id),
+            None,
+        )
 
     def materialize_for_gateway(self, loaded: LoadedLab | EffectiveLab) -> _MaterializedLab:
         """Re-read, digest-check, and rescan a loaded lab immediately before apply."""

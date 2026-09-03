@@ -6,6 +6,7 @@ import hashlib
 import os
 import platform
 import shutil
+import stat
 import tempfile
 from collections.abc import Callable
 from contextlib import nullcontext
@@ -24,6 +25,7 @@ from kubelab.package_archive import (
     PackageArchiveError,
     VerifiedLabArchive,
     extract_verified_archive,
+    verify_extracted_content,
     verify_lab_archive,
 )
 from kubelab.package_schema import package_version_key
@@ -117,16 +119,10 @@ class PackageManager:
         self._state_root = state_root or (get_data_dir() / "packages")
         self._builtin_registry = builtin_registry or LabRegistry()
         self._operation_lock = operation_lock
-        self._platform_supported = platform_supported or _is_wsl_ubuntu
+        self._platform_supported = platform_supported or is_package_platform_supported
 
     def verify(self, archive: Path) -> PackageVerification:
-        try:
-            verified = verify_lab_archive(archive)
-            if verified.format_version == 2:
-                self._validate_fake_lifecycle(archive, verified)
-            return _verification(verified)
-        except PackageArchiveError as exc:
-            raise PackageManagerError(exc.code, exc.message, exit_code=exc.exit_code) from exc
+        return verify_package_archive(archive)
 
     def import_archive(self, archive: Path) -> PackageOperation:
         self._require_supported_platform()
@@ -150,9 +146,16 @@ class PackageManager:
             self._require_external_identity(verified)
             existing = self._preflight_inventory(verified)
             if existing is not None and existing.status is not PackageStatus.REMOVED:
+                info = self._public_info(existing)
+                if info.integrity is PackageIntegrity.INVALID:
+                    raise PackageManagerError(
+                        "PACKAGE_STORED_CONTENT_INVALID",
+                        "The registered package content failed local integrity validation.",
+                        exit_code=3,
+                    )
                 return PackageOperation(
                     action="import",
-                    package=self._public_info(existing),
+                    package=info,
                     idempotent=True,
                 )
             self._prepare_state_root()
@@ -209,6 +212,14 @@ class PackageManager:
                     "The package could not be committed to trusted local storage.",
                     exit_code=5,
                 ) from exc
+            except Exception as exc:
+                if final_created:
+                    self._remove_blob(final)
+                raise PackageManagerError(
+                    "PACKAGE_INTERNAL_ERROR",
+                    "KubeLab could not safely complete the package import.",
+                    exit_code=10,
+                ) from exc
             finally:
                 if staging.exists():
                     shutil.rmtree(staging)
@@ -216,12 +227,17 @@ class PackageManager:
     def list_packages(self, status: PackageStatus | None = None) -> tuple[PackageInfo, ...]:
         self._require_supported_platform()
         with self._lock():
-            self._sweep_pending_removals()
             with self._unit_of_work() as uow:
                 records = uow.packages.list_all()
             if status is not None:
                 records = tuple(item for item in records if item.status is status)
             return tuple(self._public_info(item) for item in records)
+
+    def sweep_pending_removals(self) -> None:
+        """Best-effort removal pass used after a Session reaches completed."""
+        self._require_supported_platform()
+        with self._lock():
+            self._sweep_pending_removals()
 
     def show(self, lab_id: str, package_version: str | None = None) -> tuple[PackageInfo, ...]:
         packages = tuple(item for item in self.list_packages() if item.lab_id == lab_id)
@@ -278,6 +294,7 @@ class PackageManager:
     def disable(self, lab_id: str) -> PackageOperation:
         self._require_supported_platform()
         with self._lock():
+            self._sweep_pending_removals()
             with self._unit_of_work() as uow:
                 current = uow.packages.get_enabled(lab_id)
                 if current is None:
@@ -297,6 +314,7 @@ class PackageManager:
     def remove(self, lab_id: str, package_version: str) -> PackageOperation:
         self._require_supported_platform()
         with self._lock():
+            self._sweep_pending_removals()
             with self._unit_of_work() as uow:
                 target = uow.packages.find_version(lab_id, package_version)
                 if target is None:
@@ -334,15 +352,15 @@ class PackageManager:
         with self._unit_of_work() as uow:
             records = uow.packages.list_all()
             existing = uow.packages.get(verified.sha256)
-        active_records = tuple(item for item in records if item.status is not PackageStatus.REMOVED)
-        if len(active_records) >= MAX_REGISTERED_VERSIONS and existing is None:
+        if len(records) >= MAX_REGISTERED_VERSIONS and existing is None:
             raise PackageManagerError(
                 "PACKAGE_INVENTORY_LIMIT",
                 "The local package inventory already contains 128 registered versions.",
                 exit_code=5,
             )
-        total = sum(item.archive_size for item in active_records)
-        if existing is None and total + verified.archive_size > MAX_PACKAGE_STORAGE_BYTES:
+        will_store = existing is None or existing.status is PackageStatus.REMOVED
+        incoming_size = verified.archive_size + sum(item.size for item in verified.members)
+        if will_store and self._stored_bytes() + incoming_size > MAX_PACKAGE_STORAGE_BYTES:
             raise PackageManagerError(
                 "PACKAGE_STORAGE_LIMIT",
                 "The local package inventory would exceed the 256 MiB storage limit.",
@@ -371,6 +389,31 @@ class PackageManager:
                 exit_code=3,
             )
         return existing
+
+    def _stored_bytes(self) -> int:
+        blobs = self._state_root / "blobs"
+        if not blobs.exists():
+            return 0
+        try:
+            metadata = blobs.lstat()
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+                raise OSError
+            total = 0
+            for candidate in blobs.rglob("*"):
+                candidate_metadata = candidate.lstat()
+                if stat.S_ISLNK(candidate_metadata.st_mode):
+                    raise OSError
+                if stat.S_ISREG(candidate_metadata.st_mode):
+                    total += candidate_metadata.st_size
+                elif not stat.S_ISDIR(candidate_metadata.st_mode):
+                    raise OSError
+            return total
+        except OSError as exc:
+            raise PackageManagerError(
+                "PACKAGE_STORAGE_UNSAFE",
+                "The package storage contains an unsafe filesystem entry.",
+                exit_code=5,
+            ) from exc
 
     def _require_external_identity(self, verified: VerifiedLabArchive) -> None:
         builtins = {item.definition.metadata.id for item in self._builtin_registry.scan().labs}
@@ -420,6 +463,7 @@ class PackageManager:
                     "PACKAGE_STORED_DIGEST_MISMATCH",
                     "Stored package content does not match the registered digest.",
                 )
+            verify_extracted_content(self._blob_path(package.sha256) / "content", verified)
             self._validate_fake_lifecycle(archive, verified)
             return verified
         except (PackageArchiveError, PackageManagerError) as exc:
@@ -437,6 +481,7 @@ class PackageManager:
                     self._blob_path(package.sha256) / "archive.kubelab-lab.tar.gz"
                 )
                 if verified.sha256 == package.sha256:
+                    verify_extracted_content(self._blob_path(package.sha256) / "content", verified)
                     integrity = PackageIntegrity.VERIFIED
                     compatible = verified.compatible
                     scenario_count = len(verified.scenarios)
@@ -611,7 +656,30 @@ def _verification(verified: VerifiedLabArchive) -> PackageVerification:
     )
 
 
-def _is_wsl_ubuntu() -> bool:
+def verify_package_archive(archive: Path) -> PackageVerification:
+    """Run cross-platform full verification without constructing learner state."""
+    try:
+        verified = verify_lab_archive(archive)
+        if verified.format_version == 2:
+            with tempfile.TemporaryDirectory(prefix="kubelab-package-verify-") as temporary:
+                root = Path(temporary)
+                content = root / "content"
+                extract_verified_archive(archive, verified, content)
+                PackageManager._validate_extracted(content, verified)
+        return _verification(verified)
+    except PackageArchiveError as exc:
+        raise PackageManagerError(exc.code, exc.message, exit_code=exc.exit_code) from exc
+    except PackageManagerError:
+        raise
+    except Exception as exc:
+        raise PackageManagerError(
+            "PACKAGE_INTERNAL_ERROR",
+            "KubeLab could not safely complete package verification.",
+            exit_code=10,
+        ) from exc
+
+
+def is_package_platform_supported() -> bool:
     distribution = os.environ.get("WSL_DISTRO_NAME", "").casefold()
     return platform.system() == "Linux" and distribution.startswith("ubuntu")
 
@@ -625,4 +693,6 @@ __all__ = [
     "PackageManagerError",
     "PackageOperation",
     "PackageVerification",
+    "is_package_platform_supported",
+    "verify_package_archive",
 ]

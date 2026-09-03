@@ -94,7 +94,7 @@ class SessionStateMachine:
 class PersistenceDto(BaseModel):
     """Immutable strict base for repository output and input DTOs."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
 
 
 class NewLabSession(PersistenceDto):
@@ -135,6 +135,11 @@ class LabSessionSnapshot(PersistenceDto):
     package_sha256: str | None = None
     lab_public_snapshot: dict[str, Any] | None = None
     scenario_public_snapshot: dict[str, Any] | None = None
+    package_version: str | None = None
+    publisher_id: str | None = None
+    publisher_name: str | None = None
+    publisher_verified: bool = True
+    available: bool = True
     namespace: str
     status: SessionStatus
     context_name: str

@@ -7,7 +7,7 @@ import json
 import os
 import stat
 import tarfile
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -22,6 +22,7 @@ from kubelab.safe_yaml import load_all_unique
 
 MAX_ARCHIVE_BYTES = 5 * 1024 * 1024
 MAX_INDEX_BYTES = 4 * 1024 * 1024
+MAX_INDEXED_CONTENT_BYTES = 4 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 257
 MAX_MEMBER_BYTES = 512 * 1024
 
@@ -189,6 +190,61 @@ def extract_verified_archive(
         if destination.exists():
             _remove_owned_tree(destination)
         raise
+
+
+def verify_extracted_content(root: Path, verified: VerifiedLabArchive) -> None:
+    """Verify that an extracted package tree still matches its immutable archive index."""
+    try:
+        metadata = root.lstat()
+    except OSError as exc:
+        raise PackageArchiveError(
+            "PACKAGE_CONTENT_UNAVAILABLE",
+            "Stored package content is unavailable.",
+            exit_code=5,
+        ) from exc
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        raise PackageArchiveError(
+            "PACKAGE_CONTENT_UNSAFE",
+            "Stored package content is not a safe directory.",
+        )
+
+    expected = {member.path: member for member in verified.members}
+    actual: dict[str, tuple[int, str]] = {}
+    try:
+        for candidate in root.rglob("*"):
+            candidate_metadata = candidate.lstat()
+            if stat.S_ISLNK(candidate_metadata.st_mode):
+                raise PackageArchiveError(
+                    "PACKAGE_CONTENT_UNSAFE",
+                    "Stored package content contains an unsafe filesystem entry.",
+                )
+            if stat.S_ISDIR(candidate_metadata.st_mode):
+                continue
+            if not stat.S_ISREG(candidate_metadata.st_mode):
+                raise PackageArchiveError(
+                    "PACKAGE_CONTENT_UNSAFE",
+                    "Stored package content contains an unsafe filesystem entry.",
+                )
+            actual[candidate.relative_to(root).as_posix()] = (
+                candidate_metadata.st_size,
+                _file_sha256(candidate),
+            )
+    except PackageArchiveError:
+        raise
+    except OSError as exc:
+        raise PackageArchiveError(
+            "PACKAGE_CONTENT_UNAVAILABLE",
+            "Stored package content is unavailable.",
+            exit_code=5,
+        ) from exc
+
+    if set(actual) != set(expected) or any(
+        actual[path] != (member.size, member.sha256) for path, member in expected.items()
+    ):
+        raise PackageArchiveError(
+            "PACKAGE_CONTENT_CHANGED",
+            "Stored package content no longer matches its verified index.",
+        )
 
 
 def _verify_v2(
@@ -362,6 +418,7 @@ def _indexed_members(files: tuple[Any, ...]) -> dict[str, VerifiedArchiveMember]
             "PACKAGE_INDEX_DUPLICATE",
             "The package index contains duplicate or case-conflicting paths.",
         )
+    _require_indexed_content_limit(indexed.values())
     for path in indexed:
         _require_safe_index_path(path)
     return indexed
@@ -386,7 +443,16 @@ def _legacy_indexed_members(files: list[Any]) -> dict[str, VerifiedArchiveMember
             "The format v1 package file index is invalid.",
             exit_code=2,
         ) from exc
+    _require_indexed_content_limit(result.values())
     return result
+
+
+def _require_indexed_content_limit(members: Iterable[VerifiedArchiveMember]) -> None:
+    if sum(member.size for member in members) > MAX_INDEXED_CONTENT_BYTES:
+        raise PackageArchiveError(
+            "PACKAGE_INDEX_CONTENT_LIMIT",
+            "The package's indexed content exceeds the 4 MiB limit.",
+        )
 
 
 def _require_safe_index_path(path: str) -> None:
@@ -527,10 +593,12 @@ __all__ = [
     "MAX_ARCHIVE_BYTES",
     "MAX_ARCHIVE_MEMBERS",
     "MAX_INDEX_BYTES",
+    "MAX_INDEXED_CONTENT_BYTES",
     "MAX_MEMBER_BYTES",
     "PackageArchiveError",
     "VerifiedArchiveMember",
     "VerifiedLabArchive",
     "extract_verified_archive",
+    "verify_extracted_content",
     "verify_lab_archive",
 ]

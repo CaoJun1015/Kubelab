@@ -747,6 +747,7 @@ def _aware(value: datetime | None) -> datetime | None:
 
 
 def _session_snapshot(record: LabSessionRecord) -> LabSessionSnapshot:
+    public = record.lab_public_snapshot or {}
     return LabSessionSnapshot(
         id=record.id,
         lab_id=record.lab_id,
@@ -755,6 +756,11 @@ def _session_snapshot(record: LabSessionRecord) -> LabSessionSnapshot:
         package_sha256=record.package_sha256,
         lab_public_snapshot=record.lab_public_snapshot,
         scenario_public_snapshot=record.scenario_public_snapshot,
+        package_version=_public_string(public, "package_version"),
+        publisher_id=_public_string(public, "publisher_id"),
+        publisher_name=_public_string(public, "publisher_name"),
+        publisher_verified=record.lab_source == "builtin",
+        available=True,
         namespace=record.namespace,
         status=SessionStatus(record.status),
         context_name=record.context_name,
@@ -848,6 +854,11 @@ def _aware_required(value: datetime) -> datetime:
     if aware is None:  # pragma: no cover - non-null database constraint
         raise ValueError("Required database timestamp is missing.")
     return aware
+
+
+def _public_string(value: dict[str, Any], key: str) -> str | None:
+    item = value.get(key)
+    return item if isinstance(item, str) and item else None
 
 
 __all__ = [

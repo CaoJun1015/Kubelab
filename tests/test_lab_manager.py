@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -278,6 +279,7 @@ def build_manager(
     registry: LabRegistry | None = None,
     readiness: FakeReadiness | None = None,
     learning_paths: LearningPathRegistry | None = None,
+    session_completed_hook: Callable[[], None] | None = None,
 ) -> tuple[LabManager, FakeGateway, FakeTrust, FakeValidation]:
     selected_gateway = gateway or FakeGateway()
     selected_trust = trust or FakeTrust()
@@ -294,6 +296,7 @@ def build_manager(
         validation=selected_validation,
         readiness=readiness,
         learning_paths=learning_paths,
+        session_completed_hook=session_completed_hook,
     )
     return manager, selected_gateway, selected_trust, selected_validation
 
@@ -977,6 +980,30 @@ def test_cleanup_absent_namespace_is_controlled_completion(
 
     assert result.status is SessionStatus.COMPLETED
     assert events(database, session.id)[-1] == "cleanup_completed"
+
+
+def test_cleanup_completion_hook_is_best_effort_and_retried_idempotently(
+    database: Database, tmp_path: Path
+) -> None:
+    calls: list[str] = []
+
+    def failing_hook() -> None:
+        calls.append("sweep")
+        raise RuntimeError("package storage is temporarily locked")
+
+    manager, _, _, _ = build_manager(
+        database,
+        tmp_path,
+        session_completed_hook=failing_hook,
+    )
+    session = manager.start("complete-lab")
+
+    first = manager.cleanup(session.id)
+    second = manager.cleanup(session.id)
+
+    assert first.status is SessionStatus.COMPLETED
+    assert second == first
+    assert calls == ["sweep", "sweep"]
 
 
 def test_cleanup_failure_preserves_active_error_session(database: Database, tmp_path: Path) -> None:

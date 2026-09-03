@@ -9,6 +9,13 @@ import pytest
 from pydantic import ValidationError
 
 from kubelab.package_schema import LabPackageDefinition, LabPackageIndex
+from kubelab.schema_export import (
+    default_authoring_schema_path,
+    default_learning_path_schema_path,
+    default_package_schema_path,
+    default_schema_path,
+    default_variant_schema_path,
+)
 
 
 def package_definition() -> dict[str, Any]:
@@ -76,3 +83,17 @@ def test_v2_index_is_strict_and_bounded() -> None:
     candidate["unexpected"] = True
     with pytest.raises(ValidationError):
         LabPackageIndex.model_validate(candidate)
+
+
+def test_all_committed_schema_paths_resolve_under_project_schema_directory() -> None:
+    paths = (
+        default_schema_path(),
+        default_variant_schema_path(),
+        default_learning_path_schema_path(),
+        default_authoring_schema_path(),
+        default_package_schema_path(),
+    )
+
+    assert all(path.parent.name == "schemas" for path in paths)
+    assert all(path.is_file() for path in paths)
+    assert paths[-1].name == "lab-package-v1alpha1.schema.json"

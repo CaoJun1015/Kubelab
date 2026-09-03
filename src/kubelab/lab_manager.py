@@ -53,6 +53,7 @@ from kubelab.learning_paths import (
     render_outcome_markdown,
 )
 from kubelab.operation_lock import OperationLock
+from kubelab.package_state import LabSource
 from kubelab.public_projection import project_variant_disclosure
 from kubelab.redaction import redact_json
 from kubelab.repositories import (
@@ -178,6 +179,12 @@ class LabCatalogItem(ManagerModel):
     baseline_completed: bool = False
     variant_total: int = 0
     variant_completed: int = 0
+    source: LabSource = LabSource.BUILTIN
+    package_version: str | None = None
+    publisher_id: str | None = None
+    publisher_name: str | None = None
+    publisher_verified: bool = True
+    available: bool = True
 
 
 class FaultMapEntry(ManagerModel):
@@ -291,6 +298,12 @@ class RetrospectiveMetadata(ManagerModel):
     scenario_root_cause: str | None = None
     scenario_resolution: str | None = None
     scenario_prevention: str | None = None
+    source: LabSource = LabSource.BUILTIN
+    package_version: str | None = None
+    publisher_id: str | None = None
+    publisher_name: str | None = None
+    publisher_verified: bool = True
+    available: bool = True
 
 
 class RetrospectiveEditState(ManagerModel):
@@ -314,6 +327,12 @@ class LabLearningProgress(ManagerModel):
     variant_attempt_count: int = 0
     last_practiced_at: datetime | None = None
     revealed_scenarios: tuple[str, ...] = ()
+    source: LabSource = LabSource.BUILTIN
+    package_version: str | None = None
+    publisher_id: str | None = None
+    publisher_name: str | None = None
+    publisher_verified: bool = True
+    available: bool = True
 
 
 class CategoryLearningProgress(ManagerModel):
@@ -410,6 +429,7 @@ class LabManager:
         validation: ValidationService,
         readiness: ReadinessGuard | None = None,
         learning_paths: LearningPathRegistry | None = None,
+        session_completed_hook: Callable[[], None] | None = None,
     ) -> None:
         self._registry = registry
         self._unit_of_work = unit_of_work
@@ -419,6 +439,7 @@ class LabManager:
         self._validation = validation
         self._readiness = readiness
         self._learning_path_registry = learning_paths
+        self._session_completed_hook = session_completed_hook
 
     def list_labs(
         self, *, category: str | None = None, progress: LabProgress | None = None
@@ -552,7 +573,7 @@ class LabManager:
             raise LabManagerError(
                 ManagerErrorCode.SESSION_NOT_FOUND, "The requested Session was not found."
             )
-        return session
+        return self._with_package_availability(session)
 
     def session_status_snapshot(self, session_id: str | None = None) -> SessionStatusResult:
         """Restore a Session from SQLite without touching trust or the cluster."""
@@ -827,11 +848,79 @@ class LabManager:
                         else None
                     ),
                     revealed_scenarios=revealed_names,
+                    source=loaded.source,
+                    package_version=loaded.package_version,
+                    publisher_id=loaded.publisher_id,
+                    publisher_name=loaded.publisher_name,
+                    publisher_verified=loaded.source is LabSource.BUILTIN,
+                    available=True,
                 )
             )
             totals = category_totals.setdefault(metadata.category, [0, 0, 0])
             totals[0] += 1
             totals[1] += int(completion_count > 0)
+            totals[2] += len(attempts)
+        available_ids = {item.definition.metadata.id for item in registry.labs}
+        historical_ids = sorted(
+            {
+                session.lab_id
+                for session in sessions
+                if session.lab_source is LabSource.LOCAL_PACKAGE
+                and session.lab_id not in available_ids
+                and session.lab_public_snapshot is not None
+            }
+        )
+        for lab_id in historical_ids:
+            attempts = tuple(session for session in sessions if session.lab_id == lab_id)
+            latest = max(attempts, key=lambda item: (item.created_at, item.id))
+            public = latest.lab_public_snapshot or {}
+            completion_times = sorted(
+                event.created_at
+                for session in attempts
+                for event in event_map[session.id]
+                if event.event_type == "success_contract_passed"
+            )
+            revealed = tuple(
+                str(session.scenario_public_snapshot.get("name"))
+                for session in attempts
+                if session.variant_id != "baseline"
+                and session.scenario_public_snapshot is not None
+                and session.scenario_public_snapshot.get("name")
+                and _has_passed(event_map[session.id])
+            )
+            category = _snapshot_text(public, "category", "local-package")
+            lab_items.append(
+                LabLearningProgress(
+                    lab_id=lab_id,
+                    name=_snapshot_text(public, "name", lab_id),
+                    category=category,
+                    attempt_count=len(attempts),
+                    completion_count=len(completion_times),
+                    repeat_completion_count=max(len(completion_times) - 1, 0),
+                    first_completed_at=completion_times[0] if completion_times else None,
+                    last_completed_at=completion_times[-1] if completion_times else None,
+                    baseline_completed=any(
+                        session.variant_id == "baseline" and _has_passed(event_map[session.id])
+                        for session in attempts
+                    ),
+                    variant_total=0,
+                    variant_completed=len(set(revealed)),
+                    variant_attempt_count=sum(
+                        session.variant_id != "baseline" for session in attempts
+                    ),
+                    last_practiced_at=max(session.created_at for session in attempts),
+                    revealed_scenarios=tuple(dict.fromkeys(revealed)),
+                    source=LabSource.LOCAL_PACKAGE,
+                    package_version=_snapshot_optional_text(public, "package_version"),
+                    publisher_id=_snapshot_optional_text(public, "publisher_id"),
+                    publisher_name=_snapshot_optional_text(public, "publisher_name"),
+                    publisher_verified=False,
+                    available=False,
+                )
+            )
+            totals = category_totals.setdefault(category, [0, 0, 0])
+            totals[0] += 1
+            totals[1] += int(bool(completion_times))
             totals[2] += len(attempts)
         categories = tuple(
             CategoryLearningProgress(
@@ -898,6 +987,9 @@ class LabManager:
             "",
             f"- 实验：{_markdown_text(metadata.lab_name)} (`{metadata.lab_id}`)",
             f"- 分类 / 难度：{metadata.category} / {metadata.difficulty}",
+            f"- 来源：{metadata.source.value}",
+            f"- 包版本：{_markdown_text(metadata.package_version or '—')}",
+            f"- 发布者：{_markdown_text(metadata.publisher_name or '—')}",
             f"- Session：`{metadata.session_id}`",
             f"- Namespace：`{metadata.namespace}`",
             f"- 开始时间：{_iso_or_dash(metadata.started_at)}",
@@ -944,7 +1036,13 @@ class LabManager:
         return "\n".join(lines)[:50_000]
 
     def _retrospective_metadata(self, session: LabSessionSnapshot) -> RetrospectiveMetadata:
-        lab = self._require_lab(session.lab_id)
+        lab = self._registry.pinned_lab(session.lab_id, session.package_sha256)
+        public = session.lab_public_snapshot or {}
+        if lab is None and not public:
+            raise LabManagerError(
+                "LAB_PACKAGE_UNAVAILABLE",
+                "The Session's experiment metadata is unavailable.",
+            )
         with self._unit_of_work() as uow:
             events = uow.sessions.list_events(session.id)
             hints = uow.hints.list_for_session(session.id)
@@ -955,7 +1053,7 @@ class LabManager:
             None,
         )
         variant = None
-        if session.variant_id != "baseline" and passed_at is not None:
+        if lab is not None and session.variant_id != "baseline" and passed_at is not None:
             effective = self._resolve_session_lab(session, loaded=lab)
             assert isinstance(effective, EffectiveLab)
             variant = effective.variant
@@ -983,12 +1081,25 @@ class LabManager:
                     for item in latest.results
                 ),
             )
-        metadata = lab.definition.metadata
+        metadata = lab.definition.metadata if lab is not None else None
+        scenario = session.scenario_public_snapshot or {}
         return RetrospectiveMetadata(
-            lab_id=metadata.id,
-            lab_name=metadata.name,
-            category=metadata.category,
-            difficulty=metadata.difficulty,
+            lab_id=metadata.id if metadata is not None else session.lab_id,
+            lab_name=(
+                metadata.name
+                if metadata is not None
+                else _snapshot_text(public, "name", session.lab_id)
+            ),
+            category=(
+                metadata.category
+                if metadata is not None
+                else _snapshot_text(public, "category", "local-package")
+            ),
+            difficulty=(
+                metadata.difficulty
+                if metadata is not None
+                else _snapshot_text(public, "difficulty", "unknown")
+            ),
             session_id=session.id,
             namespace=session.namespace,
             started_at=started_at,
@@ -1003,12 +1114,54 @@ class LabManager:
             completion_duration_seconds=duration,
             last_verification=last_verification,
             practice_mode=_practice_mode(session),
-            scenario_name=variant.definition.metadata.name if variant else None,
-            scenario_description=variant.definition.metadata.description if variant else None,
-            key_evidence=variant.definition.reveal.key_evidence if variant else None,
-            scenario_root_cause=variant.definition.reveal.root_cause if variant else None,
-            scenario_resolution=variant.definition.reveal.resolution if variant else None,
-            scenario_prevention=variant.definition.reveal.prevention if variant else None,
+            scenario_name=(
+                variant.definition.metadata.name
+                if variant
+                else _revealed_snapshot_text(scenario, "name", passed_at)
+            ),
+            scenario_description=(
+                variant.definition.metadata.description
+                if variant
+                else _revealed_snapshot_text(scenario, "description", passed_at)
+            ),
+            key_evidence=(
+                variant.definition.reveal.key_evidence
+                if variant
+                else _revealed_snapshot_text(scenario, "key_evidence", passed_at)
+            ),
+            scenario_root_cause=(
+                variant.definition.reveal.root_cause
+                if variant
+                else _revealed_snapshot_text(scenario, "root_cause", passed_at)
+            ),
+            scenario_resolution=(
+                variant.definition.reveal.resolution
+                if variant
+                else _revealed_snapshot_text(scenario, "resolution", passed_at)
+            ),
+            scenario_prevention=(
+                variant.definition.reveal.prevention
+                if variant
+                else _revealed_snapshot_text(scenario, "prevention", passed_at)
+            ),
+            source=session.lab_source,
+            package_version=(
+                lab.package_version
+                if lab is not None
+                else _snapshot_optional_text(public, "package_version")
+            ),
+            publisher_id=(
+                lab.publisher_id
+                if lab is not None
+                else _snapshot_optional_text(public, "publisher_id")
+            ),
+            publisher_name=(
+                lab.publisher_name
+                if lab is not None
+                else _snapshot_optional_text(public, "publisher_name")
+            ),
+            publisher_verified=session.lab_source is LabSource.BUILTIN,
+            available=lab is not None,
         )
 
     def save_retrospective(
@@ -1040,6 +1193,18 @@ class LabManager:
                         id=str(uuid4()),
                         lab_id=lab_id,
                         variant_id=variant_id,
+                        lab_source=parent_lab.source,
+                        package_sha256=parent_lab.package_sha256,
+                        lab_public_snapshot=(
+                            _lab_public_snapshot(parent_lab)
+                            if parent_lab.source is LabSource.LOCAL_PACKAGE
+                            else None
+                        ),
+                        scenario_public_snapshot=(
+                            _scenario_public_snapshot(parent_lab, variant_id)
+                            if parent_lab.source is LabSource.LOCAL_PACKAGE
+                            else None
+                        ),
                         namespace=parent_lab.definition.environment.namespace,
                         context_name=trusted.name,
                         context_fingerprint=fingerprint,
@@ -1176,36 +1341,51 @@ class LabManager:
     def cleanup(self, session_id: str | None = None) -> LabSessionSnapshot:
         """Idempotently clean any active Session through exact Namespace ownership checks."""
         with self._operation_lock:
-            session = self._require_session(session_id, allow_completed=True)
-            if session.status is SessionStatus.COMPLETED:
-                return session
-            trusted, fingerprint = self._trusted_for_session(session)
-            if session.status is not SessionStatus.CLEANING:
-                session = self._transition(
-                    session.id, SessionStatus.CLEANING, event_type="cleanup_started"
-                )
-            gateway = self._gateway_factory(trusted, fingerprint)
-            try:
-                self._capture_evidence(session, gateway, trigger="cleanup_before_delete")
-                result = gateway.delete_environment(self._scope(session))
-                completed = self._transition(
-                    session.id,
-                    SessionStatus.COMPLETED,
-                    event_type="cleanup_completed",
-                    context={"already_absent": result.already_absent},
-                )
-                self._record_absent_evidence(completed, trigger="cleanup_completed")
-                return completed
-            except Exception as exc:
-                self._mark_error(
-                    session,
-                    exc,
-                    event_type="cleanup_failed",
-                    operation="cleanup",
-                )
-                raise self._manager_error(exc, operation="cleanup") from exc
-            finally:
-                gateway.close()
+            completed = self._cleanup_locked(session_id)
+        self._notify_session_completed()
+        return completed
+
+    def _cleanup_locked(self, session_id: str | None) -> LabSessionSnapshot:
+        session = self._require_session(session_id, allow_completed=True)
+        if session.status is SessionStatus.COMPLETED:
+            return session
+        trusted, fingerprint = self._trusted_for_session(session)
+        if session.status is not SessionStatus.CLEANING:
+            session = self._transition(
+                session.id, SessionStatus.CLEANING, event_type="cleanup_started"
+            )
+        gateway = self._gateway_factory(trusted, fingerprint)
+        try:
+            self._capture_evidence(session, gateway, trigger="cleanup_before_delete")
+            result = gateway.delete_environment(self._scope(session))
+            completed = self._transition(
+                session.id,
+                SessionStatus.COMPLETED,
+                event_type="cleanup_completed",
+                context={"already_absent": result.already_absent},
+            )
+            self._record_absent_evidence(completed, trigger="cleanup_completed")
+            return completed
+        except Exception as exc:
+            self._mark_error(
+                session,
+                exc,
+                event_type="cleanup_failed",
+                operation="cleanup",
+            )
+            raise self._manager_error(exc, operation="cleanup") from exc
+        finally:
+            gateway.close()
+
+    def _notify_session_completed(self) -> None:
+        if self._session_completed_hook is None:
+            return
+        try:
+            self._session_completed_hook()
+        except Exception:
+            # Namespace cleanup is authoritative; failed package deletion stays pending
+            # and PackageManager retries it during the next inventory operation.
+            return
 
     def verify(self, session_id: str | None = None) -> ValidationRunResult:
         """Run successChecks and advance an in-progress Session only on success."""
@@ -1300,7 +1480,21 @@ class LabManager:
     def _resolve_session_lab(
         self, session: LabSessionSnapshot, *, loaded: LoadedLab | None = None
     ) -> ExecutableLab:
-        parent = loaded or self._require_lab(session.lab_id)
+        parent = loaded or self._registry.pinned_lab(
+            session.lab_id,
+            session.package_sha256,
+        )
+        if parent is None:
+            code = (
+                "LAB_PACKAGE_UNAVAILABLE"
+                if session.lab_source is LabSource.LOCAL_PACKAGE
+                else ManagerErrorCode.LAB_NOT_FOUND
+            )
+            raise LabManagerError(
+                code,
+                "The Session's pinned experiment content is unavailable.",
+                retryable=True,
+            )
         try:
             return self._registry.resolve_variant(parent, session.variant_id)
         except LabVariantNotFoundError as exc:
@@ -1350,6 +1544,12 @@ class LabManager:
             baseline_completed="baseline" in passed_variants,
             variant_total=len(loaded.variants),
             variant_completed=len(passed_variants - {"baseline"}),
+            source=loaded.source,
+            package_version=loaded.package_version,
+            publisher_id=loaded.publisher_id,
+            publisher_name=loaded.publisher_name,
+            publisher_verified=loaded.source is LabSource.BUILTIN,
+            available=True,
         )
 
     def _cluster_read(
@@ -1493,6 +1693,16 @@ class LabManager:
         match = next((lab for lab in snapshot.labs if lab.definition.metadata.id == lab_id), None)
         if match is not None:
             return match
+        with self._unit_of_work() as uow:
+            active = uow.sessions.get_active()
+        if (
+            active is not None
+            and active.lab_id == lab_id
+            and active.lab_source is LabSource.LOCAL_PACKAGE
+        ):
+            pinned = self._registry.pinned_lab(lab_id, active.package_sha256)
+            if pinned is not None:
+                return pinned
         related = tuple(error for error in snapshot.errors if error.lab_id == lab_id)
         if related:
             raise LabManagerError(
@@ -1516,11 +1726,20 @@ class LabManager:
                     raise SessionNotFoundError("There is no active Session.")
                 if session.status is SessionStatus.COMPLETED and not allow_completed:
                     raise SessionNotFoundError("There is no active Session.")
-                return session
+                return self._with_package_availability(session)
         except SessionNotFoundError as exc:
             raise LabManagerError(
                 ManagerErrorCode.SESSION_NOT_FOUND, "The requested Session was not found."
             ) from exc
+
+    def _with_package_availability(
+        self,
+        session: LabSessionSnapshot,
+    ) -> LabSessionSnapshot:
+        if session.lab_source is LabSource.BUILTIN:
+            return session
+        available = self._registry.pinned_lab(session.lab_id, session.package_sha256) is not None
+        return session.model_copy(update={"available": available})
 
     def _trusted_for_session(self, session: LabSessionSnapshot) -> tuple[TrustedContext, str]:
         try:
@@ -1821,6 +2040,65 @@ def _fault_map_entry(*, slot: int, variant: LoadedVariant, revealed: bool) -> Fa
         resolution=disclosure.resolution,
         prevention=disclosure.prevention,
     )
+
+
+def _lab_public_snapshot(loaded: LoadedLab) -> dict[str, Any]:
+    metadata = loaded.definition.metadata
+    return {
+        "id": metadata.id,
+        "name": metadata.name,
+        "description": metadata.description,
+        "difficulty": metadata.difficulty,
+        "duration_minutes": metadata.duration_minutes,
+        "category": metadata.category,
+        "tags": list(metadata.tags),
+        "source": loaded.source.value,
+        "package_version": loaded.package_version,
+        "publisher_id": loaded.publisher_id,
+        "publisher_name": loaded.publisher_name,
+        "publisher_verified": False,
+    }
+
+
+def _scenario_public_snapshot(loaded: LoadedLab, variant_id: str) -> dict[str, Any]:
+    if variant_id == "baseline":
+        return {"variant_id": "baseline", "revealed": True}
+    variant = next(
+        (item for item in loaded.variants if item.definition.metadata.id == variant_id),
+        None,
+    )
+    if variant is None:
+        return {"variant_id": variant_id, "revealed": False}
+    return {
+        "variant_id": variant_id,
+        "revealed": False,
+        "name": variant.definition.metadata.name,
+        "description": variant.definition.metadata.description,
+        "key_evidence": variant.definition.reveal.key_evidence,
+        "root_cause": variant.definition.reveal.root_cause,
+        "resolution": variant.definition.reveal.resolution,
+        "prevention": variant.definition.reveal.prevention,
+    }
+
+
+def _snapshot_text(snapshot: dict[str, Any], key: str, fallback: str) -> str:
+    value = snapshot.get(key)
+    return str(value)[:500] if isinstance(value, str) and value else fallback
+
+
+def _snapshot_optional_text(snapshot: dict[str, Any], key: str) -> str | None:
+    value = snapshot.get(key)
+    return str(value)[:500] if isinstance(value, str) and value else None
+
+
+def _revealed_snapshot_text(
+    snapshot: dict[str, Any],
+    key: str,
+    passed_at: datetime | None,
+) -> str | None:
+    if passed_at is None:
+        return None
+    return _snapshot_optional_text(snapshot, key)
 
 
 def _markdown_text(value: str) -> str:

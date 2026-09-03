@@ -32,11 +32,19 @@ from kubelab.lab_manager import (
     SessionStatusResult,
 )
 from kubelab.operation_lock import OperationLockError
+from kubelab.package_manager import (
+    PackageInfo,
+    PackageManager,
+    PackageManagerError,
+    verify_package_archive,
+)
+from kubelab.package_state import PackageStatus
 from kubelab.repositories import ActiveSessionConflict
 from kubelab.runtime import (
     ApplicationRuntime,
     RuntimeEnvironmentError,
     build_application_runtime,
+    build_package_runtime,
 )
 from kubelab.session_state import LabSessionSnapshot, RetrospectiveInput, ValidationStatus
 from kubelab.web import WEB_HOST, WEB_PORT, create_app
@@ -55,11 +63,13 @@ context_app = typer.Typer(
 retrospective_app = typer.Typer(help="Record the troubleshooting retrospective.")
 workspace_app = typer.Typer(help="Enter the active lab's restricted WSL workspace.")
 lab_app = typer.Typer(help="Create, lint, test, inspect, and package lab content.")
+package_app = typer.Typer(help="Verify and manage trusted local lab packages.")
 app.add_typer(config_app, name="config")
 app.add_typer(context_app, name="context")
 app.add_typer(retrospective_app, name="retrospective")
 app.add_typer(workspace_app, name="workspace")
 app.add_typer(lab_app, name="lab")
+app.add_typer(package_app, name="package")
 
 
 def _show_version(value: bool) -> None:
@@ -77,8 +87,16 @@ def _public_session_payload(
     payload = session.model_dump(
         mode="json",
         exclude_none=True,
-        exclude={"variant_id", "context_fingerprint", "last_error_context"},
+        exclude={
+            "variant_id",
+            "package_sha256",
+            "lab_public_snapshot",
+            "scenario_public_snapshot",
+            "context_fingerprint",
+            "last_error_context",
+        },
     )
+    payload["source"] = payload.pop("lab_source")
     payload["practice_mode"] = practice_mode.value
     payload["scenario_revealed"] = scenario_revealed
     return payload
@@ -474,6 +492,7 @@ def _runtime(json_output: bool) -> Iterator[ApplicationRuntime]:
         DatabaseError,
         ContextError,
         LabManagerError,
+        PackageManagerError,
         RuntimeEnvironmentError,
         WorkspaceError,
     ) as exc:
@@ -505,7 +524,10 @@ def _raise_application_error(error: Exception, *, json_output: bool) -> NoReturn
     if not isinstance(context, dict):
         context = {}
     retryable = bool(getattr(error, "retryable", False))
-    if isinstance(error, ConfigError) or code in {"LAB_NOT_FOUND", "LAB_INVALID"}:
+    explicit_exit_code = getattr(error, "exit_code", None)
+    if isinstance(explicit_exit_code, int):
+        exit_code = explicit_exit_code
+    elif isinstance(error, ConfigError) or code in {"LAB_NOT_FOUND", "LAB_INVALID"}:
         exit_code = 2
     elif isinstance(error, (ContextError, RuntimeEnvironmentError)) or code in {
         "CONTEXT_DRIFT",
@@ -532,6 +554,185 @@ def _raise_application_error(error: Exception, *, json_output: bool) -> NoReturn
         json_output=json_output,
     )
     raise typer.Exit(code=exit_code) from error
+
+
+@contextmanager
+def _package_application(json_output: bool) -> Iterator[PackageManager]:
+    runtime = None
+    try:
+        runtime = build_package_runtime()
+        if runtime.packages is None:
+            raise PackageManagerError(
+                "PACKAGE_SERVICE_UNAVAILABLE",
+                "The local package inventory service is unavailable.",
+                exit_code=5,
+            )
+        yield runtime.packages
+    except PackageManagerError as exc:
+        _raise_application_error(exc, json_output=json_output)
+    except (ConfigError, DatabaseError, OperationLockError) as exc:
+        _raise_application_error(exc, json_output=json_output)
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        _emit_error(
+            code="INTERNAL_ERROR",
+            message="KubeLab could not complete the package command.",
+            context={},
+            retryable=False,
+            json_output=json_output,
+        )
+        raise typer.Exit(code=10) from exc
+    finally:
+        if runtime is not None:
+            runtime.close()
+
+
+@package_app.command("verify")
+def package_verify_command(
+    archive: Annotated[Path, typer.Argument(help="Local .kubelab-lab.tar.gz file.")],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Verify one archive offline without changing local state."""
+    try:
+        result = verify_package_archive(archive)
+    except PackageManagerError as exc:
+        _raise_application_error(exc, json_output=json_output)
+    if json_output:
+        typer.echo(result.model_dump_json(indent=2, by_alias=True, exclude_none=True))
+    else:
+        typer.echo(f"Package verified: {result.filename}")
+        typer.echo(f"Lab: {result.lab_id}")
+        typer.echo(
+            f"Format: v{result.format_version}; importable: {'yes' if result.importable else 'no'}"
+        )
+        typer.echo(f"SHA256: {result.sha256}")
+        typer.echo(result.compatibility_message)
+
+
+@package_app.command("import")
+def package_import_command(
+    archive: Annotated[Path, typer.Argument(help="Local format v2 lab archive.")],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Verify and stage one local archive without enabling it."""
+    with _package_application(json_output) as packages:
+        result = packages.import_archive(archive)
+    _emit_package_operation(result, json_output=json_output)
+
+
+@package_app.command("list")
+def package_list_command(
+    status: Annotated[PackageStatus | None, typer.Option("--status")] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """List registered local package versions."""
+    with _package_application(json_output) as packages:
+        result = packages.list_packages(status)
+    if json_output:
+        typer.echo(
+            json.dumps(
+                [item.model_dump(mode="json", by_alias=True) for item in result],
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return
+    if not result:
+        typer.echo("No local packages are registered.")
+    for item in result:
+        _echo_package(item)
+
+
+@package_app.command("show")
+def package_show_command(
+    lab_id: Annotated[str, typer.Argument(help="Local package experiment ID.")],
+    version: Annotated[str | None, typer.Option("--version")] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Show registered versions and public provenance for one experiment."""
+    with _package_application(json_output) as packages:
+        result = packages.show(lab_id, version)
+    if json_output:
+        typer.echo(
+            json.dumps(
+                [item.model_dump(mode="json", by_alias=True) for item in result],
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return
+    for item in result:
+        _echo_package(item)
+
+
+@package_app.command("enable")
+def package_enable_command(
+    lab_id: Annotated[str, typer.Argument(help="Local package experiment ID.")],
+    version: Annotated[str, typer.Option("--version", help="Exact imported version.")],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Enable one exact version for future Sessions."""
+    with _package_application(json_output) as packages:
+        result = packages.enable(lab_id, version)
+    _emit_package_operation(result, json_output=json_output)
+
+
+@package_app.command("disable")
+def package_disable_command(
+    lab_id: Annotated[str, typer.Argument(help="Local package experiment ID.")],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Remove the enabled version from the new-Session catalogue."""
+    with _package_application(json_output) as packages:
+        result = packages.disable(lab_id)
+    _emit_package_operation(result, json_output=json_output)
+
+
+@package_app.command("remove")
+def package_remove_command(
+    lab_id: Annotated[str, typer.Argument(help="Local package experiment ID.")],
+    version: Annotated[str, typer.Option("--version", help="Exact registered version.")],
+    yes: Annotated[bool, typer.Option("--yes", help="Confirm destructive removal.")] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Remove one version, deferring file deletion while a Session uses it."""
+    if not yes:
+        if json_output or not sys.stdin.isatty():
+            _emit_error(
+                code="PACKAGE_CONFIRMATION_REQUIRED",
+                message="Package removal in JSON or non-interactive mode requires --yes.",
+                context={"lab_id": lab_id, "package_version": version},
+                retryable=False,
+                json_output=json_output,
+            )
+            raise typer.Exit(code=2)
+        if not typer.confirm(f"Remove local package {lab_id} {version}?", default=False):
+            typer.echo("Cancelled; no package state was changed.")
+            return
+    with _package_application(json_output) as packages:
+        result = packages.remove(lab_id, version)
+    _emit_package_operation(result, json_output=json_output)
+
+
+def _emit_package_operation(result: Any, *, json_output: bool) -> None:
+    if json_output:
+        typer.echo(result.model_dump_json(indent=2, by_alias=True, exclude_none=True))
+        return
+    typer.echo(f"Package {result.action}: {result.package.lab_id} {result.package.package_version}")
+    typer.echo(f"Status: {result.package.status.value}")
+    if result.idempotent:
+        typer.echo("No change was required.")
+    if result.deferred:
+        typer.echo("File removal is deferred until the active Session completes.")
+
+
+def _echo_package(item: PackageInfo) -> None:
+    verified = "verified" if item.publisher_verified else "publisher-unverified"
+    typer.echo(
+        f"{item.lab_id} {item.package_version} [{item.status.value}] "
+        f"{item.publisher_name} ({verified}, {item.integrity.value})"
+    )
 
 
 def _emit_error(

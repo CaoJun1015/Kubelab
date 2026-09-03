@@ -14,8 +14,10 @@ import yaml
 from kubelab.authoring import AuthoringService
 from kubelab.package_archive import (
     MAX_ARCHIVE_BYTES,
+    MAX_INDEXED_CONTENT_BYTES,
     PackageArchiveError,
     extract_verified_archive,
+    verify_extracted_content,
     verify_lab_archive,
 )
 
@@ -70,6 +72,38 @@ def test_v2_archive_verifies_and_extracts_only_indexed_content(tmp_path: Path) -
     assert verified.publisher_id == "local-author"
     assert (destination / verified.family_directory / "lab.yaml").is_file()
     assert not (destination / "index.json").exists()
+
+
+def test_extracted_content_is_revalidated_before_runtime_use(tmp_path: Path) -> None:
+    archive = _package(tmp_path)
+    verified = verify_lab_archive(archive)
+    content = tmp_path / "content"
+    extract_verified_archive(archive, verified, content)
+
+    verify_extracted_content(content, verified)
+    first = content.joinpath(*Path(verified.members[0].path).parts)
+    first.write_bytes(first.read_bytes() + b"changed")
+    with pytest.raises(PackageArchiveError) as changed:
+        verify_extracted_content(content, verified)
+    assert changed.value.code == "PACKAGE_CONTENT_CHANGED"
+
+    missing = tmp_path / "missing-content"
+    with pytest.raises(PackageArchiveError) as unavailable:
+        verify_extracted_content(missing, verified)
+    assert unavailable.value.code == "PACKAGE_CONTENT_UNAVAILABLE"
+
+    unsafe = tmp_path / "unsafe-content"
+    unsafe.write_text("not a directory", encoding="utf-8")
+    with pytest.raises(PackageArchiveError) as invalid_root:
+        verify_extracted_content(unsafe, verified)
+    assert invalid_root.value.code == "PACKAGE_CONTENT_UNSAFE"
+
+    extra = tmp_path / "extra-content"
+    extract_verified_archive(archive, verified, extra)
+    (extra / "unexpected.txt").write_text("unexpected", encoding="utf-8")
+    with pytest.raises(PackageArchiveError) as unexpected:
+        verify_extracted_content(extra, verified)
+    assert unexpected.value.code == "PACKAGE_CONTENT_CHANGED"
 
 
 def test_format_v1_is_integrity_checked_but_not_importable(tmp_path: Path) -> None:
@@ -187,3 +221,115 @@ def test_source_change_and_compressed_size_limit_fail_closed(tmp_path: Path) -> 
     with pytest.raises(PackageArchiveError) as large:
         verify_lab_archive(oversized)
     assert large.value.code == "PACKAGE_ARCHIVE_TOO_LARGE"
+
+
+def test_total_indexed_content_is_bounded_independently_of_compression(tmp_path: Path) -> None:
+    package = _package(tmp_path)
+    contents = _contents(package)
+    index = json.loads(contents["index.json"])
+    filler = b"x" * (MAX_INDEXED_CONTENT_BYTES // 8)
+    for number in range(9):
+        name = f"labs/lab-local-archive/filler-{number}.txt"
+        contents[name] = filler
+        index["files"].append(
+            {
+                "path": name,
+                "size": len(filler),
+                "sha256": hashlib.sha256(filler).hexdigest(),
+            }
+        )
+    contents["index.json"] = json.dumps(index).encode()
+    oversized = tmp_path / "indexed-content-too-large.kubelab-lab.tar.gz"
+    _write_archive(oversized, contents)
+
+    with pytest.raises(PackageArchiveError) as caught:
+        verify_lab_archive(oversized)
+
+    assert caught.value.code == "PACKAGE_INDEX_CONTENT_LIMIT"
+
+
+@pytest.mark.parametrize(
+    ("index_content", "expected_code"),
+    [
+        (b"[]", "PACKAGE_INDEX_INVALID"),
+        (b'{"formatVersion":9}', "PACKAGE_FORMAT_UNSUPPORTED"),
+        (
+            b'{"formatVersion":2,"formatVersion":2}',
+            "PACKAGE_INDEX_DUPLICATE_KEY",
+        ),
+        (b"{not-json", "PACKAGE_ARCHIVE_INVALID"),
+    ],
+)
+def test_invalid_index_shapes_return_stable_errors(
+    tmp_path: Path,
+    index_content: bytes,
+    expected_code: str,
+) -> None:
+    archive = tmp_path / f"{expected_code}.kubelab-lab.tar.gz"
+    _write_archive(
+        archive,
+        {
+            "labs/lab-local/lab.yaml": b"placeholder",
+            "index.json": index_content,
+        },
+    )
+
+    with pytest.raises(PackageArchiveError) as caught:
+        verify_lab_archive(archive)
+
+    assert caught.value.code == expected_code
+
+
+def test_missing_index_empty_archive_and_existing_extraction_target_are_rejected(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "missing-index.kubelab-lab.tar.gz"
+    _write_archive(missing, {"labs/family/lab.yaml": b"placeholder"})
+    with pytest.raises(PackageArchiveError) as no_index:
+        verify_lab_archive(missing)
+    assert no_index.value.code == "PACKAGE_INDEX_MISSING"
+
+    empty = tmp_path / "empty.kubelab-lab.tar.gz"
+    with tarfile.open(empty, "w:gz"):
+        pass
+    with pytest.raises(PackageArchiveError) as no_members:
+        verify_lab_archive(empty)
+    assert no_members.value.code == "PACKAGE_MEMBER_LIMIT"
+
+    package = _package(tmp_path)
+    verified = verify_lab_archive(package)
+    destination = tmp_path / "already-exists"
+    destination.mkdir()
+    with pytest.raises(PackageArchiveError) as exists:
+        extract_verified_archive(package, verified, destination)
+    assert exists.value.code == "PACKAGE_EXTRACTION_TARGET_EXISTS"
+
+
+def test_v1_invalid_file_index_and_v2_layout_mismatch_are_rejected(tmp_path: Path) -> None:
+    package = _package(tmp_path)
+    contents = _contents(package)
+    index = json.loads(contents["index.json"])
+    index["formatVersion"] = 1
+    index.pop("package")
+    index["schemaVersions"].pop("package")
+    index["files"] = [{"path": "../escape", "size": 1, "sha256": "a" * 64}]
+    contents["index.json"] = json.dumps(index).encode()
+    invalid_v1 = tmp_path / "invalid-v1.kubelab-lab.tar.gz"
+    _write_archive(invalid_v1, contents)
+    with pytest.raises(PackageArchiveError) as legacy:
+        verify_lab_archive(invalid_v1)
+    assert legacy.value.code == "PACKAGE_INDEX_INVALID"
+
+    contents = _contents(package)
+    index = json.loads(contents["index.json"])
+    first = index["files"][0]
+    original_path = first["path"]
+    moved_path = original_path.replace("labs/lab-local-archive", "other/lab-local-archive")
+    contents[moved_path] = contents.pop(original_path)
+    first["path"] = moved_path
+    contents["index.json"] = json.dumps(index).encode()
+    invalid_layout = tmp_path / "invalid-layout.kubelab-lab.tar.gz"
+    _write_archive(invalid_layout, contents)
+    with pytest.raises(PackageArchiveError) as layout:
+        verify_lab_archive(invalid_layout)
+    assert layout.value.code == "PACKAGE_LAYOUT_INVALID"
