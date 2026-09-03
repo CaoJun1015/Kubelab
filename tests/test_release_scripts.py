@@ -28,6 +28,15 @@ def load_acceptance_validator() -> ModuleType:
     return module
 
 
+def load_distribution_validator() -> ModuleType:
+    path = Path(__file__).parents[1] / "scripts" / "verify_distribution.py"
+    spec = importlib.util.spec_from_file_location("verify_distribution", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def catalog() -> dict[str, object]:
     return {
         "labs": [
@@ -92,6 +101,11 @@ def test_wsl_smoke_keeps_four_arguments_and_environment_aware_context() -> None:
     assert "validate_release_smoke.py" in script
     assert "grep -c" not in script
     assert "trap finish EXIT" in script
+    assert "unset KUBELAB_RUN_PACKAGE_INTEGRATION" in script
+    assert "lab package" in script
+    assert "package import" in script
+    assert "package remove" in script
+    assert "http://127.0.0.1:8765/packages" in script
 
 
 def test_acceptance_junit_requires_exact_all_pass_count(tmp_path: Path) -> None:
@@ -233,3 +247,13 @@ def test_ci_verifies_artifacts_against_the_current_project_version() -> None:
     assert "--dist-dir dist" in workflow
     assert "--project-file pyproject.toml" in workflow
     assert "dist/kubelab-0.3.0rc1" not in workflow
+    assert 'KUBELAB_RUN_PACKAGE_INTEGRATION: "0"' in workflow
+
+
+def test_distribution_verifier_requires_all_m9_contracts_and_migration() -> None:
+    verifier = load_distribution_validator()
+
+    assert verifier.EXPECTED_PACKAGE_CONTRACT_COUNT == 21
+    assert "lab-package-v1alpha1.schema.json" in verifier.EXPECTED_SCHEMA_FILES
+    assert "migrations/versions/0004_lab_packages.py" in verifier.EXPECTED_PACKAGE_FILES
+    assert "templates/packages.html" in verifier.EXPECTED_WEB_ASSETS

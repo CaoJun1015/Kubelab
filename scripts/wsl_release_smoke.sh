@@ -58,6 +58,7 @@ export KUBELAB_KUBECONFIG="$kubeconfig"
 export KUBECONFIG="$kubeconfig"
 export MINIKUBE_HOME="${MINIKUBE_HOME:-$source_home}"
 unset KUBELAB_LABS_DIR KUBELAB_RUN_INTEGRATION KUBELAB_RUN_LAB_INTEGRATION
+unset KUBELAB_RUN_PACKAGE_INTEGRATION
 cd "$release_root/work"
 
 uv tool install --python 3.11 "$artifact"
@@ -84,6 +85,31 @@ read -r doctor_status lab_count variant_count scenario_count < <(
         --catalog "$release_root/labs.json" \
         --doctor-exit "$doctor_exit"
 )
+
+author_root="$release_root/work/lab-smoke-package"
+$kubelab_bin lab init "$author_root" --type baseline \
+    --id lab-smoke-package --title "Package smoke" --category workload \
+    --difficulty intermediate --description "Installed author and package command smoke."
+$kubelab_bin lab lint "$author_root"
+$kubelab_bin lab test "$author_root"
+$kubelab_bin lab inspect "$author_root" --json > "$release_root/author-inspect.json"
+$kubelab_bin lab package "$author_root" \
+    --output "$release_root/work/lab-smoke-package-0.1.0.kubelab-lab.tar.gz"
+$kubelab_bin package verify \
+    "$release_root/work/lab-smoke-package-0.1.0.kubelab-lab.tar.gz" \
+    --json > "$release_root/package-verify.json"
+$kubelab_bin package import \
+    "$release_root/work/lab-smoke-package-0.1.0.kubelab-lab.tar.gz" --json \
+    > "$release_root/package-import.json"
+$kubelab_bin package enable lab-smoke-package --version 0.1.0 --json \
+    > "$release_root/package-enable.json"
+$kubelab_bin package list --json > "$release_root/package-list.json"
+$kubelab_bin package show lab-smoke-package --version 0.1.0 --json \
+    > "$release_root/package-show.json"
+$kubelab_bin package disable lab-smoke-package --json \
+    > "$release_root/package-disable.json"
+$kubelab_bin package remove lab-smoke-package --version 0.1.0 --yes --json \
+    > "$release_root/package-remove.json"
 
 if [[ "$doctor_exit" -eq 0 ]]; then
     $kubelab_bin context inspect --json > "$release_root/context-before.json"
@@ -116,6 +142,8 @@ for _ in {1..30}; do
 done
 curl --fail --silent --show-error http://127.0.0.1:8765/ > "$release_root/dashboard.html"
 curl --fail --silent --show-error http://127.0.0.1:8765/labs > "$release_root/labs.html"
+curl --fail --silent --show-error http://127.0.0.1:8765/packages \
+    > "$release_root/packages.html"
 curl --fail --silent --show-error http://127.0.0.1:8765/static/app.js \
     > "$release_root/app.js"
 if ! ss -ltnp | grep -q '127.0.0.1:8765'; then
@@ -136,4 +164,5 @@ printf 'variants=%s\n' "$variant_count"
 printf 'scenarios=%s\n' "$scenario_count"
 printf 'doctor=%s (exit=%s)\n' "$doctor_status" "$doctor_exit"
 printf 'context=%s\n' "$context_status"
+printf 'author-and-package-commands=passed\n'
 printf 'web=127.0.0.1:8765 stopped-cleanly\n'

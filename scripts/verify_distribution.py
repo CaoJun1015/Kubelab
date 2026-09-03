@@ -16,6 +16,7 @@ from typing import Protocol
 EXPECTED_LAB_COUNT = 21
 EXPECTED_VARIANT_COUNT = 12
 EXPECTED_AUTHORING_COUNT = 33
+EXPECTED_PACKAGE_CONTRACT_COUNT = 21
 EXPECTED_WEB_ASSETS = {
     "static/app.js",
     "static/styles.css",
@@ -24,6 +25,7 @@ EXPECTED_WEB_ASSETS = {
     "templates/lab_detail.html",
     "templates/labs.html",
     "templates/onboarding.html",
+    "templates/packages.html",
     "templates/path_detail.html",
     "templates/path_outcome.html",
     "templates/paths.html",
@@ -38,6 +40,7 @@ EXPECTED_PACKAGE_FILES = {
     "migrations/versions/0001_initial_persistence.py",
     "migrations/versions/0002_guided_learning.py",
     "migrations/versions/0003_lab_variants.py",
+    "migrations/versions/0004_lab_packages.py",
     "py.typed",
 }
 EXPECTED_SCHEMA_FILES = {
@@ -45,6 +48,7 @@ EXPECTED_SCHEMA_FILES = {
     "lab-variant-v1alpha1.schema.json",
     "learning-path-v1alpha1.schema.json",
     "lab-authoring-v1alpha1.schema.json",
+    "lab-package-v1alpha1.schema.json",
 }
 EXPECTED_PROJECT_DOCS = {
     "CHANGELOG.md",
@@ -54,6 +58,7 @@ EXPECTED_PROJECT_DOCS = {
     "SECURITY.md",
     "docs/ARCHITECTURE.md",
     "docs/LAB_DEVELOPMENT.md",
+    "docs/PRD-M9-TRUSTED-LAB-PACKAGES.md",
     "docs/TUTORIAL.md",
     "docs/example-retrospective.md",
 }
@@ -243,6 +248,15 @@ def verify_wheel(path: Path, expected_version: str) -> None:
                 "wheel contains "
                 f"{len(authoring)} author contracts, expected {EXPECTED_AUTHORING_COUNT}"
             )
+        package_contracts = {
+            name for name in names if re.fullmatch(r"kubelab/labs/[^/]+/package\.yaml", name)
+        }
+        if len(package_contracts) != EXPECTED_PACKAGE_CONTRACT_COUNT:
+            raise ValueError(
+                "wheel contains "
+                f"{len(package_contracts)} package contracts, "
+                f"expected {EXPECTED_PACKAGE_CONTRACT_COUNT}"
+            )
         for asset in EXPECTED_WEB_ASSETS | EXPECTED_PACKAGE_FILES:
             if f"kubelab/{asset}" not in names:
                 raise ValueError(f"wheel is missing kubelab/{asset}")
@@ -257,6 +271,7 @@ def verify_wheel(path: Path, expected_version: str) -> None:
             "kubelab/docs/CHANGELOG.md",
             "kubelab/docs/project/ARCHITECTURE.md",
             "kubelab/docs/project/LAB_DEVELOPMENT.md",
+            "kubelab/docs/project/PRD-M9-TRUSTED-LAB-PACKAGES.md",
             "kubelab/docs/project/example-retrospective.md",
         }
         wheel_docs.update(
@@ -298,6 +313,15 @@ def verify_sdist(path: Path, expected_version: str) -> None:
             raise ValueError(
                 "sdist contains "
                 f"{len(authoring)} author contracts, expected {EXPECTED_AUTHORING_COUNT}"
+            )
+        package_contracts = {
+            name for name in relative if re.fullmatch(r"labs/[^/]+/package\.yaml", name)
+        }
+        if len(package_contracts) != EXPECTED_PACKAGE_CONTRACT_COUNT:
+            raise ValueError(
+                "sdist contains "
+                f"{len(package_contracts)} package contracts, "
+                f"expected {EXPECTED_PACKAGE_CONTRACT_COUNT}"
             )
         for asset in EXPECTED_WEB_ASSETS | EXPECTED_PACKAGE_FILES:
             if f"src/kubelab/{asset}" not in relative:
@@ -371,6 +395,7 @@ def main() -> int:
         f"verified KubeLab {version}: {EXPECTED_LAB_COUNT} labs, "
         f"{EXPECTED_VARIANT_COUNT} variants, "
         f"{EXPECTED_AUTHORING_COUNT} author contracts, "
+        f"{EXPECTED_PACKAGE_CONTRACT_COUNT} package contracts, "
         f"{len(EXPECTED_WEB_ASSETS)} Web assets, metadata and safety rules"
     )
     return 0
