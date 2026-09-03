@@ -6,7 +6,9 @@
 
 ### Added
 
-- 开始开发M9可信本地实验包生命周期，连接作者产物、版本化本地目录和可复现Session。
+- M9可信本地实验包生命周期，提供format v2离线验证、暂存导入、显式启用、停用、版本切换、回滚和安全移除。
+- `kubelab package verify/import/list/show/enable/disable/remove`命令组，以及只读包清单API和Web来源展示。
+- 21份`LabPackage`元数据、`0004_lab_packages`迁移、包生命周期事件以及外部Session公开元数据快照。
 - M8实验作者工具链，提供安全脚手架、统一lint、声明式Fake验收、公开边界预览和确定性实验包。
 - 21个基线和12个固定变体共33份`LabAuthoringContract`，以及三个综合实验的第一阶段修复契约。
 - `kubelab lab init/lint/test/inspect/package`命令组、稳定JSON问题模型和退出码。
@@ -24,7 +26,8 @@
 
 ### Changed
 
-- 开始开发KubeLab 0.6.0a0；只接受显式本地实验包，Web保持只读且不提供上传。
+- 开始开发KubeLab 0.6.0a0；运行时目录合成21个内置实验与当前启用的本地包，新Session使用启用版本，活动Session继续读取创建时的包摘要。
+- M8作者归档升级为format v2，文件名包含实验ID和包版本；format v1仍可完整性检查，但不能导入。
 - 开始开发KubeLab 0.5.0a0；作者命令默认不访问学习数据库、网络或Kubernetes集群。
 - 开始开发KubeLab 0.4.0a0；路径状态和复习建议继续从既有Session事实派生。
 - 完成KubeLab 0.3.0rc1的M6.1双平台质量门、停止态安装烟测和四批33场景真实验收。
@@ -38,6 +41,10 @@
 
 ### Security
 
+- 本地包只接受普通本地文件，拒绝符号链接、路径穿越、绝对路径、大小写冲突、特殊成员、摘要篡改和压缩/存储超限；导入前重新执行Registry、安全扫描、authoring lint和完整Fake生命周期。
+- 启用、目录合成和固定Session解析同时复验归档与解压内容摘要；包清单GET保持纯读取，延期删除在cleanup完成后立即尝试并可安全重试。
+- 外部包不能覆盖内置实验；实验ID锁定首次导入的自声明发布者。Web不提供上传、启停、卸载或URL输入，第三方发布者始终标记为未验证。
+- 活动Session使用的包只能进入延期移除，包内容缺失或损坏时hint、verify和reset失败关闭，cleanup仍可按Session所有权执行。
 - 作者工具拒绝符号链接、路径穿越、未声明修复字段、危险recreate、凭证/私钥/堆栈/完整Manifest泄漏和不安全归档；普通命令不访问学习数据库或集群。
 - 可选作者集成入口要求显式授权、WSL2 Ubuntu、本机Docker驱动minikube、可信Context及固定镜像缓存，并只通过受限声明式修复边界操作唯一临时Namespace。
 - Web资源与evidence使用独立白名单DTO，完全排除Secret、labels、annotations、conditions、镜像信息和Kubernetes原始对象。

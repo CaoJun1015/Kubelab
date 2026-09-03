@@ -31,6 +31,8 @@ KubeLab 是一个运行在 **Windows 11 + WSL2 Ubuntu** 中的本地 Kubernetes 
 - 21张实验前/后知识卡和9类症状索引；通过前只展示概念、成功目标和证据清单，通过后展示根因、最小修复、误区和预防措施；
 - M8本地实验作者工具链：`lab init/lint/test/inspect/package`复用运行时Schema、Registry、安全扫描和验证引擎，默认不访问数据库或Kubernetes；
 - 33个场景均带严格`authoring.yaml`，声明故障、第一阶段修复（综合场景）、完整修复、reset观测以及修复允许的资源与JSON Pointer；
+- M9可信本地实验包生命周期：离线校验format v2归档，暂存导入后显式启用，并支持停用、版本切换、回滚、延期移除和Session摘要钉住；
+- 21个内置实验族均带`package.yaml`；本地包不能覆盖内置实验，也不会进入M7内置路径、知识卡或症状索引；
 - 专题成果从Session、提示和验证记录派生，可导出有界、脱敏的Markdown，不提供隐藏评分或排名；
 - wheel内置全部21个实验目录、12个变体、Jinja模板和静态资源，安装后不依赖源码仓库中的`labs/`；
 - 可重复生成的实验与变体JSON Schema及错误脱敏；
@@ -221,7 +223,33 @@ kubelab lab package labs/lab-022-sample
 
 真实测试入口默认关闭，只有维护者在明确授权的本机WSL2 Ubuntu环境中才可设置`KUBELAB_RUN_LAB_INTEGRATION=1`。它不接受远程Context，不执行Shell修复；日常开发和CI不得设置该变量。
 
-所有目录、状态和验证命令均支持稳定的`--json`输出。`verify`未通过时退出码为1；参数或实验定义错误为2；环境或Context问题为3；活动Session冲突或非法状态为4；Kubernetes、数据库或内部故障为5。
+## 本地实验包生命周期
+
+M8生成的format v2归档可以进入M9本地目录。`verify`是跨平台、只读且离线的；其余库存变更命令只在WSL2 Ubuntu正式支持：
+
+```bash
+# Windows或WSL：完整性、安全契约和Fake生命周期检查，不写数据库
+kubelab package verify lab-example-1.0.0.kubelab-lab.tar.gz
+
+# WSL2 Ubuntu：导入只进入staged，不会自动出现在实验目录
+kubelab package import lab-example-1.0.0.kubelab-lab.tar.gz
+kubelab package list
+kubelab package show lab-example --version 1.0.0
+
+# 显式启用；同一实验的新Session只使用当前enabled版本
+kubelab package enable lab-example --version 1.0.0
+
+# 切换到另一个已导入版本即升级；重新启用旧版本即回滚
+kubelab package enable lab-example --version 1.1.0
+kubelab package enable lab-example --version 1.0.0
+
+kubelab package disable lab-example
+kubelab package remove lab-example --version 1.0.0 --yes
+```
+
+活动Session始终读取创建时的包SHA-256；切换版本不会改变正在进行的练习。移除活动Session使用的版本时，状态先变为`pending_removal`并立即禁止新Session选择，待活动Session完成后再安全回收文件。完成后的历史、进度和复盘读取脱敏快照，因此归档删除后仍可查看。完整性验证只证明文件未被替换且符合KubeLab安全契约，第三方包始终显示“发布者未验证”；M9不下载远程内容，也不提供签名、市场或Web上传。
+
+作者与包管理命令均支持稳定的`--json`输出。退出码统一为：`0`成功或仅有警告，`2`输入、目录、Schema或兼容性错误，`3`安全、摘要或内容冲突错误，`4`Fake契约失败，`5`运行环境或存储不可用，`10`脱敏内部错误。
 
 ### 启动本地Web界面与REST API
 
@@ -317,6 +345,9 @@ KUBELAB_RUN_INTEGRATION=1 uv run pytest --no-cov -q tests/test_kubernetes_gatewa
 
 # 全部33个场景的真实start → 受限workspace修复 → verify → reset → cleanup契约
 KUBELAB_RUN_LAB_INTEGRATION=1 uv run pytest --no-cov -q tests/test_first_labs_integration.py
+
+# 外部format v2包的import → enable → start → repair → verify → cleanup闭环
+KUBELAB_RUN_PACKAGE_INTEGRATION=1 uv run pytest --no-cov -q tests/test_local_package_integration.py
 ```
 
 全部21个基线和12个变体默认使用Fake Gateway证明`initial → success预检失败 → fix → reset`契约，不接触集群。M6.1已在受信任的本机Docker驱动minikube中把33个场景分为四批连续验收通过；入口仍默认关闭。测试只允许创建随机`kubelab-test-*` Namespace，并验证Secret、集群级Namespace和残留资源安全边界。执行前要求固定版本镜像已进入minikube缓存，LAB-011要求Ingress Controller可用，LAB-012、LAB-018和LAB-020要求默认`standard` StorageClass及storage-provisioner可用。不要在远程或生产Context运行。脱敏结果见[M6.1验收记录](docs/environment-snapshots/2026-08-31-m6-1-acceptance.md)。
@@ -371,8 +402,9 @@ cloud-native-ops-roadmap.html  云原生运维学习路线
 - [x] M6.1 `0.3.0rc1`双平台质量门、停止态wheel烟测与33场景真实验收。
 - [x] M7 `0.4.0a0`专题学习路径、确定性推荐、症状索引和专题成果。
 - [x] M8 `0.5.0a0`声明式作者契约、安全脚手架、统一lint/Fake测试、公开边界检查和确定性实验包。
+- [x] M9 `0.6.0a0`可信本地实验包验证、暂存、启停、版本回滚、Session钉住和安全移除。
 
-详细资料见[21个实验操作教程](docs/TUTORIAL.md)、[M7专题学习路径PRD](docs/PRD-M7-LEARNING-PATHS.md)、[M8作者工具PRD](docs/PRD-M8-AUTHOR-TOOLCHAIN.md)、[PRD](PRD-KubeLab.md)、[TDD](TDD-KubeLab.md)、[架构说明](docs/ARCHITECTURE.md)、[实验开发指南](docs/LAB_DEVELOPMENT.md)、[贡献指南](CONTRIBUTING.md)和[安全策略](SECURITY.md)。
+详细资料见[21个实验操作教程](docs/TUTORIAL.md)、[M7专题学习路径PRD](docs/PRD-M7-LEARNING-PATHS.md)、[M8作者工具PRD](docs/PRD-M8-AUTHOR-TOOLCHAIN.md)、[M9可信本地实验包PRD](docs/PRD-M9-TRUSTED-LAB-PACKAGES.md)、[PRD](PRD-KubeLab.md)、[TDD](TDD-KubeLab.md)、[架构说明](docs/ARCHITECTURE.md)、[实验开发指南](docs/LAB_DEVELOPMENT.md)、[贡献指南](CONTRIBUTING.md)和[安全策略](SECURITY.md)。
 
 ## 常见问题
 

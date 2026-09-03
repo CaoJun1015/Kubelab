@@ -643,7 +643,42 @@ unset KUBELAB_RUN_LAB_INTEGRATION
 
 日常安装烟测、普通pytest和CI都不得设置`KUBELAB_RUN_LAB_INTEGRATION`。M8当前只完成该入口的Fake门禁验收，尚未形成真实集群兼容性声明。
 
-## 19. 卸载
+## 19. 管理可信本地实验包
+
+本地归档不需要网络下载。建议先在Windows或WSL执行只读验证，再在正式WSL环境登记：
+
+```bash
+kubelab package verify ./lab-example-1.0.0.kubelab-lab.tar.gz
+kubelab package import ./lab-example-1.0.0.kubelab-lab.tar.gz
+kubelab package list
+kubelab package show lab-example
+kubelab package enable lab-example --version 1.0.0
+```
+
+import只产生`staged`记录，不会自动启用。启用另一个已导入版本即升级或回滚；活动Session仍固定使用其创建时的SHA-256：
+
+```bash
+kubelab package enable lab-example --version 1.1.0
+kubelab package enable lab-example --version 1.0.0
+kubelab package disable lab-example
+kubelab package remove lab-example --version 1.1.0 --yes
+```
+
+包文件位于WSL状态目录的`packages/blobs/<sha256>/`，不要手工编辑、替换或删除。移除活动Session引用的版本会进入`pending_removal`；完成cleanup后会立即尝试回收，文件锁等失败会保留该状态并由后续包写操作安全重试。归档与解压后的运行时内容都会按索引复验。发现`invalid`时不要绕过摘要检查；重新从可信来源取得并离线验证归档。发布者字段为包内自声明信息，`publisherVerified=false`是正常的M9安全提示，不代表签名认证。
+
+Web的`/packages`、`GET /api/v1/packages`和`GET /api/v1/packages/{lab_id}`只读。Web不接受文件上传、URL、启用、停用或卸载操作。
+
+外部包真实闭环默认关闭。只有另行授权后，维护者才能在已受信的本机Docker驱动minikube中运行：
+
+```bash
+export KUBELAB_RUN_PACKAGE_INTEGRATION=1
+uv run pytest --no-cov -q tests/test_local_package_integration.py
+unset KUBELAB_RUN_PACKAGE_INTEGRATION
+```
+
+普通启动、pytest和CI不得设置该变量。
+
+## 20. 卸载
 
 仅撤销KubeLab信任并卸载CLI：
 
@@ -660,7 +695,7 @@ uv tool uninstall kubelab
 minikube delete
 ```
 
-## 20. 验收清单
+## 21. 验收清单
 
 部署完成后逐项确认：
 
@@ -675,8 +710,10 @@ minikube delete
 - [ ] `Trust state`为trusted；
 - [ ] 配置文件权限为600；
 - [ ] 配置文件不含Token、私钥或证书原文。
+- [ ] `kubelab package verify`可离线检查format v2归档，导入后默认状态为`staged`；
+- [ ] `/packages`只展示公开来源与版本，不提供包写操作。
 
-## 21. 官方参考
+## 22. 官方参考
 
 - [Microsoft：安装WSL](https://learn.microsoft.com/windows/wsl/install)
 - [Microsoft：WSL启用systemd](https://learn.microsoft.com/windows/wsl/systemd)

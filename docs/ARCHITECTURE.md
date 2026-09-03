@@ -15,7 +15,12 @@ flowchart TB
     AuthorSvc --> Engine
     AuthorSvc --> Scanner[ManifestSecurityScanner\n结构 diff + 泄漏检查]
 
-    App --> Registry[LabRegistry\n21 个实验族 / 33 个场景]
+    CLI --> Packages[PackageManager\nverify / stage / enable / rollback / remove]
+    Web -->|只读清单| Packages
+    Packages --> Archive[ArchiveVerifier\nformat v2 + SHA-256 + Fake lifecycle]
+    Packages --> Blobs[(WSL package blobs)]
+
+    App --> Registry[PackageCatalogRegistry\n内置实验 + enabled本地包]
     App --> Paths[LearningPathRegistry\n4 条路径 / 21 张知识卡 / 9 类症状]
     App --> Ready[EnvironmentReadinessService\nDoctor + Context + requirements]
     App --> Engine[ValidationEngine\n9 类声明式检查]
@@ -43,6 +48,8 @@ flowchart TB
 - `ValidationEngine` 只接收结构化检查，不执行实验提供的任意命令或 URL。
 - `KubernetesGateway` 在所有写操作前重新确认 Context、Session、Namespace 和管理标签。
 - `AuthoringService`是独立本地边界，复用Lab/Variant Schema、Registry、安全扫描、公开投影和ValidationEngine；普通作者命令不构建`ApplicationRuntime`、不访问学习数据库或集群。
+- `PackageManager`是本地包库存的唯一写入口。CLI只调用该Application Service；Web仅通过同一服务读取公开清单，不直接操作ORM或归档目录。
+- `PackageCatalogRegistry`组合内置Registry和当前`enabled`包，并按Session保存的SHA-256解析旧版本；本地包不能覆盖内置实验。
 
 ## 受限 workspace
 
@@ -68,7 +75,7 @@ Role 不授权 Secret、RBAC 对象、Namespace 或其他集群级资源。临�
 
 ## 数据与输出
 
-SQLite只保存Session、状态事件、脱敏验证结果、提示进度、复盘、白名单化readiness缓存和脱敏evidence。`0002_guided_learning`迁移保留v0.1.0数据；`0003_lab_variants`只在Session增加默认值为`baseline`的变体引用与查询索引，不增加第二套进度状态。
+SQLite只保存Session、状态事件、脱敏验证结果、提示进度、复盘、白名单化readiness缓存和脱敏evidence。`0002_guided_learning`迁移保留v0.1.0数据；`0003_lab_variants`只在Session增加默认值为`baseline`的变体引用与查询索引；`0004_lab_packages`增加包库存、脱敏生命周期事件和Session来源/摘要/公开快照。旧Session统一回填为`builtin`，不增加第二套学习进度状态。
 
 M7不增加数据库迁移。`available/active/completed/locked/review_recommended`路径节点状态、综合实验解锁和下一步建议都在读取时从现有学习事实计算；同一实验出现在多条路径时仍只对应原有Session记录。
 
@@ -101,3 +108,13 @@ M7不增加数据库迁移。`available/active/completed/locked/review_recommend
 确定性打包按相对路径排序，统一LF、权限、UID/GID、tar时间戳和gzip mtime；`index.json`记录格式版本、场景、Schema及每个文件大小和SHA-256。打包前强制lint、Fake生命周期和高风险泄漏检查，构建后重新读取归档验证路径与摘要；包只用于分发，不提供远程安装。
 
 可选集成入口直到显式环境变量、WSL2 Ubuntu、本机Docker驱动minikube、可信Context和镜像缓存全部通过后才构建正式`LabManager`。修复只通过受限声明式Gateway应用；每个场景使用临时SQLite和唯一Namespace，结束时检查Namespace及其RBAC/Probe/PVC和关联PV残留。M8默认测试仅覆盖门禁，不连接真实集群。
+
+## M9可信本地实验包层
+
+每个实验族根目录包含严格的`LabPackage`，声明实验ID、无构建元数据的SemVer版本、自声明发布者和PEP 440 KubeLab兼容范围。作者归档format v2的`index.json`复制这些公开元数据，并列出排序后的场景、Schema版本及所有文件大小和SHA-256；导入端重新交叉校验`index.json`、`package.yaml`和`lab.yaml`。
+
+离线Archive Verifier禁止绝对路径、路径穿越、反斜杠路径、重复或大小写冲突成员、链接和设备文件，并执行压缩大小、成员数、单文件大小和索引大小上限。导入在WSL状态目录的同级临时目录完成解压，再重新运行Registry、Manifest安全扫描、作者lint和正式ValidationEngine驱动的Fake生命周期；全部通过后原子重命名到`blobs/<archive-sha256>/`并提交数据库。启用、目录合成和固定Session解析会同时复验归档摘要与解压后`content/`的文件集合、大小和SHA-256，避免本地内容被替换后继续执行。归档完整性不代表发布者身份，第三方包的`publisherVerified`固定为`false`。
+
+包状态为`staged/enabled/disabled/pending_removal/removed`。同一Lab ID只允许一个启用版本；启用另一个已登记版本即版本切换或回滚。外部Lab ID首次导入后锁定自声明`publisherId`，相同版本的不同摘要被拒绝。`staged`和`disabled`不进入运行目录，`pending_removal`立即停止新Session选择。
+
+外部Session在创建时保存`lab_source=local_package`、包SHA-256、脱敏实验元数据和场景公开快照。hint、verify、reset与恢复始终解析该摘要，即使另一个版本已经启用；摘要内容缺失或损坏时失败关闭，cleanup不依赖实验文件，仍可按Namespace所有权执行。活动Session完成后由Application Service回调立即尝试回收延期删除的blob；失败时保持`pending_removal`，在后续写操作中安全重试。包清单和Web GET保持纯读取。历史进度、场景揭示和复盘继续读取公开快照。本地包进入全局实验目录和进度，但不会扩展M7内置路径、知识卡或症状索引。

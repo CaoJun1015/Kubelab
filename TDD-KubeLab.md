@@ -1537,6 +1537,29 @@ CLI机器输出使用Pydantic DTO，统一错误结构为`code/message/context/r
 - [x] 真实集成门禁、声明式修复应用及Namespace/PV残留审计；本轮未授权、未执行真实集群测试；
 - [x] 不新增学习Web、数据库迁移、远程包安装、新实验、Shell修复或插件执行。
 
+### M9 可信本地实验包生命周期
+
+- `LabPackage`是实验族根级严格契约，使用SemVer包版本、自声明发布者和PEP 440 `requiresKubelab`。variant继承父实验族，不建立独立包身份。
+- M8归档升级为format v2。共享Archive Verifier交叉校验`index.json/package.yaml/lab.yaml`，验证全部文件摘要，并拒绝绝对路径、路径穿越、反斜杠、大小写冲突、链接、特殊成员和容量上限违规。format v1可验证但不可导入。
+- `PackageManager`是包库存唯一写服务。导入在WSL状态目录同级临时路径解压，重新执行Registry、安全扫描、authoring lint与完整Fake生命周期后原子移动到`blobs/<sha256>/`，再提交SQLite；失败只清理本次拥有的临时内容。
+- `0004_lab_packages`新增`lab_package/lab_package_event`，并为Session增加`lab_source/package_sha256/lab_public_snapshot/scenario_public_snapshot`。旧Session回填`builtin`；生命周期事件只保存白名单逻辑标识。
+- `PackageCatalogRegistry`组合21个内置实验和当前启用的本地版本。外部包不能覆盖内置ID；外部Lab ID锁定首次发布者；同一Lab ID最多一个enabled版本。
+- 新Session按当前enabled版本启动并保存包摘要。hint、verify、reset、恢复和reconcile按Session摘要解析，不受后续切换影响；内容缺失或损坏时失败关闭，cleanup继续只依赖Session/Namespace所有权。
+- 活动Session引用的版本进入`pending_removal`并立即退出新Session目录；cleanup完成后在锁外回调PackageManager立即尝试删除，失败保持待移除并在后续写操作重试。只读Web清单不触发状态变化。历史进度、场景揭示和复盘读取公开快照，因此blob移除后仍可展示。
+- 运行时在启用、目录合成与Session摘要解析时同时校验归档和解压`content/`，拒绝缺失、额外、非普通或摘要变化的内容。
+- CLI提供`package verify/import/list/show/enable/disable/remove`；只有verify跨平台且无状态。Web仅提供包清单GET API和来源展示，不提供上传、URL或生命周期写操作。
+- 外部包只进入全局实验目录和进度，不扩展M7内置路径、知识卡或症状索引。发布者身份未认证，第三方`publisherVerified`固定为false。
+- 真实外部包闭环入口使用`KUBELAB_RUN_PACKAGE_INTEGRATION=1`显式门禁，且继续要求WSL2 Ubuntu、本机Docker驱动minikube、可信未漂移Context和固定镜像缓存；本轮默认关闭，不运行真实集群操作。
+
+实现状态（0.6.0a0开发候选）：
+
+- [x] 21份包契约、format v2确定性归档及跨平台离线校验；
+- [x] 包库存迁移、Session来源与公开快照；
+- [x] 暂存、启停、多版本切换/回滚、摘要钉住和延期移除；
+- [x] CLI、只读Web API与页面来源标识；
+- [x] 默认关闭的外部包真实闭环入口；
+- [x] Windows/WSL最终质量门与发行产物验收。
+
 ---
 
 ## 21. PRD待确认项结论

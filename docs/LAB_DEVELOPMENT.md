@@ -7,6 +7,7 @@ KubeLab 实验是声明式、安全扫描且可重复验证的故障场景。学
 ```text
 labs/lab-NNN-short-name/
 ├── lab.yaml
+├── package.yaml               # 实验族版本、发布者和KubeLab兼容范围
 ├── authoring.yaml             # 作者Fake观测与允许修复范围
 ├── README.md
 ├── manifests/
@@ -42,6 +43,24 @@ kubelab lab package TARGET
 `lint`复用正式Lab/Variant Schema、Registry和Manifest安全扫描，并执行资源级结构diff。`test`使用声明式Fake Gateway与正式ValidationEngine，既不创建数据库，也不连接集群。`inspect`只显示脱敏摘要、允许修改路径及通过前/后公开预览。`package`只接受完整实验族，输出可复现归档和SHA-256，不负责安装。
 
 所有命令支持`--json`，问题结构固定为`code/severity/relativePath/fieldPath/message/docsAnchor`。退出码为：`0`通过或仅警告、`2`输入/目录/Schema错误、`3`安全或公开边界错误、`4`Fake契约失败、`5`集成环境不满足、`10`脱敏内部错误。
+
+## `package.yaml`与format v2
+
+实验族根目录的`package.yaml`符合`kubelab.io/v1alpha1 kind: LabPackage`，权威Schema位于`schemas/lab-package-v1alpha1.schema.json`。`metadata.labId`必须与`lab.yaml`一致；`metadata.version`必须是无构建元数据的SemVer 2.0；`publisherId`使用slug；`spec.requiresKubelab`使用PEP 440范围。variant不单独声明包身份，继承父实验族。
+
+```yaml
+apiVersion: kubelab.io/v1alpha1
+kind: LabPackage
+metadata:
+  labId: lab-022-sample
+  version: 0.1.0
+  publisherId: local-author
+  publisherName: Local Author
+spec:
+  requiresKubelab: ">=0.6.0a0,<0.7.0"
+```
+
+`kubelab lab package`生成`<lab-id>-<version>.kubelab-lab.tar.gz`。format v2索引包含包元数据、场景、Schema版本、文件大小和SHA-256，并与`package.yaml`交叉校验。format v1归档仍可用`kubelab package verify`检查完整性，但必须重新构建后才能导入。作者可在Windows或WSL执行离线verify；学习者库存的import、enable、disable和remove只在WSL2 Ubuntu支持。
 
 ## `authoring.yaml`契约
 
