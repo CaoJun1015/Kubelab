@@ -11,6 +11,7 @@
     pods: [],
     activeSession: null,
   };
+  const sessionActionSelector = "#copy-namespace, #reconcile-session, #refresh-events, #refresh-logs, #run-verify, #request-hint, #retrospective-form button[type='submit'], #reset-session, #cleanup-session";
 
   class ApiError extends Error {
     constructor(payload, status, requestId) {
@@ -174,12 +175,14 @@
     const original = button.textContent;
     button.dataset.busy = "true";
     button.disabled = true;
+    button.setAttribute("aria-busy", "true");
     button.textContent = busyText;
     try {
       return await action();
     } finally {
       button.dataset.busy = "false";
       button.disabled = false;
+      button.removeAttribute("aria-busy");
       button.textContent = original;
     }
   };
@@ -400,6 +403,9 @@
       option.value = category;
       categoryFilter.append(option);
     });
+    const filters = new URLSearchParams(window.location.search);
+    categoryFilter.value = filters.get("category") || "";
+    progressFilter.value = filters.get("progress") || "";
     const render = () => {
       const filtered = labs.filter((lab) => {
         return (!categoryFilter.value || lab.category === categoryFilter.value) &&
@@ -414,8 +420,21 @@
         filtered.forEach((lab) => grid.append(renderLabCard(lab)));
       }
     };
-    categoryFilter.addEventListener("change", render);
-    progressFilter.addEventListener("change", render);
+    const updateFilterUrl = () => {
+      const url = new URL(window.location.href);
+      ["category", "progress"].forEach((name) => {
+        const value = name === "category" ? categoryFilter.value : progressFilter.value;
+        if (value) url.searchParams.set(name, value);
+        else url.searchParams.delete(name);
+      });
+      window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    };
+    const onFilterChange = () => {
+      updateFilterUrl();
+      render();
+    };
+    categoryFilter.addEventListener("change", onFilterChange);
+    progressFilter.addEventListener("change", onFilterChange);
     render();
   };
 
@@ -500,6 +519,8 @@
     } catch (error) {
       if (!(error instanceof ApiError) || error.status !== 404) throw error;
     }
+    if (!activeSession && readiness?.status !== "blocked") startButton.disabled = false;
+    startButton.removeAttribute("aria-busy");
     startButton.addEventListener("click", async () => {
       clearPageError();
       if (activeSession?.lab_id === labId) {
@@ -587,6 +608,23 @@
     const practice = document.querySelector("#session-practice");
     if (practice) {
       practice.textContent = session.practice_mode === "blind_repeat" ? "复练盲练" : "首次基线";
+    }
+    const guidance = {
+      provisioning: ["等待环境创建", "环境正在创建；资源就绪后再开始调查。", "#resources", "观察资源"],
+      ready: ["开始收集证据", "先观察资源状态，再用受限 Workspace 验证你的判断。", "#resources", "观察资源"],
+      in_progress: ["确认故障原因", "结合资源状态与 Events，确认最可能的故障原因。", "#events", "查看 Events"],
+      passed: ["记录本次复盘", "验证已经通过；记录根因、解决方案和预防措施。", "#retrospective", "填写复盘"],
+      resetting: ["等待实验重置", "环境正在恢复初始故障，请观察资源状态。", "#resources", "观察资源"],
+      cleaning: ["正在清理环境", "Namespace 正在安全清理，请等待状态更新。", "#resources", "查看状态"],
+      completed: ["实验已完成", "本次实验已经完成，可以返回目录继续练习。", "/labs", "返回实验目录"],
+      error: ["检查失败信息", "先查看页面错误和 Events，再决定下一步。", "#events", "查看 Events"],
+    }[session.status] || ["开始收集证据", "先查看资源状态和 Events，再验证你的判断。", "#investigate", "查看调查命令"];
+    text("#session-next-step-title", guidance[0]);
+    text("#session-next-step-copy", guidance[1]);
+    const action = document.querySelector("#session-next-step-action");
+    if (action) {
+      action.setAttribute("href", guidance[2]);
+      action.textContent = guidance[3];
     }
   };
 
@@ -704,6 +742,7 @@
     if (["completed"].includes(state.activeSession.status)) return;
     state.polling = true;
     text("#poll-status", "正在刷新…");
+    document.querySelectorAll("#resources-table, #pods-table").forEach((table) => table.setAttribute("aria-busy", "true"));
     try {
       const payload = await api("/api/v1/sessions/active/resources");
       updateSessionIdentity(payload.session);
@@ -727,12 +766,12 @@
       );
       updateLogSelectors(payload.pods);
       text("#poll-status", `已更新 ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`);
-      clearPageError();
     } catch (error) {
       text("#poll-status", "刷新失败");
       showPageError(error);
     } finally {
       state.polling = false;
+      document.querySelectorAll("#resources-table, #pods-table").forEach((table) => table.removeAttribute("aria-busy"));
     }
   };
 
@@ -874,9 +913,12 @@
     });
   };
 
-  const openConfirmation = (operation) => {
+  let confirmationTrigger = null;
+
+  const openConfirmation = (operation, trigger) => {
     const dialog = document.querySelector("#confirmation-dialog");
     const namespace = state.activeSession.namespace;
+    confirmationTrigger = trigger;
     dialog.dataset.operation = operation;
     text("#confirmation-title", operation === "reset" ? "确认重置实验" : "确认清理环境");
     text(
@@ -948,15 +990,18 @@
         toast("复盘已保存。");
       } catch (error) { showPageError(error); }
     });
-    document.querySelector("#reset-session").addEventListener("click", () => openConfirmation("reset"));
-    document.querySelector("#cleanup-session").addEventListener("click", () => openConfirmation("cleanup"));
+    document.querySelector("#reset-session").addEventListener("click", (event) => openConfirmation("reset", event.currentTarget));
+    document.querySelector("#cleanup-session").addEventListener("click", (event) => openConfirmation("cleanup", event.currentTarget));
 
     const input = document.querySelector("#namespace-confirmation");
     input.addEventListener("input", () => {
       document.querySelector("#confirm-destructive").disabled = input.value !== state.activeSession.namespace;
     });
     document.querySelector("#confirmation-dialog").addEventListener("close", async (event) => {
-      if (event.currentTarget.returnValue !== "confirm") return;
+      if (event.currentTarget.returnValue !== "confirm") {
+        confirmationTrigger?.focus();
+        return;
+      }
       const operation = event.currentTarget.dataset.operation;
       const namespace = input.value;
       const trigger = document.querySelector(operation === "reset" ? "#reset-session" : "#cleanup-session");
@@ -974,7 +1019,11 @@
           toast("实验已恢复到初始故障。");
           startPolling();
         }
-      } catch (error) { showPageError(error); }
+      } catch (error) { showPageError(error); } finally { trigger.focus(); }
+    });
+    document.querySelectorAll(sessionActionSelector).forEach((button) => {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
     });
   };
 
@@ -1000,6 +1049,7 @@
     ]);
     text("#session-title", detail.lab.name);
     text("#session-task", detail.task);
+    text("#session-completion", detail.completion_description);
     renderScenarioReveal(detail);
     renderInvestigationCommands(active.session.namespace);
     fillRetrospective(retrospective);
@@ -1274,6 +1324,22 @@
       const loader = loaders[root.dataset.page];
       if (loader) await loader();
     } catch (error) {
+      document.querySelectorAll("button[aria-busy='true']").forEach((button) => {
+        button.removeAttribute("aria-busy");
+      });
+      if (root.dataset.page === "lab-detail") {
+        text("#start-readiness", "实验读取失败，请刷新页面重试。");
+      } else if (root.dataset.page === "session") {
+        text("#session-task", "Session 恢复失败，请刷新页面重试。");
+      }
+      const retryButton = document.querySelector(
+        root.dataset.page === "lab-detail" ? "#start-lab" : "#reconcile-session",
+      );
+      if (retryButton && ["lab-detail", "session"].includes(root.dataset.page)) {
+        retryButton.disabled = false;
+        retryButton.textContent = root.dataset.page === "lab-detail" ? "重新读取实验" : "重新恢复 Session";
+        retryButton.addEventListener("click", () => window.location.reload(), { once: true });
+      }
       showPageError(error);
     }
   };
