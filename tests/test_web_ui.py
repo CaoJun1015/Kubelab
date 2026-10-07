@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from html.parser import HTMLParser
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote
@@ -14,6 +15,18 @@ import pytest
 from fastapi.testclient import TestClient
 
 from kubelab.web import CSRF_COOKIE, CSRF_HEADER, create_app
+
+
+class ElementCollector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.elements: list[tuple[str, dict[str, str | None]]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.elements.append((tag, dict(attrs)))
+
+    def by_id(self, element_id: str) -> tuple[str, dict[str, str | None]]:
+        return next(element for element in self.elements if element[1].get("id") == element_id)
 
 
 @pytest.fixture
@@ -34,7 +47,7 @@ def ui_client():
         ("/paths/service-discovery-traffic/outcome", "path-outcome", "专题成果"),
         ("/symptoms", "symptoms", "从症状开始排障"),
         ("/labs/lab-005-image-pull", "lab-detail", "你的任务"),
-        ("/sessions/123e4567-e89b-42d3-a456-426614174111", "session", "资源与 Pods"),
+        ("/sessions/123e4567-e89b-42d3-a456-426614174111", "session", "资源状态"),
         ("/progress", "progress", "学习进度"),
         ("/packages", "packages", "本地实验包"),
     ],
@@ -104,6 +117,11 @@ def test_frontend_uses_text_only_rendering_and_required_interaction_guards() -> 
     assert 'error.code === "CSRF_TOKEN_INVALID"' in script
     assert "return api(path, options, false)" in script
     assert "window.setInterval(pollResources, 2000)" in script
+    assert 'button.setAttribute("aria-busy", "true")' in script
+    assert 'button.removeAttribute("aria-busy")' in script
+    assert 'text("#poll-status", "正在刷新…")' in script
+    assert 'text("#poll-status", "刷新失败")' in script
+    assert 'document.querySelectorAll("#resources-table, #pods-table")' in script
     assert 'document.addEventListener("visibilitychange"' in script
     assert 'document.querySelector("#refresh-events").addEventListener("click"' in script
     assert 'document.querySelector("#refresh-logs").addEventListener("click"' in script
@@ -121,6 +139,111 @@ def test_frontend_uses_text_only_rendering_and_required_interaction_guards() -> 
     assert "未验证（自声明信息）" in script
     assert "expected" not in script
     assert "actual" not in script
+
+
+def test_web_ui_accessibility_and_filter_url_contracts() -> None:
+    project = Path(__file__).parents[1]
+    script = (project / "src" / "kubelab" / "static" / "app.js").read_text(encoding="utf-8")
+    session = (project / "src" / "kubelab" / "templates" / "session.html").read_text(
+        encoding="utf-8"
+    )
+    labs = (project / "src" / "kubelab" / "templates" / "labs.html").read_text(encoding="utf-8")
+    detail = (project / "src" / "kubelab" / "templates" / "lab_detail.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'id="start-lab"' in detail and 'disabled aria-busy="true"' in detail
+    assert "正在读取实验…" in detail
+    assert "正在恢复 Session…" in session
+    assert 'class="session-workspace"' in session
+    assert 'class="workspace-rail"' in session
+    assert 'class="workspace-guidance"' in session
+    assert 'role="alert"' in session
+    assert session.count('disabled aria-busy="true"') == 9
+    assert 'id="poll-status" class="quiet-text" role="status" aria-live="polite"' in session
+    assert (
+        'id="confirmation-dialog" class="confirmation-dialog" '
+        'aria-labelledby="confirmation-title" aria-describedby="confirmation-copy"' in session
+    )
+    assert session.count('scope="col"') == 8
+    assert 'id="resources-table"' in session and 'id="pods-table"' in session
+    assert 'value="">全部分类' in labs and 'value="">全部进度' in labs
+    assert 'filters.get("category")' in script
+    assert 'filters.get("progress")' in script
+    assert "url.searchParams.set(name, value)" in script
+    assert "window.history.replaceState" in script
+    assert "input.focus();" in script
+    assert "confirmationTrigger?.focus();" in script
+    assert "finally { trigger.focus(); }" in script
+    assert "button.disabled = false;" in script
+    assert "document.querySelectorAll(sessionActionSelector)" in script
+    assert "document.querySelectorAll(\"button[aria-busy='true']\")" in script
+    assert "实验读取失败，请刷新页面重试。" in script
+    assert "Session 恢复失败，请刷新页面重试。" in script
+    assert 'text("#session-next-step-title", guidance[0])' in script
+    assert 'text("#session-completion", detail.completion_description)' in script
+
+
+def test_rendered_session_dom_has_initialization_and_dialog_guards(
+    ui_client: TestClient,
+) -> None:
+    response = ui_client.get("/sessions/123e4567-e89b-42d3-a456-426614174111")
+    parser = ElementCollector()
+    parser.feed(response.text)
+
+    action_ids = {
+        "copy-namespace",
+        "reconcile-session",
+        "refresh-events",
+        "refresh-logs",
+        "run-verify",
+        "request-hint",
+        "reset-session",
+        "cleanup-session",
+    }
+    for action_id in action_ids:
+        tag, attrs = parser.by_id(action_id)
+        assert tag == "button"
+        assert "disabled" in attrs
+        assert attrs["aria-busy"] == "true"
+
+    dialog_tag, dialog = parser.by_id("confirmation-dialog")
+    assert dialog_tag == "dialog"
+    assert dialog["aria-labelledby"] == "confirmation-title"
+    assert dialog["aria-describedby"] == "confirmation-copy"
+    poll_status = parser.by_id("poll-status")[1]
+    assert poll_status["role"] == "status"
+    assert poll_status["aria-live"] == "polite"
+    for table_id in ("resources-table", "pods-table"):
+        assert parser.by_id(table_id)[0] == "table"
+    table_headers = [attrs for tag, attrs in parser.elements if tag == "th"]
+    assert len(table_headers) == 8
+    assert all(attrs.get("scope") == "col" for attrs in table_headers)
+
+
+def test_redesign_css_is_merged_and_keeps_guidance_before_long_content() -> None:
+    stylesheet = (
+        Path(__file__).parents[1] / "src" / "kubelab" / "static" / "styles.css"
+    ).read_text(encoding="utf-8")
+
+    assert stylesheet.count(":root {") == 1
+    medium_layout = stylesheet.split("@media (max-width: 1220px)", maxsplit=1)[1]
+    assert "grid-template-columns: 1fr;" in medium_layout
+    assert ".workspace-primary {\n    order: 3;" in medium_layout
+    assert "order: 2;" in medium_layout
+
+
+def test_frontend_initialization_failure_runtime_contract() -> None:
+    project = Path(__file__).parents[1]
+    subprocess.run(
+        ["node", "--test", "tests/web_ui_runtime.test.cjs"],
+        cwd=project,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
 
 
 def test_session_mismatch_is_a_public_non_retryable_ui_error() -> None:
